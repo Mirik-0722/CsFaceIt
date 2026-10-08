@@ -50,7 +50,7 @@ class CachingFaceitGatewayRedisDownTest extends AbstractIntegrationTest {
         assertThat(gateway.getPlayer("p1")).isSameAs(PLAYER);
 
         verify(delegate).getPlayer("p1");
-        assertThat(output).contains("WARN").contains("faceit:player:p1");
+        assertThat(output).contains("WARN").contains("Redis read of faceit:player:p1 failed");
     }
 
     @Test
@@ -66,7 +66,8 @@ class CachingFaceitGatewayRedisDownTest extends AbstractIntegrationTest {
         assertThat(gateway.getPlayer("p1")).isSameAs(PLAYER);
 
         verify(values, atLeastOnce()).set(eq("faceit:player:p1"), anyString(), eq(Duration.ofMinutes(5)));
-        assertThat(output).contains("WARN").contains("faceit:player:p1");
+        assertThat(output).contains("WARN").contains("Redis write of faceit:player:p1 failed")
+                .doesNotContain("Redis read of");
     }
 
     @Test

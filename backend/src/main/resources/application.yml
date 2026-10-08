@@ -9,6 +9,9 @@ spring:
   data.redis:
     host: ${REDIS_HOST:localhost}
     port: ${REDIS_PORT:6379}
+    # The FACEIT cache is best effort, so Redis must fail fast; Lettuce's default command timeout is 60 s.
+    timeout: 500ms
+    connect-timeout: 500ms
 faceit:
   base-url: ${FACEIT_BASE_URL:https://open.faceit.com/data/v4}
   api-key: ${FACEIT_API_KEY}

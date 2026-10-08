@@ -34,13 +34,15 @@ public abstract class AbstractIntegrationTest {
 
     static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17");
 
-    static final GenericContainer<?> redis = new GenericContainer<>("redis:8").withExposedPorts(6379);
+    /** Shared by every test class; tests may pause it briefly but must never stop or remove it. */
+    protected static final GenericContainer<?> redisContainer =
+            new GenericContainer<>("redis:8").withExposedPorts(6379);
 
     protected static final WireMockServer faceit = new WireMockServer(options().dynamicPort());
 
     static {
         postgres.start();
-        redis.start();
+        redisContainer.start();
         faceit.start();
     }
 
@@ -49,8 +51,8 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
-        registry.add("spring.data.redis.host", redis::getHost);
-        registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
+        registry.add("spring.data.redis.host", redisContainer::getHost);
+        registry.add("spring.data.redis.port", () -> redisContainer.getMappedPort(6379));
         registry.add("faceit.base-url", faceit::baseUrl);
         registry.add("faceit.api-key", () -> "test-key");
         registry.add("app.security.api-key", () -> "test-admin-key");
