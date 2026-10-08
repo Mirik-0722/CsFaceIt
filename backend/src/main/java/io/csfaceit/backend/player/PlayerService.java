@@ -1,0 +1,144 @@
+package io.csfaceit.backend.player;
+
+import io.csfaceit.backend.common.api.NotFoundException;
+import io.csfaceit.backend.faceit.FaceitGateway;
+import io.csfaceit.backend.faceit.FaceitNotFoundException;
+import io.csfaceit.backend.faceit.FaceitUnavailableException;
+import io.csfaceit.backend.faceit.dto.FaceitGame;
+import io.csfaceit.backend.faceit.dto.FaceitHistoryItem;
+import io.csfaceit.backend.faceit.dto.FaceitHistoryTeam;
+import io.csfaceit.backend.faceit.dto.FaceitMatchHistory;
+import io.csfaceit.backend.faceit.dto.FaceitPlayer;
+import io.csfaceit.backend.faceit.dto.FaceitResults;
+import io.csfaceit.backend.player.dto.MatchHistoryResponse;
+import io.csfaceit.backend.player.dto.MatchResult;
+import io.csfaceit.backend.player.dto.MatchSummary;
+import io.csfaceit.backend.player.dto.PlayerResponse;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Service;
+
+@Service
+public class PlayerService {
+
+    private static final String PLAYER_NOT_FOUND = "PLAYER_NOT_FOUND";
+
+    private final FaceitGateway faceit;
+    private final PlayerRepository players;
+
+    public PlayerService(FaceitGateway faceit, PlayerRepository players) {
+        this.faceit = faceit;
+        this.players = players;
+    }
+
+    /** Looks the player up on FACEIT by nickname and stores the fresh nickname, elo and level. */
+    public PlayerResponse findByNickname(String nickname) {
+        FaceitPlayer found;
+        try {
+            found = nonEmpty(faceit.findPlayerByNickname(nickname), "player search");
+        } catch (FaceitNotFoundException e) {
+            throw playerNotFound(nickname);
+        }
+        upsert(found);
+        return toResponse(found);
+    }
+
+    /** Loads the player's profile from FACEIT by id and stores the fresh nickname, elo and level. */
+    public PlayerResponse getById(String playerId) {
+        FaceitPlayer found;
+        try {
+            found = nonEmpty(faceit.getPlayer(playerId), "player");
+        } catch (FaceitNotFoundException e) {
+            throw playerNotFound(playerId);
+        }
+        upsert(found);
+        return toResponse(found);
+    }
+
+    public MatchHistoryResponse getHistory(String playerId, int offset, int limit) {
+        FaceitMatchHistory history;
+        try {
+            history = nonEmpty(faceit.getHistory(playerId, offset, limit), "history");
+        } catch (FaceitNotFoundException e) {
+            throw playerNotFound(playerId);
+        }
+        List<FaceitHistoryItem> items = history.items() == null ? List.of() : history.items();
+        List<MatchSummary> summaries = items.stream().map(item -> toSummary(item, playerId)).toList();
+        return new MatchHistoryResponse(summaries, offset, limit);
+    }
+
+    /**
+     * Finds the player row by FACEIT id or creates it, then refreshes nickname, elo and level from the FACEIT
+     * profile (elo and level become {@code null} when the profile has no CS2 section).
+     */
+    public Player upsert(FaceitPlayer profile) {
+        Integer elo = elo(profile);
+        Integer level = level(profile);
+
+        Player player = players.findByFaceitId(profile.playerId()).orElse(null);
+        if (player == null) {
+            try {
+                return players.saveAndFlush(new Player(profile.playerId(), profile.nickname(), elo, level));
+            } catch (DataIntegrityViolationException e) {
+                // A concurrent request inserted the same FACEIT id first; refresh that row instead.
+                player = players.findByFaceitId(profile.playerId()).orElseThrow(() -> e);
+            }
+        }
+        player.setNickname(profile.nickname());
+        player.setElo(elo);
+        player.setLevel(level);
+        return players.save(player);
+    }
+
+    private static PlayerResponse toResponse(FaceitPlayer profile) {
+        return new PlayerResponse(profile.playerId(), profile.nickname(), profile.avatar(), profile.country(),
+                elo(profile), level(profile));
+    }
+
+    private static Integer elo(FaceitPlayer profile) {
+        return profile.cs2().map(FaceitGame::faceitElo).orElse(null);
+    }
+
+    private static Integer level(FaceitPlayer profile) {
+        return profile.cs2().map(FaceitGame::skillLevel).orElse(null);
+    }
+
+    private static MatchSummary toSummary(FaceitHistoryItem item, String playerId) {
+        FaceitResults results = item.results();
+        Map<String, Integer> score = results == null || results.score() == null ? Map.of() : results.score();
+        return new MatchSummary(item.matchId(), Instant.ofEpochSecond(item.startedAt()),
+                Instant.ofEpochSecond(item.finishedAt()), resultFor(item, playerId), score);
+    }
+
+    /** WIN or LOSS from the faction the player played in; UNKNOWN when the player or the winner is not listed. */
+    private static MatchResult resultFor(FaceitHistoryItem item, String playerId) {
+        String winner = item.results() == null ? null : item.results().winner();
+        if (winner == null || item.teams() == null) {
+            return MatchResult.UNKNOWN;
+        }
+        return item.teams().entrySet().stream()
+                .filter(team -> isOnTeam(team.getValue(), playerId))
+                .findFirst()
+                .map(team -> winner.equals(team.getKey()) ? MatchResult.WIN : MatchResult.LOSS)
+                .orElse(MatchResult.UNKNOWN);
+    }
+
+    private static boolean isOnTeam(FaceitHistoryTeam team, String playerId) {
+        return team != null && team.players() != null
+                && team.players().stream().anyMatch(p -> p != null && playerId.equals(p.playerId()));
+    }
+
+    /** A 200 without a body is an upstream fault, not a missing player. */
+    private static <T> T nonEmpty(T body, String resource) {
+        if (body == null) {
+            throw new FaceitUnavailableException("FACEIT returned an empty body for " + resource);
+        }
+        return body;
+    }
+
+    private static NotFoundException playerNotFound(String player) {
+        return new NotFoundException(PLAYER_NOT_FOUND, "Player not found: " + player);
+    }
+}
