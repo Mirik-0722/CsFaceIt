@@ -1,9 +1,13 @@
 package io.csfaceit.backend.faceit;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.HttpClient;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.retry.backoff.ExponentialBackOffPolicy;
@@ -46,5 +50,16 @@ public class FaceitClientConfig {
         retryTemplate.setBackOffPolicy(backOffPolicy);
         retryTemplate.setRetryPolicy(retryPolicy);
         return retryTemplate;
+    }
+
+    /**
+     * The gateway every service receives: the Redis cache wrapped around the HTTP gateway. The delegate is looked
+     * up by bean name and interface type, so tests can replace the {@code httpFaceitGateway} bean with a mock.
+     */
+    @Bean
+    @Primary
+    FaceitGateway cachingFaceitGateway(@Qualifier("httpFaceitGateway") FaceitGateway delegate,
+                                       StringRedisTemplate redis, ObjectMapper mapper, FaceitProperties properties) {
+        return new CachingFaceitGateway(delegate, redis, mapper, properties);
     }
 }
