@@ -1,8 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
+import { formatDate } from '@/lib/formatDate'
 import type { MatchResult, MatchSummary } from '@/api/types'
-
-const dateFormat = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 
 /** `13 : 9`, or an en dash when FACEIT reported no score for one of the factions. */
 function formatScore(score: Record<string, number>): string {
@@ -40,7 +39,7 @@ export default function MatchList({ items }: { items: MatchSummary[] }) {
             className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2 outline-none hover:bg-muted focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             <time dateTime={match.startedAt} className="text-sm text-muted-foreground">
-              {dateFormat.format(new Date(match.startedAt))}
+              {formatDate(match.startedAt)}
             </time>
             <ResultBadge result={match.result} />
             <span className="font-mono text-sm tabular-nums">{formatScore(match.score)}</span>

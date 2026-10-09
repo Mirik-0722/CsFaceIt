@@ -23,9 +23,11 @@ describe('App routing', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v1/players/abc-123/history?offset=0&limit=20', expect.anything())
   })
 
-  it('renders the match page for /matches/:matchId', () => {
+  it('renders the match page for /matches/:matchId and passes the id on', () => {
     window.history.pushState({}, '', '/matches/1-abc-123')
     render(<App />)
     expect(screen.getByRole('heading', { level: 1, name: 'Match' })).toBeInTheDocument()
+    expect(fetch).toHaveBeenCalledWith('/api/v1/matches/1-abc-123', expect.anything())
+    expect(fetch).toHaveBeenCalledWith('/api/v1/matches/1-abc-123/stats', expect.anything())
   })
 })

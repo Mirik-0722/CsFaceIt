@@ -35,22 +35,25 @@ export interface RosterPlayerResponse {
   nickname: string
 }
 
-/** One side of a match; `factionId` is FACEIT's faction key (`"faction1"` or `"faction2"`). */
+/**
+ * One side of a match; `factionId` is FACEIT's faction key (`"faction1"` or `"faction2"`). `name` is null when
+ * FACEIT sends none.
+ */
 export interface TeamResponse {
   factionId: string
-  name: string
+  name: string | null
   players: RosterPlayerResponse[]
 }
 
 /**
- * Match details. `mapName`, `startedAt`, `finishedAt`, `demoUrl` and `winner` are null while FACEIT has not
+ * Match details. `mapName`, `status`, `startedAt`, `finishedAt`, `demoUrl` and `winner` are null while FACEIT has not
  * published them (a match that is still being set up or played). `winner` is a faction key (`"faction1"` or
  * `"faction2"`) that matches `TeamResponse.factionId`.
  */
 export interface MatchResponse {
   matchId: string
   mapName: string | null
-  status: string
+  status: string | null
   startedAt: string | null
   finishedAt: string | null
   demoUrl: string | null
