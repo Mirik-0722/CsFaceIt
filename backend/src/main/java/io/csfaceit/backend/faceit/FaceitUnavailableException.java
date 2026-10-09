@@ -1,8 +1,9 @@
 package io.csfaceit.backend.faceit;
 
 /**
- * FACEIT could not serve the request: 429, 5xx, a rejected API key (401/403) or a connection failure. Retried by
- * the gateway; callers only see it once all attempts are used up.
+ * FACEIT could not serve the request: 429, 5xx, an empty body, a connection failure or a rejected request
+ * ({@link FaceitRejectedException}). The gateway retries all of these except a rejected request; callers only see
+ * it once all attempts are used up.
  */
 public class FaceitUnavailableException extends RuntimeException {
 

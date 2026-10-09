@@ -24,6 +24,9 @@ public class PlayerController {
     private static final String PLAYER_ID_PATTERN = "^[A-Za-z0-9-]{1,64}$";
     private static final String PLAYER_ID_MESSAGE = "must be 1-64 characters: letters, digits or '-'";
 
+    /** FACEIT rejects a history offset above 1000 with a 400, which would otherwise surface as a 502. */
+    private static final int MAX_HISTORY_OFFSET = 1000;
+
     private final PlayerService service;
 
     public PlayerController(PlayerService service) {
@@ -45,7 +48,7 @@ public class PlayerController {
     @GetMapping("/{playerId}/history")
     public MatchHistoryResponse getHistory(
             @PathVariable @Pattern(regexp = PLAYER_ID_PATTERN, message = PLAYER_ID_MESSAGE) String playerId,
-            @RequestParam(defaultValue = "0") @Min(0) int offset,
+            @RequestParam(defaultValue = "0") @Min(0) @Max(MAX_HISTORY_OFFSET) int offset,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int limit) {
         return service.getHistory(playerId, offset, limit);
     }

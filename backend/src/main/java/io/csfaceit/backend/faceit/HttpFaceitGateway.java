@@ -6,6 +6,8 @@ import io.csfaceit.backend.faceit.dto.FaceitMatchStats;
 import io.csfaceit.backend.faceit.dto.FaceitPlayer;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,20 +28,26 @@ public class HttpFaceitGateway implements FaceitGateway {
     private static final String OUTCOME_ERROR = "error";
 
     private static final Predicate<HttpStatusCode> NOT_FOUND = status -> status.value() == 404;
-    private static final Predicate<HttpStatusCode> API_KEY_REJECTED =
-            status -> status.value() == 401 || status.value() == 403;
     private static final Predicate<HttpStatusCode> TRY_AGAIN_LATER =
             status -> status.value() == 429 || status.is5xxServerError();
+    /** Evaluated after the two predicates above, so this is every 4xx except 404 and 429. */
+    private static final Predicate<HttpStatusCode> REQUEST_REJECTED = HttpStatusCode::is4xxClientError;
+
+    private static final String REJECTED_HINT = "FACEIT rejected the request (check FACEIT_API_KEY)";
 
     private final RestClient restClient;
     private final RetryTemplate retryTemplate;
     private final MeterRegistry meterRegistry;
+    private final Clock clock;
+    private final Duration historyLookback;
 
     public HttpFaceitGateway(RestClient faceitRestClient, RetryTemplate faceitRetryTemplate,
-                             MeterRegistry meterRegistry) {
+                             MeterRegistry meterRegistry, Clock clock, FaceitProperties properties) {
         this.restClient = faceitRestClient;
         this.retryTemplate = faceitRetryTemplate;
         this.meterRegistry = meterRegistry;
+        this.clock = clock;
+        this.historyLookback = properties.historyLookback();
     }
 
     @Override
@@ -54,8 +62,11 @@ public class HttpFaceitGateway implements FaceitGateway {
 
     @Override
     public FaceitMatchHistory getHistory(String playerId, int offset, int limit) {
+        // Without "from" FACEIT only returns the last month, so a player inactive for 30 days would have no matches.
+        long from = clock.instant().minus(historyLookback).getEpochSecond();
         return get("history", FaceitMatchHistory.class,
-                "/players/{playerId}/history?game=cs2&offset={offset}&limit={limit}", playerId, offset, limit);
+                "/players/{playerId}/history?game=cs2&offset={offset}&limit={limit}&from={from}",
+                playerId, offset, limit, from);
     }
 
     @Override
@@ -69,9 +80,10 @@ public class HttpFaceitGateway implements FaceitGateway {
     }
 
     /**
-     * Performs one GET against FACEIT: retries 429, 5xx, 401/403, empty response bodies and connection failures,
-     * maps statuses to the gateway exceptions and times every HTTP attempt as {@code faceit.request} (so backoff
-     * sleeps are not counted and each failed attempt shows up in the {@code error} count).
+     * Performs one GET against FACEIT: retries 429, 5xx, empty response bodies and connection failures, maps statuses
+     * to the gateway exceptions (404 to {@link FaceitNotFoundException}; any other 4xx to the non-retried
+     * {@link FaceitRejectedException}) and times every HTTP attempt as {@code faceit.request} (so backoff sleeps
+     * are not counted and each failed attempt shows up in the {@code error} count).
      *
      * @param uriTemplate relative to the configured base URL; variables are URL-encoded individually
      */
@@ -88,16 +100,19 @@ public class HttpFaceitGateway implements FaceitGateway {
                                 throw new FaceitNotFoundException(
                                         "FACEIT has no " + resource + " at " + request.getURI());
                             })
-                            .onStatus(API_KEY_REJECTED, (request, response) -> {
-                                int status = response.getStatusCode().value();
-                                log.error("FACEIT rejected the API key (HTTP {})", status);
-                                throw new FaceitUnavailableException(
-                                        "FACEIT rejected the API key (HTTP " + status + ")");
-                            })
                             .onStatus(TRY_AGAIN_LATER, (request, response) -> {
                                 throw new FaceitUnavailableException(
                                         "FACEIT answered HTTP " + response.getStatusCode().value()
                                                 + " for " + resource);
+                            })
+                            .onStatus(REQUEST_REJECTED, (request, response) -> {
+                                int status = response.getStatusCode().value();
+                                // FACEIT answers a bad or revoked key with 400 invalid_token as well as 401/403.
+                                boolean keyIsSuspect = status == 400 || status == 401 || status == 403;
+                                log.error("FACEIT answered HTTP {} for {}{}", status, resource,
+                                        keyIsSuspect ? ": " + REJECTED_HINT : "");
+                                throw new FaceitRejectedException(
+                                        "FACEIT rejected the request for " + resource + " (HTTP " + status + ")");
                             })
                             .body(bodyType);
                     if (body == null) {

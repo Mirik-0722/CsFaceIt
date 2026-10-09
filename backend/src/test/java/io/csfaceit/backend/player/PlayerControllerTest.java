@@ -22,6 +22,7 @@ import ch.qos.logback.classic.Level;
 import io.csfaceit.backend.AbstractIntegrationTest;
 import io.csfaceit.backend.LogCapture;
 import io.csfaceit.backend.common.api.ApiExceptionHandler;
+import io.csfaceit.backend.faceit.HttpFaceitGateway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -346,11 +347,14 @@ class PlayerControllerTest extends AbstractIntegrationTest {
     void unexpectedFaceitClientErrorReturns502() throws Exception {
         faceit.stubFor(get(urlPathEqualTo(FACEIT_PLAYER_PATH)).willReturn(aResponse().withStatus(400)));
 
-        mvc.perform(MockMvcRequestBuilders.get(PLAYERS_URL + "/" + PLAYER_ID))
-                .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.code").value("FACEIT_UNAVAILABLE"));
+        // The gateway now maps the 4xx itself and logs it once at ERROR; the handler only warns.
+        try (LogCapture gatewayLogs = LogCapture.of(HttpFaceitGateway.class)) {
+            mvc.perform(MockMvcRequestBuilders.get(PLAYERS_URL + "/" + PLAYER_ID))
+                    .andExpect(status().isBadGateway())
+                    .andExpect(jsonPath("$.code").value("FACEIT_UNAVAILABLE"));
 
-        assertThat(logs.events(Level.ERROR)).hasSize(1);
+            assertThat(gatewayLogs.events(Level.ERROR)).hasSize(1);
+        }
     }
 
     private static void stubPlayerSearch(String nickname, String fixturePath) {

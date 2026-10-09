@@ -20,9 +20,11 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
- * Reads are public; everything else needs the {@code X-API-Key} header. The key travels in a header, so there are no
- * sessions, cookies or CSRF tokens, and no login form, HTTP Basic or default user either. Any endpoint added later
- * (for example a POST) is protected by this chain without further configuration.
+ * {@code GET} and {@code HEAD} on {@code /api/v1/**}, {@code /actuator/health} and {@code /actuator/prometheus} are
+ * public; every other request needs the {@code X-API-Key} header. The key travels in a header, so there are no
+ * sessions, cookies or CSRF tokens, and no login form, HTTP Basic or default user either. A write endpoint added
+ * later (for example a POST) is protected by this chain without further configuration, but a new {@code GET} under
+ * {@code /api/v1/**} is public unless a rule is added here.
  */
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfig {

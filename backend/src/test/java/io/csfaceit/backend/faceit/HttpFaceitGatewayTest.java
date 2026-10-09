@@ -126,7 +126,7 @@ class HttpFaceitGatewayTest extends AbstractIntegrationTest {
         assertThatThrownBy(() -> gateway.getPlayer(PLAYER_ID))
                 .isInstanceOf(FaceitUnavailableException.class);
 
-        assertThat(output).contains("ERROR").contains("FACEIT rejected the API key");
+        assertThat(output).contains("ERROR").contains("FACEIT rejected the request (check FACEIT_API_KEY)");
     }
 
     @Test

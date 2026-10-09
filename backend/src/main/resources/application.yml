@@ -17,6 +17,8 @@ faceit:
   api-key: ${FACEIT_API_KEY}
   connect-timeout: 5s
   read-timeout: 10s
+  # FACEIT's history endpoint answers only the last month unless a "from" timestamp is sent; this is how far back it reaches.
+  history-lookback: ${FACEIT_HISTORY_LOOKBACK:365d}
   retry: { max-attempts: 3, initial-backoff: 200ms, multiplier: 2.0 }
   cache: { player-ttl: 5m, history-ttl: 2m, match-ttl: 24h, unfinished-match-ttl: 30s, stale-ttl: 7d }
 app:
@@ -24,3 +26,5 @@ app:
   cors.allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 management:
   endpoints.web.exposure.include: health,info,metrics,prometheus
+  # Redis is a best-effort cache here, so an outage must not turn /actuator/health (the container HEALTHCHECK) DOWN.
+  health.redis.enabled: false

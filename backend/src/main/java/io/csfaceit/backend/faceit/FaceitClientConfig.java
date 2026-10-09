@@ -2,6 +2,7 @@ package io.csfaceit.backend.faceit;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.HttpClient;
+import java.time.Clock;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
@@ -18,6 +19,12 @@ import org.springframework.web.client.RestClient;
 
 @Configuration(proxyBeanMethods = false)
 public class FaceitClientConfig {
+
+    /** The time source for "now" in FACEIT requests; a bean so that tests can pin it. */
+    @Bean
+    Clock clock() {
+        return Clock.systemUTC();
+    }
 
     @Bean
     RestClient faceitRestClient(FaceitProperties properties) {
@@ -43,8 +50,10 @@ public class FaceitClientConfig {
         backOffPolicy.setInitialInterval(retry.initialBackoff().toMillis());
         backOffPolicy.setMultiplier(retry.multiplier());
 
+        // The most specific class wins: a rejected request (FACEIT answered 4xx) fails the same way every time.
         SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(retry.maxAttempts(),
-                Map.of(FaceitUnavailableException.class, true, ResourceAccessException.class, true));
+                Map.of(FaceitUnavailableException.class, true, FaceitRejectedException.class, false,
+                        ResourceAccessException.class, true));
 
         RetryTemplate retryTemplate = new RetryTemplate();
         retryTemplate.setBackOffPolicy(backOffPolicy);
