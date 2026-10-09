@@ -153,6 +153,10 @@ services:
       minio:
         condition: service_healthy
     restart: unless-stopped
+    # On a stop the worker finishes the demo it is parsing before it exits. A demo takes 1 to 3 seconds (24 to 41
+    # when the container was held to a fifth of a CPU core), so a minute is ample; Docker kills a worker that takes
+    # longer, and the broker then delivers its demo again.
+    stop_grace_period: 60s
 
   # Metrics and dashboards. Both services are in the profile `observability`, so a plain `docker compose up` does not
   # start them: add `--profile observability` (and set GRAFANA_ADMIN_PASSWORD).

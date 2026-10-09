@@ -37,8 +37,10 @@ password containing a character that is special in a URL (`@ : / ? # %`) must be
 ## What the worker guarantees
 
 - **It declares nothing on the broker.** The backend declares the exchange and the queues when it first connects. The
-  worker checks for `demo.parse` every few seconds until it exists, takes one message at a time, and connects again,
-  with a pause that grows to 30 seconds, whenever the connection is lost.
+  worker checks for `demo.parse` every few seconds until it exists and takes one message at a time. Whenever the
+  broker cannot be reached, the connection is lost, or its work fails (a `demo.parsed` that is not confirmed, say), it
+  connects again after a pause. The pause starts at one second and doubles up to 30 seconds from one failure to the
+  next; it starts over once a message has been settled.
 - **A message is acted on only while its demo is `STORED`.** Deliveries repeat and a demo can be announced again at
   any time (a redelivery, another upload). The worker reads the demo's status first and acknowledges the message
   without doing anything unless it is `STORED`. When it writes, it locks the `demos` row and writes only if the demo
@@ -46,7 +48,8 @@ password containing a character that is special in a URL (`@ : / ? # %`) must be
   stored again meanwhile is left to the message of that upload.
 - **A new parse replaces the old one.** All writes for a demo are one transaction: the players are resolved, the
   match's `heat_bins`, `damages`, `kills` and `rounds` are deleted and inserted again, `matches.map_name` is filled
-  when it is empty, and the demo becomes `PARSED` with its `tick_rate`.
+  when it is empty, and the demo becomes `PARSED` with its `tick_rate`. Nothing is deleted before the new demo has
+  been parsed, so a demo that fails leaves the facts of an earlier parse of the match as they are.
 - **`demo.parsed` is not lost.** It is published as persistent JSON with publisher confirms before `demo.parse` is
   acknowledged. If the worker dies in between, the redelivered message finds the demo `PARSED` and the announcement
   is made again.
@@ -54,8 +57,9 @@ password containing a character that is special in a URL (`@ : / ? # %`) must be
   that demo. The temporary files live in `csfaceit-parser/` under the system's temporary directory, are removed in
   every outcome, and whatever a killed worker left there is removed at the next start (so each worker needs a
   temporary directory of its own, which a container gives it).
-- **`SIGTERM`** stops the consuming; the demo in progress is finished first. A worker that is killed before that has
-  not acknowledged its message, so the broker delivers it again.
+- **`SIGTERM`** stops the consuming; the demo in progress is finished first. Compose gives the worker 60 seconds for
+  that (`stop_grace_period`), which is ample: a demo takes a few seconds. A worker that is killed before it is done
+  has not acknowledged its message, so the broker delivers it again.
 
 ### Failures
 
@@ -63,10 +67,10 @@ password containing a character that is special in a URL (`@ : / ? # %`) must be
 
 | `demos.error` | When |
 | --- | --- |
-| `Demo could not be parsed: the file is not a valid CS2 demo.` | The object is not a zstd stream, the content is not a CS2 demo, or the parser gave up or panicked on it. |
+| `Demo could not be parsed: the file is not a valid CS2 demo.` | The object is not a zstd stream, the content is not a CS2 demo, the parser gave up or panicked on it, or the demo holds no completed round (an aborted match, a recording of the warmup only, a recording cut off before its first round ended). |
 | `Demo could not be parsed: the stored file is missing.` | The storage has no object under the key. |
 | `Demo could not be parsed: the file is too large.` | The object, or what it decompresses to, exceeds `PARSER_MAX_DEMO_BYTES`. |
-| `Demo could not be parsed: internal error.` | The storage refused the request (a 4xx answer other than a missing object), or the database refused the facts. |
+| `Demo could not be parsed: internal error.` | The storage refused the request (a 4xx answer other than a missing object, 408 or 429), or the database refused the facts. |
 
 After marking the demo `FAILED` the worker rejects the message without requeue, which dead-letters it; the backend's
 dead-letter listener leaves a demo that is already `FAILED` as it is. A message that cannot be read (not JSON, a
@@ -77,17 +81,19 @@ its message. The worker tries again after 5, 10, 20 and 40 seconds and then puts
 where it returns at once for another round, so an outage of any length is waited out. (Rejecting the message instead
 would lose it exactly when nobody can record that: while the database is away the backend's dead-letter listener
 cannot mark the demo either, and the demo would stay `STORED` with nothing left to announce it.) Only failures to
-reach a service are treated this way, because such a message holds up the ones behind it for as long as it fails.
+reach a service are treated this way (for the storage that includes its 5xx, 408 and 429 answers), because such a
+message holds up the ones behind it for as long as it fails.
 
 ## The facts
 
-- **Rounds.** A round is counted when it ends outside the warmup. `round_number` is one more than the rounds the game
-  had played when the round started, so it starts at 1 and continues through overtime; when a match is restarted (a
-  knife round followed by the real match, a round rolled back by an admin) the rounds that are played again replace
-  the earlier ones. `start_tick` is the tick the freeze time ended. `end_tick` is the last tick before the next round
-  starts, so the seconds after a round is decided belong to it and the kills made then count, as they do on the
-  scoreboard; the last round ends when the match does. `winner_side` is `CT` or `T`, `win_reason` a name such as
-  `bomb_defused`, `t_killed` or `time_ran_out`. A bomb planted after the round was decided is not recorded.
+- **Rounds.** A round is counted when it ends outside the warmup; a demo without a single counted round is not parsed
+  but fails as not a valid demo. `round_number` is one more than the rounds the game had played when the round
+  started, so it starts at 1 and continues through overtime; when a match is restarted (a knife round followed by the
+  real match, a round rolled back by an admin) the rounds that are played again replace the earlier ones. `start_tick`
+  is the tick the freeze time ended. `end_tick` is the last tick before the next round starts, so the seconds after a
+  round is decided belong to it and the kills made then count, as they do on the scoreboard; the last round ends when
+  the match does. `winner_side` is `CT` or `T`, `win_reason` a name such as `bomb_defused`, `t_killed` or
+  `time_ran_out`. A bomb planted after the round was decided is not recorded.
 - **Kills, damages and positions** belong to the round whose tick range contains their tick; anything else (warmup,
   freeze time, after the match) is dropped. A side is the side at that tick, so it follows the swaps at halftime and
   in overtime.

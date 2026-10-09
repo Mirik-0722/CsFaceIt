@@ -52,7 +52,8 @@ const ERROR_INTERNAL: &str = "Demo could not be parsed: internal error.";
 const CONNECTION_NAME: &str = "csfaceit-parser";
 const CONSUMER_TAG: &str = "csfaceit-parser";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-/// How long to wait before connecting to the broker again; it doubles up to the maximum while the broker stays away.
+/// How long to wait before connecting to the broker again; it doubles up to the maximum from one failed connection to
+/// the next, see [`Worker::run`].
 const RECONNECT_MIN: Duration = Duration::from_secs(1);
 const RECONNECT_MAX: Duration = Duration::from_secs(30);
 /// How often to look whether the backend has declared the queue yet.
@@ -254,16 +255,26 @@ impl Worker {
         })
     }
 
-    /// Serves until a stop is requested. A lost broker connection is made again, after a growing pause.
+    /// Serves until a stop is requested. When the broker cannot be reached, the connection is lost, or the work on it
+    /// fails, a new connection is made after a pause. The pause doubles from one failure to the next and starts over
+    /// only once a message has been settled: a connection that comes up but cannot get its work done (`demo.parsed`
+    /// has no queue to go to, say) is not to be made again every second for as long as that lasts.
     async fn run(&self, mut stop: Stop) {
         let mut pause = RECONNECT_MIN;
         while !*stop.borrow() {
-            match self.serve(&mut stop, &mut pause).await {
-                Ok(()) => break,
-                Err(e) => {
-                    warn!("no connection to the message broker ({e}); trying again in {pause:?}")
+            let failure = match self.connect(&mut stop).await {
+                Ok(None) => break,
+                Ok(Some(connection)) => {
+                    match self.consume(&connection, &mut stop, &mut pause).await {
+                        Ok(()) => break,
+                        // Leaving this arm drops the connection, which closes it if it is still open; the broker
+                        // then puts the message that was not settled back in the queue.
+                        Err(e) => format!("dropping the connection to the message broker ({e})"),
+                    }
                 }
-            }
+                Err(e) => format!("cannot connect to the message broker ({e})"),
+            };
+            warn!("{failure}; connecting again in {pause:?}");
             if sleep_unless_stopped(pause, &mut stop).await {
                 break;
             }
@@ -271,21 +282,33 @@ impl Worker {
         }
     }
 
-    /// One connection to the broker: consumes `demo.parse` until a stop is requested (`Ok`) or the connection fails.
-    async fn serve(&self, stop: &mut Stop, pause: &mut Duration) -> Result<(), BrokerError> {
+    /// Connects to the broker. Returns `None` when a stop was requested meanwhile.
+    async fn connect(&self, stop: &mut Stop) -> Result<Option<Connection>, BrokerError> {
         let properties =
             ConnectionProperties::default().with_connection_name(CONNECTION_NAME.into());
         let connecting = tokio::time::timeout(
             CONNECT_TIMEOUT,
             Connection::connect_uri(self.amqp.clone(), properties),
         );
-        let connection = tokio::select! {
-            _ = stopped(stop) => return Ok(()),
-            connection = connecting => connection.map_err(|_| BrokerError("connecting timed out".to_string()))??,
-        };
+        tokio::select! {
+            _ = stopped(stop) => Ok(None),
+            connection = connecting => {
+                let connection = connection.map_err(|_| BrokerError("connecting timed out".to_string()))??;
+                Ok(Some(connection))
+            }
+        }
+    }
 
-        let Some(channel) = self.wait_for_queue(&connection, stop).await? else {
-            close(&connection).await;
+    /// Consumes `demo.parse` on `connection` until a stop is requested (`Ok`) or something on the connection fails.
+    /// `pause`, the wait before the next connection, goes back to its minimum whenever a message has been settled.
+    async fn consume(
+        &self,
+        connection: &Connection,
+        stop: &mut Stop,
+        pause: &mut Duration,
+    ) -> Result<(), BrokerError> {
+        let Some(channel) = self.wait_for_queue(connection, stop).await? else {
+            close(connection).await;
             return Ok(());
         };
         // One unacknowledged message at a time: a demo takes all the cores and a good part of the memory.
@@ -306,7 +329,6 @@ impl Worker {
             "connected to the message broker; consuming {}",
             messages::PARSE_QUEUE
         );
-        *pause = RECONNECT_MIN;
 
         loop {
             // A stop is looked at between two messages only: the message in progress is finished first.
@@ -320,6 +342,8 @@ impl Worker {
                     if !self.handle(&channel, delivery, stop).await? {
                         break;
                     }
+                    // The broker took the acknowledgement or the rejection: this connection gets its work done.
+                    *pause = RECONNECT_MIN;
                 }
                 Some(Err(e)) => return Err(e.into()),
                 None => return Err(BrokerError("the broker cancelled the consumer".to_string())),
@@ -330,7 +354,7 @@ impl Worker {
         let _ = channel
             .basic_cancel(CONSUMER_TAG.into(), BasicCancelOptions::default())
             .await;
-        close(&connection).await;
+        close(connection).await;
         Ok(())
     }
 

@@ -34,10 +34,11 @@ pub enum DownloadError {
     Missing,
     /// The object is larger than the limit.
     TooLarge,
-    /// The server answered that the request is wrong (a 4xx status): asking again will not change that. The text is
-    /// for the log.
+    /// The server answered that the request is wrong (a 4xx status other than 408 and 429): asking again will not
+    /// change that. The text is for the log.
     Refused(String),
-    /// The server could not be reached, failed, or the transfer broke off: asking again may work.
+    /// The server could not be reached, failed, timed out or was too busy (a 5xx status, 408, 429), or the transfer
+    /// broke off: asking again may work.
     Unavailable(String),
     /// The temporary file could not be written.
     Io(io::Error),
@@ -127,12 +128,14 @@ impl Storage {
             Err(SdkError::ServiceError(e)) if e.err().is_no_such_key() => {
                 return Err(DownloadError::Missing)
             }
-            Err(SdkError::ServiceError(e)) if (400..500).contains(&e.raw().status().as_u16()) => {
+            Err(SdkError::ServiceError(e)) => {
                 let status = e.raw().status().as_u16();
-                return Err(DownloadError::Refused(format!(
-                    "HTTP {status}: {}",
-                    describe(e.err())
-                )));
+                let detail = format!("HTTP {status}: {}", describe(e.err()));
+                return Err(if is_refusal(status) {
+                    DownloadError::Refused(detail)
+                } else {
+                    DownloadError::Unavailable(detail)
+                });
             }
             Err(e) => return Err(DownloadError::Unavailable(describe(&e))),
         };
@@ -195,6 +198,13 @@ pub fn decompress(source: &Path, target: &Path, max_bytes: u64) -> Result<u64, D
     }
     output.flush().map_err(DecompressError::Io)?;
     Ok(total)
+}
+
+/// Whether an HTTP status of the storage says that the request itself is wrong, so that sending it again cannot help.
+/// That is the 4xx range without 408 (the server gave up waiting for the request) and 429 (too many requests): those
+/// two pass, like the 5xx answers.
+fn is_refusal(status: u16) -> bool {
+    (400..500).contains(&status) && status != 408 && status != 429
 }
 
 /// The messages of an error and of everything that caused it. Only `Display` is used: the `Debug` form of an SDK

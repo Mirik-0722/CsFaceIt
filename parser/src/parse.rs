@@ -86,7 +86,7 @@ pub struct Facts {
     pub map_name: Option<String>,
     /// The name each SteamID plays under in the demo.
     pub player_names: HashMap<u64, String>,
-    /// In the order they were played; the tick ranges do not overlap.
+    /// At least one, in the order they were played; the tick ranges do not overlap.
     pub rounds: Vec<Round>,
     pub kills: Vec<Kill>,
     pub damages: Vec<Damage>,
@@ -161,7 +161,8 @@ pub struct Position {
 
 #[derive(Debug)]
 pub enum ParseError {
-    /// The file is not a CS2 demo, or the parser could not make sense of it. The text is for the log.
+    /// The file is not a CS2 demo, the parser could not make sense of it, or it holds no completed round. The text
+    /// is for the log.
     NotADemo(String),
     /// The file could not be opened or mapped.
     Io(io::Error),
@@ -211,6 +212,11 @@ pub fn parse_demo(path: &Path) -> Result<Facts, ParseError> {
     events.sort_by_key(|event| (event.tick, order_in_tick(&event.name)));
 
     let rounds = rounds_of(&events);
+    if rounds.is_empty() {
+        // An aborted match, a recording of the warmup only, or one cut off before its first round ended. Passing it
+        // on as parsed, with no facts, would replace what an earlier, good parse of the match has stored with nothing.
+        return Err(ParseError::NotADemo("no completed round".to_string()));
+    }
     let mut player_names = HashMap::new();
     let (kills, damages) = kills_and_damages(&events, &rounds, &mut player_names);
     remember_roster(&output, &mut player_names);
@@ -223,11 +229,7 @@ pub fn parse_demo(path: &Path) -> Result<Facts, ParseError> {
     drop(events);
     drop(output);
 
-    let positions = if rounds.is_empty() {
-        vec![]
-    } else {
-        positions_of(&bytes, &huffman, &rounds)?
-    };
+    let positions = positions_of(&bytes, &huffman, &rounds)?;
 
     Ok(Facts {
         tick_rate: tick_rate(&bytes).unwrap_or(DEFAULT_TICK_RATE),
