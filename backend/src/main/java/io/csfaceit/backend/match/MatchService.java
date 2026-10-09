@@ -16,16 +16,15 @@ import io.csfaceit.backend.match.dto.PlayerStatsResponse;
 import io.csfaceit.backend.match.dto.RosterPlayerResponse;
 import io.csfaceit.backend.match.dto.TeamResponse;
 import io.csfaceit.backend.match.dto.TeamStatsResponse;
-import io.csfaceit.backend.player.Player;
-import io.csfaceit.backend.player.PlayerService;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class MatchService {
@@ -45,43 +44,48 @@ public class MatchService {
     private static final String KR_RATIO = "K/R Ratio";
     private static final String ADR = "ADR";
 
+    /**
+     * Largest ADR/ratio value that still fits {@code NUMERIC(6,2)} after rounding to two places: 9999.995 would
+     * round up to 10000.00.
+     */
+    private static final double DECIMAL_STAT_LIMIT = 9999.995;
+
+    private static final Logger log = LoggerFactory.getLogger(MatchService.class);
+
     private final FaceitGateway faceit;
     private final MatchRepository matches;
-    private final PlayerMatchStatsRepository playerMatchStats;
-    private final PlayerService players;
+    private final MatchPersistence persistence;
 
-    public MatchService(FaceitGateway faceit, MatchRepository matches, PlayerMatchStatsRepository playerMatchStats,
-                        PlayerService players) {
+    public MatchService(FaceitGateway faceit, MatchRepository matches, MatchPersistence persistence) {
         this.faceit = faceit;
         this.matches = matches;
-        this.playerMatchStats = playerMatchStats;
-        this.players = players;
-    }
-
-    /** Loads the match from FACEIT and stores its map and start/finish times in the {@code matches} table. */
-    @Transactional
-    public MatchResponse getMatch(String matchId) {
-        FaceitMatch found = loadMatch(matchId);
-        storeMatch(matchId, found);
-        return toResponse(matchId, found);
+        this.persistence = persistence;
     }
 
     /**
-     * Loads the match statistics from FACEIT and stores one {@code player_match_stats} row per player (creating
-     * the player and the match first when they are not stored yet). Repeating the call updates the same rows.
+     * Loads the match from FACEIT, then stores its map and start/finish times in the {@code matches} table. The
+     * FACEIT call runs with no transaction open; only the write is transactional (see {@link MatchPersistence}).
      */
-    @Transactional
+    public MatchResponse getMatch(String matchId) {
+        FaceitMatch found = loadMatch(matchId);
+        String mapName = mapName(found);
+        Instant startedAt = instant(found.startedAt());
+        Instant finishedAt = instant(found.finishedAt());
+        persistWithRetry("match " + matchId, () -> persistence.storeMatch(matchId, mapName, startedAt, finishedAt));
+        return toResponse(matchId, found, mapName, startedAt, finishedAt);
+    }
+
+    /**
+     * Loads the match statistics from FACEIT and stores one {@code player_match_stats} row per player (storing the
+     * match first when it is not stored yet; a stored match is not fetched again). Repeating the call updates the
+     * same rows.
+     */
     public MatchStatsResponse getStats(String matchId) {
-        Match match = matches.findByFaceitMatchId(matchId).orElse(null);
-        if (match == null) {
-            match = storeMatch(matchId, loadMatch(matchId));
+        if (matches.findByFaceitMatchId(matchId).isEmpty()) {
+            getMatch(matchId);
         }
         MatchStatsResponse response = toStatsResponse(matchId, loadStats(matchId));
-        for (TeamStatsResponse team : response.teams()) {
-            for (PlayerStatsResponse stats : team.players()) {
-                storePlayerStats(match, stats);
-            }
-        }
+        persistWithRetry("stats of match " + matchId, () -> persistence.storeStats(matchId, response));
         return response;
     }
 
@@ -101,43 +105,32 @@ public class MatchService {
         }
     }
 
-    private Match storeMatch(String matchId, FaceitMatch found) {
-        String mapName = mapName(found);
-        Instant startedAt = instant(found.startedAt());
-        Instant finishedAt = instant(found.finishedAt());
-
-        Match match = matches.findByFaceitMatchId(matchId).orElse(null);
-        if (match == null) {
-            return matches.save(new Match(matchId, mapName, startedAt, finishedAt));
+    /**
+     * Runs one persistence step and, if it loses a first-access race, runs it once more. Two requests that meet an
+     * unseen match or player both find nothing and both insert; PostgreSQL fails the loser's insert with a unique
+     * violation (or, when two requests insert the same players in a different order, a deadlock), which aborts that
+     * transaction. The repeat is a new transaction that finds what the winner committed. A second failure is real
+     * and propagates.
+     */
+    private static void persistWithRetry(String what, Runnable persist) {
+        try {
+            persist.run();
+        } catch (DataIntegrityViolationException | ConcurrencyFailureException e) {
+            log.info("Lost a concurrent first-access write race for {} ({}), retrying once", what,
+                    e.getClass().getSimpleName());
+            persist.run();
         }
-        match.setMapName(mapName);
-        match.setStartedAt(startedAt);
-        match.setFinishedAt(finishedAt);
-        return matches.save(match);
     }
 
-    /** Creates or updates the player (elo and level stay as they are) and the player's row for this match. */
-    private void storePlayerStats(Match match, PlayerStatsResponse stats) {
-        Player player = players.ensurePlayer(stats.playerId(), stats.nickname());
-        PlayerMatchStats row = playerMatchStats.findByPlayerIdAndMatchId(player.getId(), match.getId())
-                .orElseGet(() -> new PlayerMatchStats(player, match));
-        row.setKills(stats.kills());
-        row.setDeaths(stats.deaths());
-        row.setAssists(stats.assists());
-        row.setHeadshots(stats.headshots());
-        row.setAdr(BigDecimal.valueOf(stats.adr()).setScale(2, RoundingMode.HALF_UP));
-        playerMatchStats.save(row);
-    }
-
-    private static MatchResponse toResponse(String matchId, FaceitMatch match) {
+    private static MatchResponse toResponse(String matchId, FaceitMatch match, String mapName, Instant startedAt,
+                                            Instant finishedAt) {
         List<TeamResponse> teams = match.teams() == null ? List.of() : match.teams().entrySet().stream()
                 .filter(entry -> entry.getValue() != null)
                 .map(entry -> toTeamResponse(entry.getKey(), entry.getValue()))
                 .toList();
         String demoUrl = match.demoUrl() == null || match.demoUrl().isEmpty() ? null : match.demoUrl().get(0);
         String winner = match.results() == null ? null : match.results().winner();
-        return new MatchResponse(matchId, mapName(match), match.status(), instant(match.startedAt()),
-                instant(match.finishedAt()), demoUrl, teams, winner);
+        return new MatchResponse(matchId, mapName, match.status(), startedAt, finishedAt, demoUrl, teams, winner);
     }
 
     private static TeamResponse toTeamResponse(String factionId, FaceitMatchTeam team) {
@@ -211,7 +204,10 @@ public class MatchService {
         }
     }
 
-    /** Like {@link #intStat}; {@code NaN} and the infinities count as 0 too, as JSON cannot carry them. */
+    /**
+     * Like {@link #intStat}; {@code NaN}, the infinities and values the {@code adr} column cannot hold (negative, or
+     * 10000 and above) count as 0 too, so the response and the stored row always agree.
+     */
     static double doubleStat(Map<String, String> stats, String key) {
         String value = text(stats, key);
         if (value == null) {
@@ -219,7 +215,7 @@ public class MatchService {
         }
         try {
             double parsed = Double.parseDouble(value);
-            return Double.isFinite(parsed) ? parsed : 0;
+            return Double.isFinite(parsed) && parsed >= 0 && parsed < DECIMAL_STAT_LIMIT ? parsed : 0;
         } catch (NumberFormatException e) {
             return 0;
         }

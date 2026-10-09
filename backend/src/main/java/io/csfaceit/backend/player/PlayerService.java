@@ -96,9 +96,11 @@ public class PlayerService {
      * changed. Unlike {@link #upsert(FaceitPlayer)} it never touches the elo or level of an existing row, because
      * the match endpoints only learn a nickname, not a rating.
      *
-     * <p>Meant to run inside the caller's transaction (the match stats write all their rows atomically). That is
-     * why a concurrent insert of the same FACEIT id is not recovered here the way {@link #upsert(FaceitPlayer)}
-     * recovers it: on PostgreSQL the failed insert aborts the whole transaction, so the request fails instead.
+     * <p>Meant to run inside the caller's transaction (all rows of a match are written atomically). That is why a
+     * concurrent insert of the same FACEIT id is not recovered here the way {@link #upsert(FaceitPlayer)}
+     * recovers it: on PostgreSQL the failed insert aborts the whole transaction, so it surfaces as a
+     * {@link DataIntegrityViolationException} and the caller repeats the transaction
+     * ({@code MatchService} does, once).
      */
     public Player ensurePlayer(String faceitId, String nickname) {
         Player player = players.findByFaceitId(faceitId).orElse(null);

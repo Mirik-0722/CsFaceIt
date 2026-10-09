@@ -352,6 +352,38 @@ class MatchControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void adrThatDoesNotFitTheColumnIsStoredAsZeroInsteadOfFailing() throws Exception {
+        stubMatch("faceit/match-finished.json");
+        faceit.stubFor(get(urlPathEqualTo(FACEIT_STATS_PATH)).willReturn(okJson("""
+                {"rounds": [{
+                  "round_stats": {"Map": "de_mirage", "Rounds": "22"},
+                  "teams": [{
+                    "team_id": "t1",
+                    "team_stats": {"Team": "team_A", "Final Score": "13", "Team Win": "1"},
+                    "players": [
+                      {"player_id": "11111111-1111-1111-1111-111111111111", "nickname": "s1mple",
+                       "player_stats": {"Kills": "25", "ADR": "1e9", "K/D Ratio": "-3"}},
+                      {"player_id": "22222222-2222-2222-2222-222222222222", "nickname": "playerA2",
+                       "player_stats": {"Kills": "18", "ADR": "10000"}}
+                    ]
+                  }]
+                }]}
+                """)));
+
+        mvc.perform(MockMvcRequestBuilders.get(MATCHES_URL + "/" + MATCH_ID + "/stats"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.teams[0].players[0].kills").value(25))
+                .andExpect(jsonPath("$.teams[0].players[0].adr").value(0.0))
+                .andExpect(jsonPath("$.teams[0].players[0].kdRatio").value(0.0))
+                .andExpect(jsonPath("$.teams[0].players[1].kills").value(18))
+                .andExpect(jsonPath("$.teams[0].players[1].adr").value(0.0));
+
+        assertThat(playerMatchStats.count()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM player_match_stats WHERE adr = 0", Integer.class))
+                .isEqualTo(2);
+    }
+
+    @Test
     void statsOfUnknownMatchReturn404WithoutAskingForStats() throws Exception {
         faceit.stubFor(get(urlPathEqualTo(FACEIT_MATCH_PATH)).willReturn(notFound()));
 
@@ -375,6 +407,8 @@ class MatchControllerTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("MATCH_NOT_FOUND"))
                 .andExpect(jsonPath("$.message").value("Match stats not found: " + MATCH_ID));
 
+        // The match itself is known to FACEIT and stays stored; no statistics or players were written.
+        assertThat(matches.count()).isEqualTo(1);
         assertThat(playerMatchStats.count()).isZero();
         assertThat(players.count()).isZero();
     }
