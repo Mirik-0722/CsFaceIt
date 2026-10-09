@@ -65,6 +65,12 @@ class ObservabilityTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void prometheusAndHealthAnswerHeadWithoutAKey() throws Exception {
+        mvc.perform(MockMvcRequestBuilders.head(PROMETHEUS_URL)).andExpect(status().isOk());
+        mvc.perform(MockMvcRequestBuilders.head("/actuator/health")).andExpect(status().isOk());
+    }
+
+    @Test
     void healthIsUp() throws Exception {
         mvc.perform(MockMvcRequestBuilders.get("/actuator/health"))
                 .andExpect(status().isOk())

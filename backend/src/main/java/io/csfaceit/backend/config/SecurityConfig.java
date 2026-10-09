@@ -27,6 +27,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfig {
 
+    /** Open to reads: the public API and the two actuator endpoints a monitor needs. */
+    private static final String[] READ_ONLY_PATHS = {"/api/v1/**", "/actuator/health", "/actuator/prometheus"};
+
     private static final String UNAUTHORIZED = "UNAUTHORIZED";
 
     /** Says the same whether the key was absent or wrong. */
@@ -45,11 +48,14 @@ public class SecurityConfig {
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(unauthorizedEntryPoint(mapper)))
                 .addFilterBefore(new ApiKeyAuthFilter(properties.security().apiKey()),
                         UsernamePasswordAuthenticationFilter.class)
-                .authorizeHttpRequests(requests -> requests
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/prometheus").permitAll()
-                        .anyRequest().authenticated())
+                .authorizeHttpRequests(requests -> {
+                    // HEAD is a read like GET (health probes use it). CORS preflights need no rule: the CORS filter
+                    // answers them before authorization, and any other OPTIONS is just another request that needs the key.
+                    for (HttpMethod read : List.of(HttpMethod.GET, HttpMethod.HEAD)) {
+                        requests.requestMatchers(read, READ_ONLY_PATHS).permitAll();
+                    }
+                    requests.anyRequest().authenticated();
+                })
                 .build();
     }
 

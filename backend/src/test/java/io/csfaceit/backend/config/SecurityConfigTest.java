@@ -9,6 +9,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
@@ -51,6 +52,29 @@ class SecurityConfigTest extends AbstractIntegrationTest {
         mvc.perform(MockMvcRequestBuilders.get(PLAYERS_URL).param("nickname", "s1mple"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nickname").value("s1mple"));
+    }
+
+    @Test
+    void headOnAReadRouteIsOpenLikeGet() throws Exception {
+        faceit.stubFor(get(urlPathEqualTo("/players")).withQueryParam("nickname", equalTo("s1mple"))
+                .willReturn(okJson(fixture("faceit/player.json"))));
+
+        mvc.perform(head(PLAYERS_URL).param("nickname", "s1mple"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void headOnHealthIsOpen() throws Exception {
+        mvc.perform(head("/actuator/health"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void headOnAnythingElseStillNeedsTheApiKey() throws Exception {
+        mvc.perform(head("/something-else"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(head("/actuator/metrics"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -99,6 +123,26 @@ class SecurityConfigTest extends AbstractIntegrationTest {
         mvc.perform(request(HttpMethod.valueOf(method), UNKNOWN_URL))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    /** CORS preflights are answered by the CORS filter before authorization; a plain OPTIONS is just another request. */
+    @Test
+    void optionsThatIsNotACorsPreflightNeedsTheApiKey() throws Exception {
+        mvc.perform(options(UNKNOWN_URL))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        mvc.perform(options(PLAYERS_URL))
+                .andExpect(status().isUnauthorized());
+        // An Origin header alone does not make it a preflight either: it lacks Access-Control-Request-Method.
+        mvc.perform(options(PLAYERS_URL).header("Origin", FRONTEND_ORIGIN))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void optionsThatIsNotACorsPreflightPassesTheFilterWithTheApiKey() throws Exception {
+        mvc.perform(options(PLAYERS_URL).header(API_KEY_HEADER, API_KEY))
+                .andExpect(status().isOk())
+                .andExpect(header().exists("Allow"));
     }
 
     @Test
