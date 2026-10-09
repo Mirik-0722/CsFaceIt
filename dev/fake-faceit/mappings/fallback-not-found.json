@@ -1,0 +1,76 @@
+{
+  "mappings": [
+    {
+      "name": "Unknown nickname lookup",
+      "priority": 10,
+      "request": {
+        "method": "GET",
+        "urlPath": "/players"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "errors": [
+            {
+              "message": "Resource not found",
+              "code": "err_nf0",
+              "http_status": 404,
+              "parameters": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Unknown player resource",
+      "priority": 10,
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/players/.+"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "errors": [
+            {
+              "message": "Resource not found",
+              "code": "err_nf0",
+              "http_status": 404,
+              "parameters": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Unknown match resource",
+      "priority": 10,
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/matches/.+"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "errors": [
+            {
+              "message": "Resource not found",
+              "code": "err_nf0",
+              "http_status": 404,
+              "parameters": []
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "GET /demos/sample.dem",
+  "request": {
+    "method": "GET",
+    "urlPath": "/demos/sample.dem"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/octet-stream"
+    },
+    "bodyFileName": "demos/sample.dem"
+  }
+}

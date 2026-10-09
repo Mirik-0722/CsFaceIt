@@ -4,3 +4,6 @@ frontend/node_modules/
 frontend/dist/
 frontend/test-results/
 frontend/playwright-report/
+# A real demo and its stub for the fake FACEIT (see dev/fake-faceit/README.md); demos are large and never committed
+dev/fake-faceit/__files/demos/local.dem
+dev/fake-faceit/mappings/local-*.json

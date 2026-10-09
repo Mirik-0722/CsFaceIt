@@ -15,6 +15,8 @@ Browser --> Nginx (frontend container) --/api/--> Spring Boot backend --> FACEIT
 - `frontend/` - React + TypeScript single-page app built with Vite. In production Nginx serves it and proxies `/api/`
   to the backend.
 - `docker-compose.yml` - PostgreSQL 17, Redis 8, the backend and the frontend.
+- `docker-compose.fake.yml` and `dev/fake-faceit/` - an override that replaces FACEIT with a local WireMock fake, for
+  running the stack without an API key.
 
 ## Prerequisites
 
@@ -68,6 +70,19 @@ Open <http://localhost:3000> (or the port you set in `WEB_PORT`).
   the log line `FACEIT rejected the request (check FACEIT_API_KEY)` means FACEIT refused the key.
 - Stop the stack with `docker compose down`; the database lives in the `pgdata` volume and survives. Add `-v` to
   delete it as well.
+
+## Running without a FACEIT key
+
+A WireMock server can play FACEIT, so the whole stack starts with no API key and no `.env`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.fake.yml up -d --build --wait
+```
+
+Open <http://localhost:3000> and search for `s1mple`. The admin key for protected requests is `dev-admin-key`
+(`X-API-Key` header). Stop it with `docker compose -f docker-compose.yml -f docker-compose.fake.yml down`.
+The fake ids, what it serves and how to serve a real demo file are described in
+[`dev/fake-faceit/README.md`](dev/fake-faceit/README.md).
 
 ## Run in dev mode
 
