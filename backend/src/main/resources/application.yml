@@ -12,6 +12,14 @@ spring:
     # The FACEIT cache is best effort, so Redis must fail fast; Lettuce's default command timeout is 60 s.
     timeout: 500ms
     connect-timeout: 500ms
+  # The connection is made on first use, so the backend starts while the broker is still coming up; the timeout keeps
+  # a publish from hanging on an unreachable broker.
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    connection-timeout: 5s
 faceit:
   base-url: ${FACEIT_BASE_URL:https://open.faceit.com/data/v4}
   api-key: ${FACEIT_API_KEY}
@@ -28,3 +36,6 @@ management:
   endpoints.web.exposure.include: health,info,metrics,prometheus
   # Redis is a best-effort cache here, so an outage must not turn /actuator/health (the container HEALTHCHECK) DOWN.
   health.redis.enabled: false
+  # Likewise RabbitMQ only serves the demo import: with the broker down the rest of the API still works, so its outage
+  # must not turn /actuator/health DOWN either (the broker is also unreachable for a moment whenever it restarts).
+  health.rabbit.enabled: false

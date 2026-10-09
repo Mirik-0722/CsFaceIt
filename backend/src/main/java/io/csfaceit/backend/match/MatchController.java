@@ -15,8 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class MatchController {
 
     /** FACEIT match ids look like {@code 1-<uuid>}. They end up in Redis keys ({@code faceit:match:{id}}). */
-    private static final String MATCH_ID_PATTERN = "^[A-Za-z0-9-]{1,64}$";
-    private static final String MATCH_ID_MESSAGE = "must be 1-64 characters: letters, digits or '-'";
+    public static final String MATCH_ID_PATTERN = "^[A-Za-z0-9-]{1,64}$";
+    public static final String MATCH_ID_MESSAGE = "must be 1-64 characters: letters, digits or '-'";
 
     private final MatchService service;
 

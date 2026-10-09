@@ -30,3 +30,9 @@ services:
     depends_on:
       fake-faceit:
         condition: service_healthy
+
+  frontend:
+    # The override ships a publicly documented admin key, so the web port is not reachable from the LAN in this mode.
+    # !override replaces the mapping of docker-compose.yml instead of adding a second one.
+    ports: !override
+      - "127.0.0.1:${WEB_PORT:-3000}:80"

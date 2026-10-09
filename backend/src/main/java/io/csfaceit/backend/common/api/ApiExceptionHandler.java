@@ -49,6 +49,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiError(ex.getCode(), ex.getMessage()));
     }
 
+    @ExceptionHandler(ConflictException.class)
+    ResponseEntity<ApiError> handleConflict(ConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError(ex.getCode(), ex.getMessage()));
+    }
+
     /** Safety net: services translate this into a {@link NotFoundException} with a context-specific code. */
     @ExceptionHandler(FaceitNotFoundException.class)
     ResponseEntity<ApiError> handleFaceitNotFound(FaceitNotFoundException ex) {

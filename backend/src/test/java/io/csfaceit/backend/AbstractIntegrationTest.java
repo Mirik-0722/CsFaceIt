@@ -56,6 +56,9 @@ public abstract class AbstractIntegrationTest {
         registry.add("faceit.base-url", faceit::baseUrl);
         registry.add("faceit.api-key", () -> "test-key");
         registry.add("app.security.api-key", () -> "test-admin-key");
+        // No RabbitMQ broker runs in the tests: listeners must not try to connect, and the health check must not wait for one.
+        registry.add("spring.rabbitmq.listener.simple.auto-startup", () -> "false");
+        registry.add("management.health.rabbit.enabled", () -> "false");
     }
 
     @Autowired

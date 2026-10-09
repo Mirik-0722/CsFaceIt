@@ -30,6 +30,9 @@ public class Player {
     @Column(name = "level")
     private Integer level;
 
+    @Column(name = "steam_id", length = 32)
+    private String steamId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -88,6 +91,14 @@ public class Player {
 
     public void setLevel(Integer level) {
         this.level = level;
+    }
+
+    public String getSteamId() {
+        return steamId;
+    }
+
+    public void setSteamId(String steamId) {
+        this.steamId = steamId;
     }
 
     public Instant getCreatedAt() {

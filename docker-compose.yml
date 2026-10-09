@@ -28,6 +28,28 @@ services:
       timeout: 3s
       retries: 10
 
+  rabbitmq:
+    image: rabbitmq:4-management
+    # RabbitMQ keeps its data in a directory named after the node, which is derived from the hostname; a fixed hostname
+    # lets a recreated container find the queues and messages of the previous one.
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    # Published for local development only, and only on the loopback interface (the default password is public).
+    # 5672 is AMQP, 15672 the management UI and API.
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
   backend:
     build: ./backend
     # Settings are interpolated from the compose environment (.env or --env-file), not passed through with env_file:,
@@ -38,6 +60,10 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-csfaceit}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       # Required. Empty by default only so that `docker compose up postgres redis` works without a .env;
       # the backend refuses to start with an empty FACEIT_API_KEY.
       FACEIT_API_KEY: ${FACEIT_API_KEY:-}
@@ -54,6 +80,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   frontend:
     build: ./frontend
@@ -67,3 +95,4 @@ services:
 
 volumes:
   pgdata:
+  rabbitmqdata:
