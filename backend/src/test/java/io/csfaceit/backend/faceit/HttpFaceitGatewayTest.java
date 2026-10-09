@@ -130,6 +130,19 @@ class HttpFaceitGatewayTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void emptyResponseBodyMapsToFaceitUnavailable() {
+        faceit.stubFor(get(urlPathEqualTo(PLAYER_PATH)).willReturn(aResponse().withStatus(200)));
+
+        assertThatThrownBy(() -> gateway.getPlayer(PLAYER_ID))
+                .isInstanceOf(FaceitUnavailableException.class)
+                .hasMessageContaining("empty body")
+                .hasMessageContaining("player");
+
+        // An empty 200 is an upstream fault like a 5xx, so it is retried the same way.
+        faceit.verify(3, getRequestedFor(urlPathEqualTo(PLAYER_PATH)));
+    }
+
+    @Test
     void retriesOn5xxThenSucceeds() {
         stubScenarioStep(Scenario.STARTED, "after-503", serviceUnavailable());
         stubScenarioStep("after-503", "after-429", aResponse().withStatus(429));

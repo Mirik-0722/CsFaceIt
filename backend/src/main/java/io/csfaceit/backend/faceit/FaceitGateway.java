@@ -10,8 +10,8 @@ import io.csfaceit.backend.faceit.dto.FaceitPlayer;
  * FACEIT's JSON.
  *
  * <p>Every method throws {@link FaceitNotFoundException} when FACEIT answers 404 and
- * {@link FaceitUnavailableException} when FACEIT cannot be used (429, 5xx, a rejected API key or a connection
- * failure that survived all retry attempts).
+ * {@link FaceitUnavailableException} when FACEIT cannot be used (429, 5xx, a rejected API key, a response without
+ * a body or a connection failure that survived all retry attempts). A returned value is never {@code null}.
  */
 public interface FaceitGateway {
 

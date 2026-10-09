@@ -3,7 +3,6 @@ package io.csfaceit.backend.player;
 import io.csfaceit.backend.common.api.NotFoundException;
 import io.csfaceit.backend.faceit.FaceitGateway;
 import io.csfaceit.backend.faceit.FaceitNotFoundException;
-import io.csfaceit.backend.faceit.FaceitUnavailableException;
 import io.csfaceit.backend.faceit.dto.FaceitGame;
 import io.csfaceit.backend.faceit.dto.FaceitHistoryItem;
 import io.csfaceit.backend.faceit.dto.FaceitHistoryTeam;
@@ -37,7 +36,7 @@ public class PlayerService {
     public PlayerResponse findByNickname(String nickname) {
         FaceitPlayer found;
         try {
-            found = nonEmpty(faceit.findPlayerByNickname(nickname), "player search");
+            found = faceit.findPlayerByNickname(nickname);
         } catch (FaceitNotFoundException e) {
             throw playerNotFound(nickname);
         }
@@ -49,7 +48,7 @@ public class PlayerService {
     public PlayerResponse getById(String playerId) {
         FaceitPlayer found;
         try {
-            found = nonEmpty(faceit.getPlayer(playerId), "player");
+            found = faceit.getPlayer(playerId);
         } catch (FaceitNotFoundException e) {
             throw playerNotFound(playerId);
         }
@@ -60,7 +59,7 @@ public class PlayerService {
     public MatchHistoryResponse getHistory(String playerId, int offset, int limit) {
         FaceitMatchHistory history;
         try {
-            history = nonEmpty(faceit.getHistory(playerId, offset, limit), "history");
+            history = faceit.getHistory(playerId, offset, limit);
         } catch (FaceitNotFoundException e) {
             throw playerNotFound(playerId);
         }
@@ -90,6 +89,27 @@ public class PlayerService {
         player.setElo(elo);
         player.setLevel(level);
         return players.save(player);
+    }
+
+    /**
+     * Finds the player row by FACEIT id or creates it without elo and level, and refreshes the nickname when it
+     * changed. Unlike {@link #upsert(FaceitPlayer)} it never touches the elo or level of an existing row, because
+     * the match endpoints only learn a nickname, not a rating.
+     *
+     * <p>Meant to run inside the caller's transaction (the match stats write all their rows atomically). That is
+     * why a concurrent insert of the same FACEIT id is not recovered here the way {@link #upsert(FaceitPlayer)}
+     * recovers it: on PostgreSQL the failed insert aborts the whole transaction, so the request fails instead.
+     */
+    public Player ensurePlayer(String faceitId, String nickname) {
+        Player player = players.findByFaceitId(faceitId).orElse(null);
+        if (player == null) {
+            return players.save(new Player(faceitId, nickname, null, null));
+        }
+        if (!nickname.equals(player.getNickname())) {
+            player.setNickname(nickname);
+            return players.save(player);
+        }
+        return player;
     }
 
     private static PlayerResponse toResponse(FaceitPlayer profile) {
@@ -128,14 +148,6 @@ public class PlayerService {
     private static boolean isOnTeam(FaceitHistoryTeam team, String playerId) {
         return team != null && team.players() != null
                 && team.players().stream().anyMatch(p -> p != null && playerId.equals(p.playerId()));
-    }
-
-    /** A 200 without a body is an upstream fault, not a missing player. */
-    private static <T> T nonEmpty(T body, String resource) {
-        if (body == null) {
-            throw new FaceitUnavailableException("FACEIT returned an empty body for " + resource);
-        }
-        return body;
     }
 
     private static NotFoundException playerNotFound(String player) {

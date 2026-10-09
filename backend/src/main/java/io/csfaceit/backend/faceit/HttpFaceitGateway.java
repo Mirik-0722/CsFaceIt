@@ -69,9 +69,9 @@ public class HttpFaceitGateway implements FaceitGateway {
     }
 
     /**
-     * Performs one GET against FACEIT: retries 429, 5xx, 401/403 and connection failures, maps statuses to the
-     * gateway exceptions and times every HTTP attempt as {@code faceit.request} (so backoff sleeps are not counted
-     * and each failed attempt shows up in the {@code error} count).
+     * Performs one GET against FACEIT: retries 429, 5xx, 401/403, empty response bodies and connection failures,
+     * maps statuses to the gateway exceptions and times every HTTP attempt as {@code faceit.request} (so backoff
+     * sleeps are not counted and each failed attempt shows up in the {@code error} count).
      *
      * @param uriTemplate relative to the configured base URL; variables are URL-encoded individually
      */
@@ -100,6 +100,10 @@ public class HttpFaceitGateway implements FaceitGateway {
                                                 + " for " + resource);
                             })
                             .body(bodyType);
+                    if (body == null) {
+                        // A 200 (or 204) without a body is an upstream fault, not a missing resource.
+                        throw new FaceitUnavailableException("FACEIT returned an empty body for " + resource);
+                    }
                     outcome = OUTCOME_SUCCESS;
                     return body;
                 } catch (FaceitNotFoundException e) {

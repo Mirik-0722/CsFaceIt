@@ -73,6 +73,42 @@ class PlayerServiceTest extends AbstractIntegrationTest {
         verify(repository).save(winner);
     }
 
+    @Test
+    void ensurePlayerCreatesPlayerWithoutEloAndLevel() {
+        Player created = service.ensurePlayer("f-1", "s1mple");
+
+        assertThat(created.getId()).isNotNull();
+        assertThat(players.count()).isEqualTo(1);
+        assertThat(players.findByFaceitId("f-1")).get()
+                .extracting(Player::getNickname, Player::getElo, Player::getLevel)
+                .containsExactly("s1mple", null, null);
+    }
+
+    @Test
+    void ensurePlayerLeavesEloAndLevelOfAnExistingPlayerUntouched() {
+        service.upsert(faceitPlayer("f-1", "s1mple", 3500, 10));
+
+        Player ensured = service.ensurePlayer("f-1", "s1mple");
+
+        assertThat(ensured.getId()).isNotNull();
+        assertThat(players.count()).isEqualTo(1);
+        assertThat(players.findByFaceitId("f-1")).get()
+                .extracting(Player::getNickname, Player::getElo, Player::getLevel)
+                .containsExactly("s1mple", 3500, 10);
+    }
+
+    @Test
+    void ensurePlayerRefreshesTheNicknameOfAnExistingPlayer() {
+        service.upsert(faceitPlayer("f-1", "oldNick", 3500, 10));
+
+        service.ensurePlayer("f-1", "newNick");
+
+        assertThat(players.count()).isEqualTo(1);
+        assertThat(players.findByFaceitId("f-1")).get()
+                .extracting(Player::getNickname, Player::getElo, Player::getLevel)
+                .containsExactly("newNick", 3500, 10);
+    }
+
     private static FaceitPlayer faceitPlayer(String id, String nickname, int elo, int level) {
         return new FaceitPlayer(id, nickname, null, null, Map.of("cs2", new FaceitGame(elo, level)));
     }
