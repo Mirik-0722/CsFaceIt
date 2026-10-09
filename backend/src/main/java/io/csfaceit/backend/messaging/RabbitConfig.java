@@ -25,6 +25,7 @@ import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.retry.MessageRecoverer;
 import org.springframework.amqp.rabbit.retry.RepublishMessageRecoverer;
+import org.springframework.amqp.support.converter.Jackson2JavaTypeMapper;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.boot.autoconfigure.amqp.SimpleRabbitListenerContainerFactoryConfigurer;
@@ -81,12 +82,21 @@ public class RabbitConfig {
     }
 
     /**
-     * JSON in both directions. Only the message records of this package may be named in a type header, and the
-     * Rust parser, which sends no such header, is understood too: a listener's parameter type decides.
+     * JSON in both directions, for the three message records of {@link DemoMessages}. A message the backend sends
+     * carries a type header ({@code __TypeId__}); one that the Rust parser sends has only the content type
+     * {@code application/json}. Both are read alike because the type comes from the listener method's parameter:
+     * the listener adapter puts the parameter's type in the message properties, and with the type precedence
+     * {@code INFERRED} (set here although it is the default, because everything below relies on it) the converter
+     * uses that type and ignores the header. A message whose body is not JSON, or does not fit the record, is
+     * rejected as unreadable. Only the records of this package may be named in a type header, which matters to
+     * code that reads without a parameter type.
      */
     @Bean
     MessageConverter messageConverter(ObjectMapper mapper) {
-        return new Jackson2JsonMessageConverter(mapper, DemoMessages.class.getPackageName());
+        Jackson2JsonMessageConverter converter =
+                new Jackson2JsonMessageConverter(mapper, DemoMessages.class.getPackageName());
+        converter.setTypePrecedence(Jackson2JavaTypeMapper.TypePrecedence.INFERRED);
+        return converter;
     }
 
     /**

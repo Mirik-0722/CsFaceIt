@@ -1,0 +1,19 @@
+# Prometheus of the observability profile (docker compose --profile observability up). It scrapes the backend and
+# RabbitMQ over the compose network; the addresses below are service names, not host addresses.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # Spring Boot / Micrometer: JVM, HTTP, FACEIT client and the demo pipeline (demo_pipeline_*). Public endpoint.
+  - job_name: backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["backend:8080"]
+
+  # RabbitMQ's own plugin (rabbitmq_prometheus, enabled in the image): queue lengths, the dead-letter queue, consumers.
+  # /metrics/per-object, not /metrics: the plain endpoint adds all queues up into one number, this one has a series per
+  # queue (rabbitmq_queue_messages_ready{queue="demo.dlq"}).
+  - job_name: rabbitmq
+    metrics_path: /metrics/per-object
+    static_configs:
+      - targets: ["rabbitmq:15692"]

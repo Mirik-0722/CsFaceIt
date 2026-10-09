@@ -103,6 +103,10 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-csfaceit}
       # The most a manual demo upload may be (a size such as 1GB). Nginx limits the upload path to 1 GB, see frontend/nginx.conf.
       DEMO_UPLOAD_MAX_SIZE: ${DEMO_UPLOAD_MAX_SIZE:-1GB}
+      # Stored demo files older than this many days are deleted once a day (the parsed facts stay); 0 keeps them forever.
+      DEMO_RETENTION_DAYS: ${DEMO_RETENTION_DAYS:-30}
+      # When that clean-up runs: six fields (second minute hour day month weekday), server time. Normally left alone.
+      DEMO_RETENTION_CRON: "${DEMO_RETENTION_CRON:-0 0 4 * * *}"
       # Required. Empty by default only so that `docker compose up postgres redis` works without a .env;
       # the backend refuses to start with an empty FACEIT_API_KEY.
       FACEIT_API_KEY: ${FACEIT_API_KEY:-}
@@ -150,6 +154,63 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Metrics and dashboards. Both services are in the profile `observability`, so a plain `docker compose up` does not
+  # start them: add `--profile observability` (and set GRAFANA_ADMIN_PASSWORD).
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    profiles: ["observability"]
+    # The image's own command with the retention bounded; the scrape targets are in ops/prometheus/prometheus.yml.
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+    # Published for local development only, and only on the loopback interface (the query API has no login).
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    # Targets that are not up yet show as down until they are; Prometheus does not wait for them.
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      # No default on purpose: a password that is written in a public repository protects nothing. (Compose cannot be
+      # told to require the variable for this service only: `${VAR:?}` would also stop a plain `docker compose up`.)
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    # Without the password the container stops at once with a message instead of starting Grafana, whose own default
+    # is the password `admin`.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'if [ -z "$$GF_SECURITY_ADMIN_PASSWORD" ]; then echo "ERROR: GRAFANA_ADMIN_PASSWORD is not set. Grafana will not start with a default password; set it in .env or the environment (see README)." >&2; exit 1; fi; exec /run.sh'
+    # 3000 inside the container; 3001 on the host because 3000 is the web UI of this stack. Loopback only.
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      # The Prometheus data source, provisioned: Grafana has it from the first start.
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
   frontend:
     build: ./frontend
     ports:
@@ -164,3 +225,5 @@ volumes:
   pgdata:
   rabbitmqdata:
   miniodata:
+  prometheusdata:
+  grafanadata:

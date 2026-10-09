@@ -8,6 +8,7 @@ import io.csfaceit.backend.demo.DemoPersistence.StoredDemo;
 import io.csfaceit.backend.demo.DemoStatus;
 import io.csfaceit.backend.messaging.DemoMessages.DemoImportRequested;
 import io.csfaceit.backend.storage.StorageService;
+import io.micrometer.core.instrument.Timer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -42,13 +43,15 @@ public class DemoImportWorker {
     private final DemoDownloader downloader;
     private final StorageService storage;
     private final DemoStoredPublisher publisher;
+    private final DemoMetrics metrics;
 
     public DemoImportWorker(DemoPersistence persistence, DemoDownloader downloader, StorageService storage,
-                            DemoStoredPublisher publisher) {
+                            DemoStoredPublisher publisher, DemoMetrics metrics) {
         this.persistence = persistence;
         this.downloader = downloader;
         this.storage = storage;
         this.publisher = publisher;
+        this.metrics = metrics;
     }
 
     /** The storage key of a match's demo; the file under it is always zstd. */
@@ -69,7 +72,19 @@ public class DemoImportWorker {
             }
             return;
         }
-        String faceitMatchId = claim.get().faceitMatchId();
+        // The import stage is timed from the claim to the end of the work, whatever the outcome; a message that was
+        // ignored above is not an import.
+        Timer.Sample sample = metrics.startImport();
+        try {
+            importDemo(message, claim.get().faceitMatchId());
+        } finally {
+            metrics.importFinished(sample);
+        }
+    }
+
+    /** Downloads, stores and announces the demo this worker has claimed. */
+    private void importDemo(DemoImportRequested message, String faceitMatchId) {
+        long demoId = message.demoId();
         String storageKey = storageKey(faceitMatchId);
         log.info("Importing the demo {} of match {}", demoId, faceitMatchId);
 
@@ -87,7 +102,9 @@ public class DemoImportWorker {
             storage.put(storageKey, file);
         } catch (DemoDownloadRejectedException e) {
             log.warn("The download of demo {} of match {} was rejected: {}", demoId, faceitMatchId, e.getMessage());
-            persistence.failIfStatus(demoId, DemoStatus.QUEUED, e.getMessage());
+            if (persistence.failIfStatus(demoId, DemoStatus.QUEUED, e.getMessage())) {
+                metrics.failed(DemoMetrics.STAGE_IMPORT);
+            }
             throw new AmqpRejectAndDontRequeueException(e.getMessage(), e);
         } finally {
             deleteQuietly(file);

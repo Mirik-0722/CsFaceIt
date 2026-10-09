@@ -100,9 +100,11 @@ public class DemoService {
      * Takes the demo file of the match from the caller instead of FACEIT. The file is stored as zstd whatever it came
      * as (raw, gzip or zstd), under the key the import worker uses, and the demo becomes STORED and is announced on
      * {@code demo.parse} once that is committed. A manual upload stores from any status, so it also repairs a FAILED
-     * import and, deliberately, parses a PARSED or ANALYZED demo again; an import that is still downloading does
-     * not replace the upload afterwards (the worker checks that the demo is still QUEUED before it stores its file,
-     * and {@link DemoPersistence#markStored} needs it to be QUEUED). The match is loaded from FACEIT and stored
+     * import and, deliberately, parses a PARSED or ANALYZED demo again. An import that is still downloading does
+     * not overwrite the demo row afterwards (the worker checks that the demo is still QUEUED before it stores its
+     * file, and {@link DemoPersistence#markStored} needs it to be QUEUED); only an upload that lands exactly between
+     * that check and the worker's {@code put} can still have its object replaced, see {@link DemoPersistence#restore}.
+     * The match is loaded from FACEIT and stored
      * first, and its roster's SteamIDs are mapped, before the file is looked at. Every temporary file is deleted,
      * whatever happens.
      *

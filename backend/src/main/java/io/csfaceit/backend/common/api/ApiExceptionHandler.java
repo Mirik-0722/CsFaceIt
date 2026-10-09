@@ -25,6 +25,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
@@ -89,6 +90,20 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 .sorted()
                 .collect(Collectors.joining("; "));
         return ResponseEntity.badRequest().body(new ApiError(VALIDATION_ERROR, message));
+    }
+
+    /**
+     * A multipart request that cannot be read: a body that is not well-formed multipart, or an upload the client
+     * cancelled half way. Spring wraps what Tomcat throws in a {@link MultipartException}; it is the client's doing,
+     * so it is a 400 and a WARN line without a stack trace. An upload that is too large is the subclass
+     * {@link MaxUploadSizeExceededException}, which keeps its own 413 answer: of the handlers that fit, Spring uses the
+     * one for the closest exception type, and that is {@link #handleMaxUploadSizeExceededException}.
+     */
+    @ExceptionHandler(MultipartException.class)
+    ResponseEntity<ApiError> handleMultipart(MultipartException ex) {
+        log.warn("Rejecting a malformed or aborted multipart request: {}", ex.getMessage());
+        return ResponseEntity.badRequest()
+                .body(new ApiError(VALIDATION_ERROR, "The multipart request could not be read"));
     }
 
     /**

@@ -150,9 +150,13 @@ public class DemoPersistence {
     /**
      * Records that a file the caller put in storage by hand is the demo of the match: the demo becomes STORED with
      * {@code storageKey} whatever its status is (see {@link Demo#restore}), and a match without a demo gets one. The
-     * row is locked, so this and an import of the same demo take their turns; an import that is still downloading
-     * finds the demo no longer QUEUED, and so neither puts its file in storage ({@link #isQueued}) nor overwrites the
-     * demo ({@link #markStored}).
+     * row is locked, so this and an import of the same demo take their turns, and the row ends up as the upload left
+     * it: an import that is still downloading finds the demo no longer QUEUED when it asks before storing its file
+     * ({@link #isQueued}) and drops the file, and {@link #markStored} refuses to touch a demo that is not QUEUED. The
+     * file in storage is a different matter: an upload that lands between that question and the import's
+     * {@code put} can still have its object overwritten by the downloaded one, because storage and database are
+     * not changed in one step. The row stays correct (STORED, announced for parsing), but the object under the key
+     * may then be the downloaded file.
      *
      * @return the demo as it is now
      */
@@ -198,20 +202,26 @@ public class DemoPersistence {
     }
 
     /**
-     * Marks a demo whose message was dead-lettered as FAILED. A demo that is already FAILED keeps its own, more
-     * specific error, and one that is ANALYZED has finished its run and is not undone by a stray message.
+     * The status of the demo, for a listener that only wants to know whether the demo is there and where it is.
      *
-     * @return whether the demo was marked
+     * @return empty when there is no such demo
+     */
+    @Transactional(readOnly = true)
+    public Optional<DemoStatus> findStatus(long demoId) {
+        return demos.findById(demoId).map(Demo::getStatus);
+    }
+
+    /**
+     * Forgets the file of a demo whose stored file has been removed: {@code storage_key} becomes NULL. The status, the
+     * error and the facts the parser wrote stay as they are, and so does {@code updated_at}: nothing happened to the
+     * demo's place in the pipeline, and a parser that is working on it must not take this for a new upload.
+     *
+     * @return the number of demos that pointed at the key (0 when the file belonged to none, which is normal for a
+     *         file that an earlier run has already cleared)
      */
     @Transactional
-    public boolean failDeadLettered(long demoId, String error) {
-        Demo demo = demos.findByIdForUpdate(demoId).orElse(null);
-        if (demo == null || demo.getStatus() == DemoStatus.FAILED || demo.getStatus() == DemoStatus.ANALYZED) {
-            return false;
-        }
-        demo.fail(error);
-        demos.saveAndFlush(demo);
-        return true;
+    public int clearStorageKey(String storageKey) {
+        return demos.clearStorageKey(storageKey);
     }
 
     private boolean isStaleQueued(Demo demo) {

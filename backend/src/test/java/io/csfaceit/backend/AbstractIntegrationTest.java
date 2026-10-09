@@ -59,6 +59,8 @@ public abstract class AbstractIntegrationTest {
         // No RabbitMQ broker runs in the tests: listeners must not try to connect, and the health check must not wait for one.
         registry.add("spring.rabbitmq.listener.simple.auto-startup", () -> "false");
         registry.add("management.health.rabbit.enabled", () -> "false");
+        // The demo retention job must not touch any storage while the tests run.
+        registry.add("demo.retention-days", () -> "0");
     }
 
     @Autowired
