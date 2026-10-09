@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { type InfiniteData, type QueryKey, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ApiError, apiGet } from './client'
 import type {
   MatchHistoryResponse,
@@ -32,10 +32,27 @@ export function usePlayer(playerId: string) {
   })
 }
 
-export function usePlayerHistory(playerId: string, offset = 0, limit = 20) {
-  return useQuery<MatchHistoryResponse, ApiError>({
-    queryKey: ['player-history', playerId, offset, limit],
-    queryFn: () => apiGet<MatchHistoryResponse>(`/players/${playerId}/history`, { offset, limit }),
+/** How many matches the backend returns per history page. */
+const HISTORY_PAGE_SIZE = 20
+
+/**
+ * A player's match history, one page of `limit` matches at a time; `fetchNextPage` appends the page that starts at
+ * `offset + limit`. A page shorter than `limit` is the last one, so `hasNextPage` turns false.
+ */
+export function usePlayerHistory(playerId: string, limit = HISTORY_PAGE_SIZE) {
+  return useInfiniteQuery<
+    MatchHistoryResponse,
+    ApiError,
+    InfiniteData<MatchHistoryResponse, number>,
+    QueryKey,
+    number
+  >({
+    queryKey: ['player-history', playerId, limit],
+    queryFn: ({ pageParam }) =>
+      apiGet<MatchHistoryResponse>(`/players/${playerId}/history`, { offset: pageParam, limit }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+      lastPage.items.length < limit ? undefined : lastPageParam + limit,
     retry: retryUnlessClientError,
   })
 }
