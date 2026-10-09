@@ -53,6 +53,10 @@ public class DemoPersistence {
     public record ImportClaim(long demoId, String faceitMatchId) {
     }
 
+    /** A demo whose file is in storage, with what the {@code demo.parse} message about it has to say. */
+    public record StoredDemo(long demoId, String faceitMatchId, String storageKey) {
+    }
+
     /**
      * Finds the demo of a stored match or creates it as QUEUED. A FAILED demo goes back to QUEUED, and so does a
      * QUEUED one that has been untouched for {@link #STALE_QUEUED_AFTER}; a demo in any other status is left as it
@@ -117,6 +121,16 @@ public class DemoPersistence {
     }
 
     /**
+     * Whether the demo is still QUEUED, that is, still waiting for the import that is running. It is asked before the
+     * downloaded file is put in storage: a manual upload may have stored the demo while the download was running,
+     * and the downloaded file must not replace it.
+     */
+    @Transactional(readOnly = true)
+    public boolean isQueued(long demoId) {
+        return demos.findById(demoId).filter(demo -> demo.getStatus() == DemoStatus.QUEUED).isPresent();
+    }
+
+    /**
      * Records that the demo file is in storage: QUEUED becomes STORED with its storage key.
      *
      * @return false when the demo is no longer QUEUED (something else got there first); nothing is changed then
@@ -131,6 +145,39 @@ public class DemoPersistence {
         demo.setStorageKey(storageKey);
         demos.saveAndFlush(demo);
         return true;
+    }
+
+    /**
+     * Records that a file the caller put in storage by hand is the demo of the match: the demo becomes STORED with
+     * {@code storageKey} whatever its status is (see {@link Demo#restore}), and a match without a demo gets one. The
+     * row is locked, so this and an import of the same demo take their turns; an import that is still downloading
+     * finds the demo no longer QUEUED, and so neither puts its file in storage ({@link #isQueued}) nor overwrites the
+     * demo ({@link #markStored}).
+     *
+     * @return the demo as it is now
+     */
+    @Transactional
+    public Demo restore(long matchRowId, String storageKey) {
+        Demo demo = demos.findByMatchIdForUpdate(matchRowId).orElse(null);
+        if (demo == null) {
+            Match match = matches.findById(matchRowId)
+                    .orElseThrow(() -> new IllegalStateException("Match " + matchRowId + " is not stored"));
+            demo = new Demo(match);
+        }
+        demo.restore(storageKey);
+        return demos.saveAndFlush(demo);
+    }
+
+    /**
+     * The demo, if it is STORED: what a redelivered import message needs to announce it again.
+     *
+     * @return empty when the demo does not exist or has any other status
+     */
+    @Transactional(readOnly = true)
+    public Optional<StoredDemo> findStored(long demoId) {
+        return demos.findById(demoId)
+                .filter(demo -> demo.getStatus() == DemoStatus.STORED)
+                .map(demo -> new StoredDemo(demoId, demo.getMatch().getFaceitMatchId(), demo.getStorageKey()));
     }
 
     /**

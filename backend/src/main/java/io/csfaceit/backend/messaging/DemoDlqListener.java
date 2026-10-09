@@ -18,6 +18,10 @@ import org.springframework.stereotype.Component;
  * cannot be read, or has no usable {@code demoId}, is logged and dropped: throwing would send it round the dead-letter
  * queue forever.
  *
+ * <p>The listener has a container factory of its own: it retries a failure a few times and then drops the message
+ * instead of republishing it to {@code demo.dlx}, because a republished dead letter would land in this very queue
+ * again (see {@link RabbitConfig#dlqListenerContainerFactory}).
+ *
  * <p>{@code demos.error} is shown to users, so it is a fixed sentence per queue. The exception text that the retry
  * recoverer puts in the message headers can name internal hosts and is only logged.
  */
@@ -45,11 +49,10 @@ public class DemoDlqListener {
         this.mapper = mapper;
     }
 
-    @RabbitListener(queues = DemoMessages.DLQ)
+    @RabbitListener(queues = DemoMessages.DLQ, containerFactory = RabbitConfig.DLQ_LISTENER_CONTAINER_FACTORY)
     public void onDeadLetter(Message message) {
-        String queue = firstNonNull(header(message, RepublishMessageRecoverer.X_ORIGINAL_ROUTING_KEY),
-                header(message, FIRST_DEATH_QUEUE));
-        Long demoId = readDemoId(message);
+        String queue = originQueue(message);
+        Long demoId = readDemoId(mapper, message);
         if (demoId == null) {
             log.warn("Dropping a dead-lettered message from {} that has no readable demoId", queue);
             return;
@@ -65,8 +68,14 @@ public class DemoDlqListener {
         }
     }
 
+    /** The queue the message was dead-lettered from, or null when its headers do not say. */
+    static String originQueue(Message message) {
+        return firstNonNull(header(message, RepublishMessageRecoverer.X_ORIGINAL_ROUTING_KEY),
+                header(message, FIRST_DEATH_QUEUE));
+    }
+
     /** The {@code demoId} of the message body, or null when the body is not a JSON object with an integer demoId. */
-    private Long readDemoId(Message message) {
+    static Long readDemoId(ObjectMapper mapper, Message message) {
         byte[] body = message.getBody();
         if (body == null || body.length == 0) {
             return null;

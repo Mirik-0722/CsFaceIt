@@ -88,8 +88,9 @@ public class Demo {
 
     /**
      * Moves the demo to {@code next}: QUEUED to STORED, STORED to PARSED, PARSED to ANALYZED, any status to FAILED,
-     * and FAILED back to QUEUED or on to STORED (a manual upload). Anything else is a bug in the caller. Leaving
-     * FAILED clears the error; use {@link #fail} to enter FAILED with a reason.
+     * and FAILED back to QUEUED or on to STORED. Anything else is a bug in the caller. Leaving FAILED clears the
+     * error; use {@link #fail} to enter FAILED with a reason. A manual upload does not go through here, it uses
+     * {@link #restore}.
      */
     public void transitionTo(DemoStatus next) {
         if (!isAllowed(status, next)) {
@@ -99,6 +100,19 @@ public class Demo {
         if (next != DemoStatus.FAILED) {
             this.error = null;
         }
+    }
+
+    /**
+     * Puts the demo in STORED with {@code storageKey}, from whatever status it has: a manual upload deliberately
+     * stores the file again, also for a demo that is already PARSED or ANALYZED (it is then parsed again), and
+     * replaces whatever an earlier attempt left. The error is cleared and {@code updatedAt} is refreshed. This is
+     * not a transition of the pipeline's status machine, which is why it is not part of {@link #transitionTo}.
+     */
+    public void restore(String storageKey) {
+        this.status = DemoStatus.STORED;
+        this.storageKey = storageKey;
+        this.error = null;
+        touch();
     }
 
     /** Moves the demo to FAILED and records why. */

@@ -24,6 +24,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
@@ -38,6 +40,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     static final String INTERNAL_ERROR = "INTERNAL_ERROR";
     static final String NOT_FOUND = "NOT_FOUND";
     static final String FACEIT_UNAVAILABLE = "FACEIT_UNAVAILABLE";
+    static final String PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
 
     private static final String FACEIT_UNAVAILABLE_MESSAGE = "FACEIT is unavailable";
     private static final String INTERNAL_ERROR_MESSAGE = "Unexpected server error";
@@ -47,6 +50,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(NotFoundException.class)
     ResponseEntity<ApiError> handleNotFound(NotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiError(ex.getCode(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(BadRequestException.class)
+    ResponseEntity<ApiError> handleBadRequest(BadRequestException ex) {
+        return ResponseEntity.badRequest().body(new ApiError(VALIDATION_ERROR, ex.getMessage()));
     }
 
     @ExceptionHandler(ConflictException.class)
@@ -105,6 +113,27 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return handleExceptionInternal(ex,
                 new ApiError(VALIDATION_ERROR, "Required parameter '" + ex.getParameterName() + "' is missing"),
                 headers, status, request);
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleMissingServletRequestPart(MissingServletRequestPartException ex,
+            HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        return handleExceptionInternal(ex,
+                new ApiError(VALIDATION_ERROR, "Required part '" + ex.getRequestPartName() + "' is missing"),
+                headers, status, request);
+    }
+
+    /**
+     * An upload larger than {@code spring.servlet.multipart.max-file-size} or {@code max-request-size}: Tomcat
+     * stops reading it and Spring raises this, so it is answered here instead of with Tomcat's error page or a 500.
+     * Also raised by the demo upload itself, when a gzip file expands beyond the allowed size.
+     */
+    @Override
+    protected ResponseEntity<Object> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException ex,
+            HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        return handleExceptionInternal(ex,
+                new ApiError(PAYLOAD_TOO_LARGE, "The uploaded file is larger than the allowed size"),
+                headers, HttpStatus.PAYLOAD_TOO_LARGE, request);
     }
 
     @Override

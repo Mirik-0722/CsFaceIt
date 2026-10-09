@@ -6,6 +6,11 @@ spring:
   jpa:
     hibernate.ddl-auto: validate
     open-in-view: false
+  # A manual demo upload is a multipart request; the one size below limits both the file and the whole request. Beyond
+  # it the API answers 413 with PAYLOAD_TOO_LARGE (see ApiExceptionHandler).
+  servlet.multipart:
+    max-file-size: ${demo.upload.max-size}
+    max-request-size: ${demo.upload.max-size}
   data.redis:
     host: ${REDIS_HOST:localhost}
     port: ${REDIS_PORT:6379}
@@ -61,3 +66,7 @@ demo:
     read-timeout: 120s
     # The most a download may transfer, and the most a gzip demo may expand to.
     max-size: 1GB
+  upload:
+    # The most a manual upload may be, and the most a gzip upload may expand to. Nginx has a limit of its own for the
+    # upload path (frontend/nginx.conf); keep the two in step.
+    max-size: ${DEMO_UPLOAD_MAX_SIZE:1GB}

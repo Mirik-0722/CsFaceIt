@@ -9,6 +9,8 @@ import static io.csfaceit.backend.messaging.DemoMessages.Q_PARSED;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
@@ -21,6 +23,7 @@ import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.rabbit.retry.MessageRecoverer;
 import org.springframework.amqp.rabbit.retry.RepublishMessageRecoverer;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
@@ -38,11 +41,16 @@ import org.springframework.retry.policy.SimpleRetryPolicy;
 @Configuration(proxyBeanMethods = false)
 public class RabbitConfig {
 
+    /** Name of the container factory of the dead-letter listener; see {@link #dlqListenerContainerFactory}. */
+    static final String DLQ_LISTENER_CONTAINER_FACTORY = "dlqListenerContainerFactory";
+
     /** How often a listener tries a message before it is dead-lettered. */
     static final int MAX_ATTEMPTS = 3;
     private static final long INITIAL_BACKOFF_MS = 1_000;
     private static final double BACKOFF_MULTIPLIER = 2.0;
     private static final long MAX_BACKOFF_MS = 10_000;
+
+    private static final Logger log = LoggerFactory.getLogger(RabbitConfig.class);
 
     /**
      * Topic exchange {@code demo} with the queues {@code demo.import}, {@code demo.parse} and {@code demo.parsed}
@@ -96,15 +104,52 @@ public class RabbitConfig {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         configurer.configure(factory, connectionFactory);
         factory.setDefaultRequeueRejected(false);
-        // Everything is retried (the default value true) except a rejection; traversing the causes finds the
-        // rejection inside the ListenerExecutionFailedException that wraps what the listener threw.
+        // Everything is retried (the default value true) except a rejection and an Error (a native library that
+        // failed to load, an out of memory: another attempt cannot help and the JVM is not in a state to retry);
+        // traversing the causes finds them inside the ListenerExecutionFailedException that wraps what the listener
+        // threw.
         SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(MAX_ATTEMPTS,
-                Map.of(AmqpRejectAndDontRequeueException.class, false), true, true);
+                Map.of(AmqpRejectAndDontRequeueException.class, false, Error.class, false), true, true);
         factory.setAdviceChain(RetryInterceptorBuilder.stateless()
                 .retryPolicy(retryPolicy)
                 .backOffOptions(INITIAL_BACKOFF_MS, BACKOFF_MULTIPLIER, MAX_BACKOFF_MS)
                 .recoverer(new RepublishMessageRecoverer(rabbitTemplate, DLX))
                 .build());
         return factory;
+    }
+
+    /**
+     * The container factory of the listener on {@code demo.dlq}. It retries like the factory above but has no
+     * republishing recoverer: a dead letter that cannot be processed
+     * (the database is down, say) must not be sent to {@code demo.dlx} again, which would put it straight back into
+     * {@code demo.dlq} with a longer routing key, round and round. After {@link #MAX_ATTEMPTS} attempts it is logged
+     * at ERROR and rejected without requeue; {@code demo.dlq} has no dead-letter exchange of its own, so the broker
+     * drops it.
+     */
+    @Bean(DLQ_LISTENER_CONTAINER_FACTORY)
+    SimpleRabbitListenerContainerFactory dlqListenerContainerFactory(
+            SimpleRabbitListenerContainerFactoryConfigurer configurer, ConnectionFactory connectionFactory,
+            ObjectMapper mapper) {
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        configurer.configure(factory, connectionFactory);
+        factory.setDefaultRequeueRejected(false);
+        SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(MAX_ATTEMPTS,
+                Map.of(AmqpRejectAndDontRequeueException.class, false, Error.class, false), true, true);
+        factory.setAdviceChain(RetryInterceptorBuilder.stateless()
+                .retryPolicy(retryPolicy)
+                .backOffOptions(INITIAL_BACKOFF_MS, BACKOFF_MULTIPLIER, MAX_BACKOFF_MS)
+                .recoverer(dropAndLog(mapper))
+                .build());
+        return factory;
+    }
+
+    /** What is left of a dead letter that could not be processed: an ERROR in the log, and a rejection. */
+    private static MessageRecoverer dropAndLog(ObjectMapper mapper) {
+        return (message, cause) -> {
+            log.error("Dropping a dead-lettered message for demo {} from {}: it could not be processed ({}); the demo "
+                            + "keeps the status it has", DemoDlqListener.readDemoId(mapper, message),
+                    DemoDlqListener.originQueue(message), cause.toString(), cause);
+            throw new AmqpRejectAndDontRequeueException("The dead-lettered message could not be processed", cause);
+        };
     }
 }

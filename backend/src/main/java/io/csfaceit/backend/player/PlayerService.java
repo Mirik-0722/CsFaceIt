@@ -16,6 +16,8 @@ import io.csfaceit.backend.player.dto.PlayerResponse;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +25,14 @@ import org.springframework.stereotype.Service;
 public class PlayerService {
 
     private static final String PLAYER_NOT_FOUND = "PLAYER_NOT_FOUND";
+
+    /**
+     * The FACEIT id of a player row that the demo parser creates for a SteamID it cannot match to anyone is
+     * {@code steam:<SteamID>}. Such a row stands in for a player until the real one is known.
+     */
+    private static final String STEAM_PLACEHOLDER_PREFIX = "steam:";
+
+    private static final Logger log = LoggerFactory.getLogger(PlayerService.class);
 
     private final FaceitGateway faceit;
     private final PlayerRepository players;
@@ -112,6 +122,40 @@ public class PlayerService {
             return players.save(player);
         }
         return player;
+    }
+
+    /**
+     * Makes {@code steamId} the SteamID of the player, so that the demo parser, which knows a player by SteamID only,
+     * finds the row. Another row that already holds the SteamID is a placeholder of the parser ({@code steam:<id>})
+     * and loses it, which is logged; if it is a real player the SteamID stays where it is, because taking it away
+     * would silently move the statistics of one person to another. A player that has a different SteamID gets the new
+     * one: the roster of the match being parsed is what its demo contains.
+     *
+     * <p>Meant to run inside the caller's transaction, like {@link #ensurePlayer}; a concurrent write of the same
+     * SteamID fails the unique index and the caller repeats the transaction.
+     *
+     * @return whether the SteamID of the player was changed
+     */
+    public boolean assignSteamId(Player player, String steamId) {
+        if (steamId.equals(player.getSteamId())) {
+            return false;
+        }
+        Player holder = players.findBySteamId(steamId).orElse(null);
+        if (holder != null && !holder.getId().equals(player.getId())) {
+            if (!holder.getFaceitId().startsWith(STEAM_PLACEHOLDER_PREFIX)) {
+                log.warn("SteamID {} belongs to player {} already; not giving it to player {}", steamId,
+                        holder.getFaceitId(), player.getFaceitId());
+                return false;
+            }
+            log.warn("SteamID {} was held by the placeholder player {}; moving it to player {}", steamId,
+                    holder.getFaceitId(), player.getFaceitId());
+            holder.setSteamId(null);
+            // The unique index must be free before the same value is written to the other row.
+            players.saveAndFlush(holder);
+        }
+        player.setSteamId(steamId);
+        players.save(player);
+        return true;
     }
 
     private static PlayerResponse toResponse(FaceitPlayer profile) {
