@@ -1,5 +1,6 @@
 .env
 backend/target/
+parser/target/
 # Where the backend keeps demo files when STORAGE_TYPE=local (the default); see backend/src/main/resources/application.yml
 backend/data/
 frontend/node_modules/

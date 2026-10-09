@@ -124,6 +124,32 @@ services:
       minio:
         condition: service_healthy
 
+  parser:
+    # The Rust worker that parses the stored demos: it takes `demo.parse` messages, reads the demo from MinIO and
+    # writes the facts to PostgreSQL. It serves nothing, so it has no port. Its settings are put together from the
+    # variables of the services it talks to; a password with a character that is special in a URL (@ : / ? # %)
+    # has to be percent-encoded in AMQP_URL and DATABASE_URL.
+    build: ./parser
+    environment:
+      AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/%2f
+      DATABASE_URL: postgres://${DB_USER:-csfaceit}:${DB_PASSWORD:-csfaceit}@postgres:5432/csfaceit
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${MINIO_BUCKET:-csfaceit}
+      S3_REGION: us-east-1
+      # The most a demo may be once decompressed, in bytes (2 GiB). A stored demo comes from an upload and could be
+      # a small file that expands without end; beyond this the demo is FAILED as too large.
+      PARSER_MAX_DEMO_BYTES: ${PARSER_MAX_DEMO_BYTES:-2147483648}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
   frontend:
     build: ./frontend
     ports:

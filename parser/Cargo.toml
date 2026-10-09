@@ -1,0 +1,33 @@
+[package]
+name = "csfaceit-parser"
+version = "0.1.0"
+edition = "2021"
+# The oldest toolchain the worker is built with. With resolver 3 Cargo picks dependency versions that support it, so
+# `cargo update` does not pull in a crate that needs a newer compiler.
+rust-version = "1.90"
+resolver = "3"
+publish = false
+
+[dependencies]
+ahash = "0.8"
+aws-sdk-s3 = { version = "1", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+futures-util = { version = "0.3", default-features = false }
+lapin = "4"
+memmap2 = "0.9"
+prost = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "fs", "io-util", "time", "sync"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+zstd = "0.14"
+
+# The CS2 demo parser of https://github.com/LaihoE/demoparser (the Rust core of demoparser2) and its protobuf crate,
+# pinned to one commit. They are not published on crates.io and their build needs preparation: see README.md.
+csgoproto = { git = "https://github.com/LaihoE/demoparser", rev = "45ca85aeac8fb0de9d385124d2c7fe0e7b8ff0c8" }
+demoparser = { package = "parser", git = "https://github.com/LaihoE/demoparser", rev = "45ca85aeac8fb0de9d385124d2c7fe0e7b8ff0c8" }
+
+# The release profile keeps the default `panic = "unwind"` on purpose: a panic of the demo parser on a corrupt file is
+# caught and fails that one demo. With `panic = "abort"` it would take the whole worker down.
