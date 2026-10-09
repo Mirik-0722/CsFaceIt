@@ -9,7 +9,10 @@ import { errorMessage, PLAYER_NOT_FOUND_MESSAGE } from '@/lib/errorMessage'
 function PlayerProfile({ playerId }: { playerId: string }) {
   const player = usePlayer(playerId)
   const history = usePlayerHistory(playerId)
-  const matches = history.data?.pages.flatMap((page) => page.items)
+  // Offset paging can return the same match on two pages (each page is cached on its own), so keep the first.
+  const matches = history.data?.pages
+    .flatMap((page) => page.items)
+    .filter((item, index, all) => all.findIndex((other) => other.matchId === item.matchId) === index)
   // A player that cannot be shown has no history to show either: its error is the one message on the page.
   const playerFailed = player.isError && !player.data
 
