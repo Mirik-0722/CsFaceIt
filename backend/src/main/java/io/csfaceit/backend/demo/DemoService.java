@@ -46,24 +46,27 @@ public class DemoService {
 
     /**
      * Queues the import of the match's demo. The match is loaded from FACEIT and stored first (this also gives the
-     * demo URL), then the {@code demos} row is created, or revived when its import FAILED, and the
-     * {@code demo.import} message is published once that row is committed. A demo that is already QUEUED or
-     * further along is reported as it is, without a message. Repeating the request, also in parallel, therefore
-     * leaves one row and queues one message.
+     * demo URL), then the {@code demos} row is created, or revived when its import FAILED or its message was lost
+     * (it has been QUEUED for a long time without anything happening), and the {@code demo.import} message is
+     * published once that row is committed. A demo that is already QUEUED, recently, or further along is reported
+     * as it is, without a message, and without needing a demo URL. Repeating the request, also in parallel,
+     * therefore leaves one row and queues one message.
      *
      * @throws NotFoundException {@code MATCH_NOT_FOUND}: FACEIT does not know the match
-     * @throws ConflictException {@code DEMO_URL_UNAVAILABLE}: FACEIT has no demo for the match (yet)
+     * @throws ConflictException {@code DEMO_URL_UNAVAILABLE}: the demo would have to be downloaded, but FACEIT has
+     *         no demo for the match (yet)
      */
     public DemoResponse requestImport(String faceitMatchId) {
         String demoUrl = matchService.getMatch(faceitMatchId).demoUrl();
-        if (demoUrl == null || demoUrl.isBlank()) {
-            throw new ConflictException(DEMO_URL_UNAVAILABLE, "FACEIT has no demo for match " + faceitMatchId);
-        }
+        boolean demoUrlAvailable = demoUrl != null && !demoUrl.isBlank();
         long matchRowId = matches.findByFaceitMatchId(faceitMatchId)
                 .orElseThrow(() -> new IllegalStateException("Match " + faceitMatchId + " is not stored"))
                 .getId();
 
-        Queued queued = persistWithRetry("demo of match " + faceitMatchId, () -> persistence.queue(matchRowId));
+        Queued queued = persistWithRetry("demo of match " + faceitMatchId,
+                () -> persistence.queue(matchRowId, demoUrlAvailable))
+                .orElseThrow(() -> new ConflictException(DEMO_URL_UNAVAILABLE,
+                        "FACEIT has no demo for match " + faceitMatchId));
         if (queued.publish()) {
             publishImport(queued.demo().getId(), faceitMatchId, demoUrl);
         }

@@ -8,6 +8,8 @@ import static io.csfaceit.backend.messaging.DemoMessages.Q_PARSE;
 import static io.csfaceit.backend.messaging.DemoMessages.Q_PARSED;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Map;
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Declarables;
@@ -25,6 +27,7 @@ import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.boot.autoconfigure.amqp.SimpleRabbitListenerContainerFactoryConfigurer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.retry.policy.SimpleRetryPolicy;
 
 /**
  * The RabbitMQ topology of the demo pipeline, the JSON message format and the failure handling of listeners.
@@ -35,7 +38,8 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 public class RabbitConfig {
 
-    private static final int MAX_ATTEMPTS = 3;
+    /** How often a listener tries a message before it is dead-lettered. */
+    static final int MAX_ATTEMPTS = 3;
     private static final long INITIAL_BACKOFF_MS = 1_000;
     private static final double BACKOFF_MULTIPLIER = 2.0;
     private static final long MAX_BACKOFF_MS = 10_000;
@@ -79,8 +83,10 @@ public class RabbitConfig {
 
     /**
      * Listeners get three attempts one second apart (the gap doubles). A message that still fails is republished
-     * to {@code demo.dlx} with the exception text in its headers, and the original is acknowledged. A message that
-     * is rejected outright (an unreadable body) is not requeued, so the queue's own dead-letter setting sends it
+     * to {@code demo.dlx} with the exception text in its headers, and the original is acknowledged. A listener that
+     * throws {@link AmqpRejectAndDontRequeueException} says that another attempt cannot help, so that message is
+     * republished at once; the check looks through the wrapper Spring puts around a listener's exception. A message
+     * that is rejected outright (an unreadable body) is not requeued, so the queue's own dead-letter setting sends it
      * to {@code demo.dlq} too. The settings under {@code spring.rabbitmq.listener.simple} still apply.
      */
     @Bean
@@ -90,8 +96,12 @@ public class RabbitConfig {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         configurer.configure(factory, connectionFactory);
         factory.setDefaultRequeueRejected(false);
+        // Everything is retried (the default value true) except a rejection; traversing the causes finds the
+        // rejection inside the ListenerExecutionFailedException that wraps what the listener threw.
+        SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(MAX_ATTEMPTS,
+                Map.of(AmqpRejectAndDontRequeueException.class, false), true, true);
         factory.setAdviceChain(RetryInterceptorBuilder.stateless()
-                .maxAttempts(MAX_ATTEMPTS)
+                .retryPolicy(retryPolicy)
                 .backOffOptions(INITIAL_BACKOFF_MS, BACKOFF_MULTIPLIER, MAX_BACKOFF_MS)
                 .recoverer(new RepublishMessageRecoverer(rabbitTemplate, DLX))
                 .build());

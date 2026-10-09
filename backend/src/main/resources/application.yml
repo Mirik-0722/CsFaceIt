@@ -12,14 +12,20 @@ spring:
     # The FACEIT cache is best effort, so Redis must fail fast; Lettuce's default command timeout is 60 s.
     timeout: 500ms
     connect-timeout: 500ms
-  # The connection is made on first use, so the backend starts while the broker is still coming up; the timeout keeps
-  # a publish from hanging on an unreachable broker.
+  # The connection is made on first use, so the backend starts while the broker is still coming up. The timeouts keep a
+  # request thread from hanging on a broker that is unreachable (connection-timeout) or that accepts connections but
+  # stops answering (channel-rpc-timeout bounds the broker's replies to calls such as opening a channel or declaring a
+  # queue, which default to 10 minutes; reply-timeout bounds a send that waits for a reply).
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
     connection-timeout: 5s
+    channel-rpc-timeout: 5s
+    template.reply-timeout: 5s
+    # A listener handles one message at a time and can take minutes (a demo download), so it must not reserve more.
+    listener.simple.prefetch: 1
 faceit:
   base-url: ${FACEIT_BASE_URL:https://open.faceit.com/data/v4}
   api-key: ${FACEIT_API_KEY}
@@ -39,3 +45,19 @@ management:
   # Likewise RabbitMQ only serves the demo import: with the broker down the rest of the API still works, so its outage
   # must not turn /actuator/health DOWN either (the broker is also unreachable for a moment whenever it restarts).
   health.rabbit.enabled: false
+# Where the demo files are kept: type "local" (a directory, for development) or "minio" (S3-compatible, the compose stack).
+storage:
+  type: ${STORAGE_TYPE:local}
+  local-dir: ${STORAGE_LOCAL_DIR:./data/storage}
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket: ${MINIO_BUCKET:csfaceit}
+demo:
+  download:
+    connect-timeout: 5s
+    # How long a download may stall: the longest silence between two reads of the response, not the whole transfer.
+    read-timeout: 120s
+    # The most a download may transfer, and the most a gzip demo may expand to.
+    max-size: 1GB

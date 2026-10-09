@@ -73,6 +73,14 @@ public class Demo {
         this.updatedAt = now();
     }
 
+    /**
+     * Records that something just happened to the demo without changing its status: {@code updatedAt} is set here
+     * because a JPA lifecycle callback runs only for an entity that is already dirty.
+     */
+    public void touch() {
+        this.updatedAt = now();
+    }
+
     /** PostgreSQL stores microseconds; truncating keeps the value in memory equal to the one read back later. */
     private static Instant now() {
         return Instant.now().truncatedTo(ChronoUnit.MICROS);

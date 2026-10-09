@@ -20,4 +20,9 @@ public interface DemoRepository extends JpaRepository<Demo, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from Demo d where d.match.id = :matchId")
     Optional<Demo> findByMatchIdForUpdate(@Param("matchId") Long matchId);
+
+    /** Like {@link #findById} but locks the row until the surrounding transaction ends. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select d from Demo d where d.id = :id")
+    Optional<Demo> findByIdForUpdate(@Param("id") Long id);
 }
