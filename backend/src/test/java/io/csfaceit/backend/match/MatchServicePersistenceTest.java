@@ -5,23 +5,16 @@ import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import ch.qos.logback.classic.Level;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.csfaceit.backend.AbstractIntegrationTest;
 import io.csfaceit.backend.LogCapture;
-import io.csfaceit.backend.faceit.FaceitGateway;
-import io.csfaceit.backend.faceit.dto.FaceitMatch;
-import io.csfaceit.backend.faceit.dto.FaceitMatchStats;
 import io.csfaceit.backend.player.Player;
 import io.csfaceit.backend.player.PlayerRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -35,12 +28,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The transaction boundaries of {@link MatchService}: FACEIT is called with no transaction open, and a persist step
- * that loses a first-access write race against a concurrent request is repeated and succeeds.
+ * A persist step of {@link MatchService} that loses a first-access write race against a concurrent request is
+ * repeated and succeeds. (That FACEIT is called outside any transaction is checked in
+ * {@link MatchServiceTransactionTest}.)
  */
 class MatchServicePersistenceTest extends AbstractIntegrationTest {
 
@@ -61,13 +54,7 @@ class MatchServicePersistenceTest extends AbstractIntegrationTest {
     PlayerMatchStatsRepository playerMatchStats;
 
     @Autowired
-    MatchPersistence persistence;
-
-    @Autowired
     PlatformTransactionManager transactionManager;
-
-    @Autowired
-    ObjectMapper mapper;
 
     @Autowired
     JdbcTemplate jdbc;
@@ -90,37 +77,6 @@ class MatchServicePersistenceTest extends AbstractIntegrationTest {
         pool.shutdownNow();
         serviceLogs.close();
         sqlLogs.close();
-    }
-
-    // ---- no transaction across FACEIT calls ----
-
-    @Test
-    void noTransactionIsOpenWhileFaceitIsCalled() throws Exception {
-        List<Boolean> transactionActive = new CopyOnWriteArrayList<>();
-        FaceitGateway gateway = mock(FaceitGateway.class);
-        when(gateway.getMatch(MATCH_ID)).thenAnswer(invocation -> {
-            transactionActive.add(TransactionSynchronizationManager.isActualTransactionActive());
-            return mapper.readValue(fixture("faceit/match-finished.json"), FaceitMatch.class);
-        });
-        when(gateway.getMatchStats(MATCH_ID)).thenAnswer(invocation -> {
-            transactionActive.add(TransactionSynchronizationManager.isActualTransactionActive());
-            return mapper.readValue(fixture("faceit/match-stats.json"), FaceitMatchStats.class);
-        });
-        MatchService service = new MatchService(gateway, matches, persistence);
-
-        // The probe must be able to see a transaction at all.
-        Boolean activeInsideTemplate = new TransactionTemplate(transactionManager)
-                .execute(status -> TransactionSynchronizationManager.isActualTransactionActive());
-        assertThat(activeInsideTemplate).isTrue();
-
-        service.getStats(MATCH_ID);   // loads the unseen match first, then the stats
-        service.getMatch(MATCH_ID);
-
-        assertThat(transactionActive).containsExactly(false, false, false);
-        // The rows were still written, each persist step in a transaction of its own.
-        assertThat(matches.count()).isEqualTo(1);
-        assertThat(players.count()).isEqualTo(10);
-        assertThat(playerMatchStats.count()).isEqualTo(10);
     }
 
     // ---- losing the first-access race, deterministically ----
