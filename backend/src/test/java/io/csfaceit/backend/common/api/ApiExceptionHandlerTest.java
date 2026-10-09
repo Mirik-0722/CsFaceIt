@@ -1,6 +1,7 @@
 package io.csfaceit.backend.common.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -18,6 +19,8 @@ import jakarta.validation.constraints.Size;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
@@ -113,6 +116,28 @@ class ApiExceptionHandlerTest {
                 .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));
     }
 
+    @Test
+    void accessDeniedIsLeftToSpringSecurityInsteadOfBecoming500() {
+        assertSecurityExceptionPropagates("/probe/access-denied", AccessDeniedException.class);
+    }
+
+    @Test
+    void authenticationFailureIsLeftToSpringSecurityInsteadOfBecoming500() {
+        assertSecurityExceptionPropagates("/probe/bad-credentials", BadCredentialsException.class);
+    }
+
+    /**
+     * Spring Security's filters turn these into 403/401, so the catch-all handler must pass them on: the exception
+     * leaves the dispatcher untouched, and nothing is logged as an unexpected failure.
+     */
+    private void assertSecurityExceptionPropagates(String path, Class<? extends Exception> expected) {
+        try (LogCapture logs = LogCapture.of(ApiExceptionHandler.class)) {
+            assertThatThrownBy(() -> mvc.perform(get(path))).hasRootCauseInstanceOf(expected);
+
+            assertThat(logs.events()).isEmpty();
+        }
+    }
+
     record Body(@NotBlank String name) {
     }
 
@@ -132,6 +157,16 @@ class ApiExceptionHandlerTest {
         @GetMapping("/probe/boom")
         String boom() {
             throw new IllegalStateException("secret table detail");
+        }
+
+        @GetMapping("/probe/access-denied")
+        String accessDenied() {
+            throw new AccessDeniedException("denied");
+        }
+
+        @GetMapping("/probe/bad-credentials")
+        String badCredentials() {
+            throw new BadCredentialsException("bad");
         }
 
         @PostMapping("/probe/body")

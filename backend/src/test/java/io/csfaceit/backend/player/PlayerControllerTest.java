@@ -136,7 +136,8 @@ class PlayerControllerTest extends AbstractIntegrationTest {
     void wrongMethodReturns405MethodNotAllowed() throws Exception {
         // Spring logs every handled MVC exception at WARN; capture it to keep the console clean.
         try (LogCapture springLogs = LogCapture.of("org.springframework.web.servlet.PageNotFound")) {
-            mvc.perform(post(PLAYERS_URL).param("nickname", "s1mple"))
+            // POST needs the API key to get past security and reach the dispatcher.
+            mvc.perform(post(PLAYERS_URL).param("nickname", "s1mple").header("X-API-Key", "test-admin-key"))
                     .andExpect(status().isMethodNotAllowed())
                     .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
 
