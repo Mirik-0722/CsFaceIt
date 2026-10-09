@@ -5,8 +5,9 @@ services:
       POSTGRES_DB: csfaceit
       POSTGRES_USER: ${DB_USER:-csfaceit}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-csfaceit}
+    # Published for local development only, and only on the loopback interface (the default password is public).
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -18,12 +19,44 @@ services:
   redis:
     image: redis:8
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  backend:
+    build: ./backend
+    # Settings are interpolated from the compose environment (.env or --env-file), not passed through with env_file:,
+    # so the host-oriented DB_URL, REDIS_HOST and CORS_ALLOWED_ORIGINS of a copied .env.example cannot leak in.
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/csfaceit
+      DB_USER: ${DB_USER:-csfaceit}
+      DB_PASSWORD: ${DB_PASSWORD:-csfaceit}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Required. Empty by default only so that `docker compose up postgres redis` works without a .env;
+      # the backend refuses to start with an empty FACEIT_API_KEY.
+      FACEIT_API_KEY: ${FACEIT_API_KEY:-}
+      APP_API_KEY: ${APP_API_KEY:-}
+      CORS_ALLOWED_ORIGINS: http://localhost:${WEB_PORT:-3000}
+    # Reachable only from other services of this stack (the Nginx in `frontend`); no host port.
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   pgdata:
