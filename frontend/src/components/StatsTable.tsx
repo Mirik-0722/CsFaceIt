@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { WIN_BADGE_CLASS } from '@/lib/badgeStyles'
 import type { TeamStatsResponse } from '@/api/types'
 
 const COLUMN_COUNT = 7
@@ -12,11 +13,12 @@ const COLUMN_COUNT = 7
 export default function StatsTable({ team }: { team: TeamStatsResponse }) {
   const players = [...team.players].sort((a, b) => b.kills - a.kills)
   return (
-    <Table>
+    // The shadcn Table puts the caption below the table (`caption-bottom`, inherited); the team header goes on top.
+    <Table className="caption-top">
       <TableCaption className="mt-0 mb-2 text-left text-foreground">
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-medium">{team.name ?? 'Team'}</h2>
-          {team.win && <Badge className="bg-green-600/15 text-green-700 dark:text-green-400">Winner</Badge>}
+          {team.win && <Badge className={WIN_BADGE_CLASS}>Winner</Badge>}
           <span className="ml-auto font-mono text-lg tabular-nums">
             <span className="sr-only">Score:</span> {team.score}
           </span>

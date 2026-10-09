@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
+import { WIN_BADGE_CLASS } from '@/lib/badgeStyles'
 import { formatDate } from '@/lib/formatDate'
 import type { MatchResult, MatchSummary } from '@/api/types'
 
@@ -12,7 +13,7 @@ function formatScore(score: Record<string, number>): string {
 function ResultBadge({ result }: { result: MatchResult }) {
   switch (result) {
     case 'WIN':
-      return <Badge className="bg-green-600/15 text-green-700 dark:text-green-400">WIN</Badge>
+      return <Badge className={WIN_BADGE_CLASS}>WIN</Badge>
     case 'LOSS':
       return <Badge className="bg-red-600/15 text-red-700 dark:text-red-400">LOSS</Badge>
     default:

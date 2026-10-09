@@ -78,6 +78,14 @@ describe('StatsTable', () => {
     expect(within(table).getByText('13')).toBeInTheDocument()
   })
 
+  it('puts the team header above the table, not under it', () => {
+    renderTable(team())
+    // shadcn's Table defaults to caption-bottom and caption-side is inherited; jsdom has no layout, so the class is the proof.
+    const table = screen.getByRole('table')
+    expect(table).toHaveClass('caption-top')
+    expect(table).not.toHaveClass('caption-bottom')
+  })
+
   it('shows a 0 score', () => {
     renderTable(team({ score: 0, win: false }))
     expect(screen.getByRole('table', { name: /Score: 0$/ })).toBeInTheDocument()
@@ -86,6 +94,7 @@ describe('StatsTable', () => {
   it('shows the Winner badge only for the winning team', () => {
     const { rerender } = renderTable(team({ win: true }))
     expect(screen.getByText('Winner')).toBeInTheDocument()
+    expect(screen.getByText('Winner').className).toContain('green')
     rerender(<StatsTable team={team({ win: false })} />)
     expect(screen.queryByText('Winner')).not.toBeInTheDocument()
   })
