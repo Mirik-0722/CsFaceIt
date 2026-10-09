@@ -39,7 +39,9 @@ Then edit `.env`:
 | Variable | Meaning | Default in `.env.example` |
 | --- | --- | --- |
 | `FACEIT_API_KEY` | **Required.** Your FACEIT Data API key. The backend refuses to start when it is empty. | empty |
-| `APP_API_KEY` | **Required.** Secret that clients send in the `X-API-Key` header to call protected endpoints (everything under `/api/` that is not a `GET`). Choose a long random value, for example `openssl rand -hex 32`. While it is empty the backend logs a warning and rejects every protected request. | empty |
+| `APP_API_KEY` | **Required.** Secret that clients send in the `X-API-Key` header. Everything except `GET`/`HEAD` on `/api/v1/**`, `/actuator/health` and `/actuator/prometheus` requires it. Choose a long random value, for example `openssl rand -hex 32`. While it is empty the backend logs a warning and rejects every protected request. | empty |
+| `FACEIT_BASE_URL` | FACEIT Data API address; override it only to point the backend at a fake FACEIT. Commented out in `.env.example`. | `https://open.faceit.com/data/v4` |
+| `FACEIT_HISTORY_LOOKBACK` | How far back a player's match history reaches (`faceit.history-lookback`). FACEIT itself returns only the last month unless the request names a start time, so the backend always sends one. Commented out in `.env.example`. | `365d` |
 | `DB_URL` | JDBC URL of PostgreSQL. | `jdbc:postgresql://localhost:5432/csfaceit` |
 | `DB_USER`, `DB_PASSWORD` | PostgreSQL credentials; the `postgres` service is created with them. | `csfaceit` / `csfaceit` |
 | `REDIS_HOST`, `REDIS_PORT` | Redis address. | `localhost` / `6379` |
@@ -58,11 +60,12 @@ docker compose up -d --build --wait
 
 Open <http://localhost:3000> (or the port you set in `WEB_PORT`).
 
-- Only the web UI is published to the host. The backend is reachable through Nginx at `/api/`
+- Of the application services, only the web UI is published; postgres and redis are published on 127.0.0.1 for
+  development (`127.0.0.1:5432` and `127.0.0.1:6379`). The backend is reachable through Nginx at `/api/`
   (for example <http://localhost:3000/api/v1/players?nickname=s1mple>); its Actuator endpoints are not exposed.
-- PostgreSQL and Redis are published on `127.0.0.1:5432` and `127.0.0.1:6379` for local development only.
 - If the backend container exits right after starting, read `docker compose logs backend`. The usual cause is an
-  empty `FACEIT_API_KEY`, reported as `Property: faceit.apiKey ... must not be blank`.
+  empty `FACEIT_API_KEY`, reported as `Property: faceit.apiKey ... must not be blank`. If lookups answer 502 instead,
+  the log line `FACEIT rejected the request (check FACEIT_API_KEY)` means FACEIT refused the key.
 - Stop the stack with `docker compose down`; the database lives in the `pgdata` volume and survives. Add `-v` to
   delete it as well.
 
@@ -106,26 +109,26 @@ open, and return JSON. Errors have the shape `{"code": "...", "message": "..."}`
 | --- | --- |
 | `GET /api/v1/players?nickname=` | Find a player by FACEIT nickname (2-32 letters, digits, `_` or `-`). |
 | `GET /api/v1/players/{playerId}` | Player profile: nickname, avatar, country, ELO and level. |
-| `GET /api/v1/players/{playerId}/history?offset=0&limit=20` | A page of the player's matches (`limit` 1-100). |
+| `GET /api/v1/players/{playerId}/history?offset=0&limit=20` | A page of the player's matches (`offset` 0-1000, `limit` 1-100). |
 | `GET /api/v1/matches/{matchId}` | Match details: map, status, times, teams and winner. |
 | `GET /api/v1/matches/{matchId}/stats` | Per-team, per-player stats of a match. |
 
 ```bash
 curl "http://localhost:3000/api/v1/players?nickname=s1mple"
-curl "http://localhost:3000/api/v1/players/{playerId}"
-curl "http://localhost:3000/api/v1/players/{playerId}/history?offset=0&limit=20"
-curl "http://localhost:3000/api/v1/matches/{matchId}"
-curl "http://localhost:3000/api/v1/matches/{matchId}/stats"
+curl "http://localhost:3000/api/v1/players/<playerId>"
+curl "http://localhost:3000/api/v1/players/<playerId>/history?offset=0&limit=20"
+curl "http://localhost:3000/api/v1/matches/<matchId>"
+curl "http://localhost:3000/api/v1/matches/<matchId>/stats"
 ```
 
-Replace `{playerId}` and `{matchId}` with the ids returned by the previous calls.
+Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls.
 
 | Status | `code` | When |
 | --- | --- | --- |
 | 400 | `VALIDATION_ERROR` | A nickname, id or paging parameter is malformed. |
 | 401 | `UNAUTHORIZED` | A protected request is missing a valid `X-API-Key` header. |
 | 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND` | FACEIT does not know the player or match. |
-| 502 | `FACEIT_UNAVAILABLE` | FACEIT failed or timed out after retries and no cached copy exists. |
+| 502 | `FACEIT_UNAVAILABLE` | FACEIT failed or timed out after retries, or refused the request (for example a rejected `FACEIT_API_KEY`, which is not retried), and no cached copy exists. |
 
 FACEIT responses are cached in Redis (player profile 5 minutes, match history 2 minutes, finished match 24 hours),
 and an expired copy is served when FACEIT is down.

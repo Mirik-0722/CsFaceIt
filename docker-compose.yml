@@ -18,6 +18,8 @@ services:
 
   redis:
     image: redis:8
+    # A cache must not grow without bound: evict the least recently used keys beyond 256 MB.
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     ports:
       - "127.0.0.1:6379:6379"
     healthcheck:
@@ -39,6 +41,9 @@ services:
       # Required. Empty by default only so that `docker compose up postgres redis` works without a .env;
       # the backend refuses to start with an empty FACEIT_API_KEY.
       FACEIT_API_KEY: ${FACEIT_API_KEY:-}
+      # Overridable so that the stack can be pointed at a fake FACEIT.
+      FACEIT_BASE_URL: ${FACEIT_BASE_URL:-https://open.faceit.com/data/v4}
+      FACEIT_HISTORY_LOOKBACK: ${FACEIT_HISTORY_LOOKBACK:-365d}
       APP_API_KEY: ${APP_API_KEY:-}
       CORS_ALLOWED_ORIGINS: http://localhost:${WEB_PORT:-3000}
     # Reachable only from other services of this stack (the Nginx in `frontend`); no host port.
@@ -57,6 +62,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+        # Nginx resolves `backend` only when it starts, so it has to restart when the backend container is recreated.
+        restart: true
 
 volumes:
   pgdata:
