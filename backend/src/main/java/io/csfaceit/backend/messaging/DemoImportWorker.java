@@ -92,8 +92,9 @@ public class DemoImportWorker {
         try {
             file = downloader.download(message.demoUrl());
             // The download can take minutes, and a manual upload may have stored the demo meanwhile: its file is under
-            // the same key and must stay. (An upload landing during the put itself is still possible, the demo then
-            // stays as the upload left it, see markStored below.)
+            // the same key and must stay. The check is not airtight: an upload that commits after it can still have
+            // its object replaced by the put below (DemoPersistence#restore has the exact order), though never the
+            // demo row, which markStored below leaves alone.
             if (!persistence.isQueued(demoId)) {
                 log.warn("Demo {} of match {} is no longer QUEUED; dropping the downloaded file", demoId,
                         faceitMatchId);

@@ -16,6 +16,8 @@ import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Declarables;
 import org.springframework.amqp.core.FanoutExchange;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
@@ -27,6 +29,7 @@ import org.springframework.amqp.rabbit.retry.MessageRecoverer;
 import org.springframework.amqp.rabbit.retry.RepublishMessageRecoverer;
 import org.springframework.amqp.support.converter.Jackson2JavaTypeMapper;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.amqp.support.converter.MessageConversionException;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.boot.autoconfigure.amqp.SimpleRabbitListenerContainerFactoryConfigurer;
 import org.springframework.context.annotation.Bean;
@@ -87,9 +90,10 @@ public class RabbitConfig {
      * {@code application/json}. Both are read alike because the type comes from the listener method's parameter:
      * the listener adapter puts the parameter's type in the message properties, and with the type precedence
      * {@code INFERRED} (set here although it is the default, because everything below relies on it) the converter
-     * uses that type and ignores the header. A message whose body is not JSON, or does not fit the record, is
-     * rejected as unreadable. Only the records of this package may be named in a type header, which matters to
-     * code that reads without a parameter type.
+     * uses that type and ignores the header. A body that is not JSON, or does not fit the record, fails the
+     * conversion inside the listener call, so it is a failure like any other (see
+     * {@link #rabbitListenerContainerFactory}). Only the records of this package may be named in a type header, which
+     * matters to code that reads without a parameter type.
      */
     @Bean
     MessageConverter messageConverter(ObjectMapper mapper) {
@@ -103,9 +107,10 @@ public class RabbitConfig {
      * Listeners get three attempts one second apart (the gap doubles). A message that still fails is republished
      * to {@code demo.dlx} with the exception text in its headers, and the original is acknowledged. A listener that
      * throws {@link AmqpRejectAndDontRequeueException} says that another attempt cannot help, so that message is
-     * republished at once; the check looks through the wrapper Spring puts around a listener's exception. A message
-     * that is rejected outright (an unreadable body) is not requeued, so the queue's own dead-letter setting sends it
-     * to {@code demo.dlq} too. The settings under {@code spring.rabbitmq.listener.simple} still apply.
+     * republished at once; the check looks through the wrapper Spring puts around a listener's exception. A body that
+     * cannot be converted fails inside the listener call as well and goes the same way. Should the republishing itself
+     * fail, the message is rejected without requeue, and the queue's own dead-letter setting sends it to
+     * {@code demo.dlq} all the same. The settings under {@code spring.rabbitmq.listener.simple} still apply.
      */
     @Bean
     SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
@@ -134,7 +139,9 @@ public class RabbitConfig {
      * (the database is down, say) must not be sent to {@code demo.dlx} again, which would put it straight back into
      * {@code demo.dlq} with a longer routing key, round and round. After {@link #MAX_ATTEMPTS} attempts it is logged
      * at ERROR and rejected without requeue; {@code demo.dlq} has no dead-letter exchange of its own, so the broker
-     * drops it.
+     * drops it. The listener gets the message as it is (see {@link UntouchedMessageConverter}): whatever was
+     * dead-lettered, also a body that is not JSON or does not fit a message record, reaches the listener, which
+     * reads what it needs and drops the rest quietly, instead of failing in a conversion nobody asked for.
      */
     @Bean(DLQ_LISTENER_CONTAINER_FACTORY)
     SimpleRabbitListenerContainerFactory dlqListenerContainerFactory(
@@ -142,6 +149,8 @@ public class RabbitConfig {
             ObjectMapper mapper) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         configurer.configure(factory, connectionFactory);
+        // After the configurer, which sets the JSON converter of the application.
+        factory.setMessageConverter(new UntouchedMessageConverter());
         factory.setDefaultRequeueRejected(false);
         SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(MAX_ATTEMPTS,
                 Map.of(AmqpRejectAndDontRequeueException.class, false, Error.class, false), true, true);
@@ -151,6 +160,24 @@ public class RabbitConfig {
                 .recoverer(dropAndLog(mapper))
                 .build());
         return factory;
+    }
+
+    /**
+     * Hands a received message to the listener as it is. A listener whose only parameter is the {@link Message} still
+     * has the body converted before the method runs (the result is not even used), and the JSON converter fails on a
+     * body that is not JSON. This one reads nothing. It only receives: the listeners it serves send no reply.
+     */
+    private static final class UntouchedMessageConverter implements MessageConverter {
+
+        @Override
+        public Message toMessage(Object object, MessageProperties messageProperties) {
+            throw new MessageConversionException("This converter only hands received messages over");
+        }
+
+        @Override
+        public Object fromMessage(Message message) {
+            return message;
+        }
     }
 
     /** What is left of a dead letter that could not be processed: an ERROR in the log, and a rejection. */

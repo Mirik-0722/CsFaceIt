@@ -24,8 +24,19 @@ import org.springframework.stereotype.Component;
  * told is logged at WARN and changes nothing. The check and the update happen in one transaction under the row lock
  * ({@link DemoPersistence#failIfStatus}).
  *
+ * <p>One failure reaches this queue after the demo is already FAILED: the Rust parser records a failed parse itself
+ * and then rejects the {@code demo.parse} message without requeue, so the broker dead-letters it. Such a demo is FAILED
+ * where STORED is expected and stays as it is, but the failure belongs in {@code demo.pipeline.failed} like any other,
+ * so it is counted here as stage {@code parse}: the broker's {@code x-death} header says the message was rejected from
+ * {@code demo.parse}, and the demo is FAILED. The two counting branches exclude each other (the listener either marked
+ * the demo itself or found it marked), and a rejected download of the import worker, which counts itself, is a
+ * {@code demo.import} dead letter that never reaches the second branch. Without a message id the second branch cannot
+ * tell a rejection of a message for a demo that was FAILED for another reason from the parser's own, and a message
+ * delivered to this listener twice (the first delivery was not acknowledged) counts twice.
+ *
  * <p>A message that cannot be read, or has no usable {@code demoId}, is logged and dropped: throwing would send it
- * round the dead-letter queue forever.
+ * round the dead-letter queue forever. The listener's container factory hands the message over without trying to
+ * convert it, so a body that is not JSON is such a message too and never an exception.
  *
  * <p>The listener has a container factory of its own: it retries a failure a few times and then drops the message
  * instead of republishing it to {@code demo.dlx}, because a republished dead letter would land in this very queue
@@ -43,6 +54,11 @@ public class DemoDlqListener {
     private static final String X_DEATH = "x-death";
 
     private static final String X_DEATH_QUEUE = "queue";
+
+    private static final String X_DEATH_REASON = "reason";
+
+    /** The {@code x-death} reason of a message that its consumer rejected without requeue. */
+    private static final String REASON_REJECTED = "rejected";
 
     /** The status a demo must have for a dead letter from the queue to fail it: where the queue's work starts. */
     private static final Map<String, DemoStatus> EXPECTED_STATUS = Map.of(
@@ -81,12 +97,32 @@ public class DemoDlqListener {
         }
         String cause = header(message, RepublishMessageRecoverer.X_EXCEPTION_MESSAGE);
         if (persistence.failIfStatus(demoId, expected, ERROR_BY_QUEUE.get(queue))) {
+            // The demo is FAILED and committed. Nothing that can throw may follow: a retry of this message would find
+            // the demo FAILED and could count it a second time in the branch below.
             metrics.failed(DemoMetrics.stageOfQueue(queue));
             log.warn("Marked demo {} FAILED: a message from {} was dead-lettered ({})", demoId, queue, cause);
+        } else if (rejectedByParser(message, queue) && isFailed(demoId)) {
+            metrics.failed(DemoMetrics.STAGE_PARSE);
+            log.info("Dead-lettered message from {} for demo {}: the parser rejected it after marking the demo FAILED "
+                    + "itself, counted as a failed parse", queue, demoId);
         } else {
             log.info("Dead-lettered message from {} for demo {}: the demo is unknown or no longer {}, left as it is",
                     queue, demoId, expected);
         }
+    }
+
+    /**
+     * Whether the broker dead-lettered the message because its consumer rejected it, from {@code demo.parse}. The
+     * Rust parser is the only consumer of that queue, and it rejects a message after it has marked the demo FAILED.
+     * The broker writes {@code x-death} when it dead-letters a message, so a message that the retry recoverer
+     * republished, or that somebody published by hand without such a header, has no reason and does not qualify.
+     */
+    private static boolean rejectedByParser(Message message, String queue) {
+        return DemoMessages.Q_PARSE.equals(queue) && REASON_REJECTED.equals(firstDeathField(message, X_DEATH_REASON));
+    }
+
+    private boolean isFailed(long demoId) {
+        return persistence.findStatus(demoId).filter(status -> status == DemoStatus.FAILED).isPresent();
     }
 
     /**
@@ -96,16 +132,20 @@ public class DemoDlqListener {
      * name here.
      */
     static String originQueue(Message message) {
-        String fromDeath = firstDeathQueue(message);
+        String fromDeath = firstDeathField(message, X_DEATH_QUEUE);
         return fromDeath != null ? fromDeath : header(message, RepublishMessageRecoverer.X_ORIGINAL_ROUTING_KEY);
     }
 
-    /** The {@code queue} of the first {@code x-death} entry; headers of the wrong shape are taken as absent. */
-    private static String firstDeathQueue(Message message) {
+    /**
+     * A field of the first {@code x-death} entry (the broker puts the most recent death first) as text, for example
+     * its {@code queue} or {@code reason}; null when the header or the field is absent. A header of the wrong shape is
+     * taken as absent.
+     */
+    private static String firstDeathField(Message message, String name) {
         Object deaths = message.getMessageProperties().getHeaders().get(X_DEATH);
         if (deaths instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {
-            Object queue = first.get(X_DEATH_QUEUE);
-            return queue == null ? null : queue.toString();
+            Object value = first.get(name);
+            return value == null ? null : value.toString();
         }
         return null;
     }

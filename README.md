@@ -70,7 +70,7 @@ Then edit `.env`:
 | `MINIO_IMAGE` | MinIO server image of the Compose stack (see [Operational notes](#operational-notes)). Commented out in `.env.example`. | a digest-pinned `alpine/minio` build |
 | `DEMO_UPLOAD_MAX_SIZE` | The most a manual demo upload may be, and the most a gzip upload may expand to: a size with a unit such as `1GB` or `512MB`. Nginx accepts 1 GB for the upload path (`frontend/nginx.conf`); raise both to allow more. | `1GB` |
 | `DEMO_RETENTION_DAYS` | Stored demo files older than this many days are deleted once a day; the parsed facts and the demo's status stay. `0` keeps the files forever. | `30` |
-| `DEMO_RETENTION_CRON` | When that clean-up runs: Spring's six cron fields (second minute hour day month weekday), server time. Normally left alone. Commented out in `.env.example`. | `0 0 4 * * *` |
+| `DEMO_RETENTION_CRON` | When that clean-up runs: Spring's six cron fields (second minute hour day month weekday), server time. Normally left alone. Commented out in `.env.example`; keep the quotes there, the value has spaces and asterisks. | `0 0 4 * * *` |
 | `PARSER_MAX_DEMO_BYTES` | The most a demo may be once the parser has decompressed it, in bytes. A larger demo is marked `FAILED` as too large. | `2147483648` (2 GiB) |
 | `GRAFANA_ADMIN_PASSWORD` | Password of the Grafana user `admin`. Needed only with `--profile observability`; there is no default and the `grafana` service stops with a message while it is empty. | empty |
 
@@ -89,9 +89,10 @@ docker compose up -d --build --wait
 
 Open <http://localhost:3000> (or the port you set in `WEB_PORT`).
 
-- Of the application services, only the web UI is published. The infrastructure is published on `127.0.0.1` only, for
-  development: PostgreSQL `5432`, Redis `6379`, RabbitMQ `5672` (AMQP) and `15672` (management UI), MinIO `9000` (S3 API)
-  and `9001` (console). The backend is reachable through Nginx at `/api/` (for example
+- Of the application services, only the web UI is published, on all interfaces of the machine (`docker-compose.fake.yml`
+  narrows it to `127.0.0.1`, see [Local addresses](#local-addresses)). The infrastructure is published on `127.0.0.1`
+  only, for development: PostgreSQL `5432`, Redis `6379`, RabbitMQ `5672` (AMQP) and `15672` (management UI), MinIO
+  `9000` (S3 API) and `9001` (console). The backend is reachable through Nginx at `/api/` (for example
   <http://localhost:3000/api/v1/players?nickname=s1mple>); its Actuator endpoints are not exposed. The parser serves
   nothing and has no port.
 - If the backend container exits right after starting, read `docker compose logs backend`. The usual cause is an
@@ -110,7 +111,8 @@ docker compose -f docker-compose.yml -f docker-compose.fake.yml up -d --build --
 ```
 
 Open <http://localhost:3000> and search for `s1mple`. The admin key for protected requests is `dev-admin-key`
-(`X-API-Key` header). Stop it with `docker compose -f docker-compose.yml -f docker-compose.fake.yml down`.
+(`X-API-Key` header); because it is public, this mode publishes the web port on `127.0.0.1` only. Stop it with
+`docker compose -f docker-compose.yml -f docker-compose.fake.yml down`.
 The fake ids, what it serves and how to serve a real demo file are described in
 [`dev/fake-faceit/README.md`](dev/fake-faceit/README.md). The override needs Docker Compose 2.24.4 or newer, and
 `down` the stack before you switch between the real and the fake mode (see [Operational notes](#operational-notes)).
@@ -121,8 +123,12 @@ Run PostgreSQL and Redis in Docker and the backend and frontend on your machine.
 and MinIO (with `STORAGE_TYPE=local` it does not need MinIO at all); the demo endpoints need the broker to queue work.
 
 ```bash
-# 1. Infrastructure (works without a .env as well); add rabbitmq minio to try the demo pipeline too
+# 1. Infrastructure (works without a .env as well)
 docker compose up -d postgres redis
+#    To try the demo pipeline as well, start the broker, the object store and the parser too, and set
+#    STORAGE_TYPE=minio in your .env: the parser reads demos from MinIO only, so with the default STORAGE_TYPE=local
+#    a demo stays STORED. (The first build of the parser image takes several minutes.)
+#    docker compose up -d --build postgres redis rabbitmq minio parser
 
 # 2. Backend on http://localhost:8080 (the shell must export the variables from .env)
 set -a && source .env && set +a
@@ -213,9 +219,13 @@ The status of a demo is one of:
 
 The allowed moves are `QUEUED` -> `STORED` -> `PARSED` -> `ANALYZED`, any status -> `FAILED`, and `FAILED` -> `QUEUED`
 (import again) or `STORED` (manual upload). A message that arrives late or twice never undoes progress: delivery is at
-least once, so every worker checks the status first. A message that fails three times (one second apart, then two) is
-sent to the dead-letter queue `demo.dlq`; the backend marks the demo `FAILED` only if it is still in the status that
-queue's work starts from (`QUEUED` for `demo.import`, `STORED` for `demo.parse`, `PARSED` for `demo.parsed`).
+least once, so every worker checks the status first. A message that fails in a backend listener (`demo.import`,
+`demo.parsed`) is tried three times, one second apart and then two, and then sent to the dead-letter queue `demo.dlq`.
+The parser does not retry a demo it cannot parse: it records `FAILED` itself and rejects the `demo.parse` message on the
+first failure, which dead-letters it too (a storage or database outage is waited out instead, nothing is rejected).
+The backend marks a dead-lettered demo `FAILED` only if it is still in the status that queue's work starts from
+(`QUEUED` for `demo.import`, `STORED` for `demo.parse`, `PARSED` for `demo.parsed`), so a stale or made-up dead letter
+never undoes progress; a demo the parser has already marked `FAILED` is left as it is, and counted.
 
 ### Endpoints
 
@@ -250,8 +260,10 @@ curl -X POST -H 'X-API-Key: dev-admin-key' -F 'file=@match.dem' \
   http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/demo/upload
 ```
 
-Importing needs the FACEIT API (or its fake), because the match and the SteamIDs of its roster are loaded first; the
-parser knows the players by SteamID only. Through Nginx an upload may be up to 1 GB (see `DEMO_UPLOAD_MAX_SIZE`).
+Both the import and the upload need the FACEIT API (or its fake, or a cached answer of an earlier request): the match
+and the SteamIDs of its roster are loaded before anything else, because the parser knows the players by SteamID only,
+so an upload for a match FACEIT does not know is a `404 MATCH_NOT_FOUND`. The upload replaces only the download of the
+demo file. Through Nginx an upload may be up to 1 GB (see `DEMO_UPLOAD_MAX_SIZE`).
 
 ### Try it without a FACEIT key
 
@@ -274,8 +286,11 @@ The backend exports Micrometer metrics at `/actuator/prometheus`, among them the
 | Metric (Prometheus name) | Meaning |
 | --- | --- |
 | `demo_pipeline_stage_duration_seconds_count`, `_sum`, `_max` (`stage="import"`) | How long an import took, from taking over the message to the announcement on `demo.parse`, failed imports included. |
-| `demo_pipeline_failed_total` (`stage` = `import`, `parse` or `analyze`) | Demos the backend marked `FAILED`: the import worker for a rejected download, the dead-letter listener for a message that failed three times in that stage. A parse failure that the parser itself records is not counted here; watch the dead-letter queue instead. |
-| `demo_pipeline_parsed_total` | `demo.parsed` messages received for a `PARSED` demo. |
+| `demo_pipeline_failed_total` (`stage` = `import`, `parse` or `analyze`) | Demos that went to `FAILED`, each counted once, in the stage it failed in. `import`: a rejected download, a dead letter from `demo.import`, and a demo whose `demo.import` or `demo.parse` message could not be published because the broker was unavailable. `parse`: the parser's own failures (it records `FAILED` and rejects the message; the backend counts the rejection when it reads the dead letter) and a dead letter from `demo.parse` for a demo that was still `STORED`. `analyze`: a dead letter from `demo.parsed`. A demo set to `FAILED` by hand in the database is not counted. |
+| `demo_pipeline_parsed_total` | `demo.parsed` messages received for a `PARSED` demo (also counted: a message whose demo could not be looked up because the database was unavailable at that moment, which is logged as a warning and acknowledged). |
+
+The meters live in the backend's memory and start from 0 after a restart; `rate()` and `increase()` in Prometheus
+allow for that.
 
 The length of the queues, the dead-letter queue `demo.dlq` and the consumers come from RabbitMQ's own Prometheus
 endpoint (port `15692`, the `rabbitmq_prometheus` plugin the `rabbitmq:4-management` image enables). Prometheus reads
@@ -295,17 +310,27 @@ Without the password the `grafana` service stops at once with the message `GRAFA
 `docker compose --profile observability down` (a `down` without the profile leaves these two containers running).
 Grafana has the Prometheus data source from its first start; no dashboards are provisioned yet.
 
+Grafana keeps the admin password of its first start in the `grafanadata` volume, so changing `GRAFANA_ADMIN_PASSWORD`
+later does not change the password of an existing Grafana. Set a new one with
+`docker compose --profile observability exec grafana grafana cli admin reset-admin-password <new>`, or remove the
+volume (`docker compose --profile observability down`, then `docker volume rm <project>_grafanadata`, where `<project>`
+is the name Compose gives the stack, `csfaceit` by default) and start again; whatever you built in Grafana goes with it.
+Prometheus keeps its data (15 days) in the `prometheusdata` volume.
+
 ### Local addresses
 
-All of them are published on `127.0.0.1` only.
+The infrastructure and the observability tools are published on `127.0.0.1` only: they are reachable from this machine
+and not from the network. The web UI follows `WEB_PORT` and the files you start with: `docker-compose.yml` publishes it
+on all interfaces (`"${WEB_PORT:-3000}:80"`), and `docker-compose.fake.yml`, whose admin key is public, narrows it to
+`127.0.0.1`.
 
-| What | Address | Login |
-| --- | --- | --- |
-| Web UI and API | <http://localhost:3000> | `X-API-Key` for `POST` |
-| RabbitMQ management | <http://localhost:15672> | `RABBITMQ_USER` / `RABBITMQ_PASSWORD` (`guest` / `guest`) |
-| MinIO console (S3 API on `9000`) | <http://localhost:9001> | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` (`minioadmin` / `minioadmin`) |
-| Prometheus (profile `observability`) | <http://localhost:9090> | none; targets under Status -> Targets |
-| Grafana (profile `observability`) | <http://localhost:3001> | `admin` / `GRAFANA_ADMIN_PASSWORD` |
+| What | Address | Published on | Login |
+| --- | --- | --- | --- |
+| Web UI and API | <http://localhost:3000> | all interfaces (default stack), `127.0.0.1` (fake mode) | `X-API-Key` for `POST` |
+| RabbitMQ management | <http://localhost:15672> | `127.0.0.1` | `RABBITMQ_USER` / `RABBITMQ_PASSWORD` (`guest` / `guest`) |
+| MinIO console (S3 API on `9000`) | <http://localhost:9001> | `127.0.0.1` | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` (`minioadmin` / `minioadmin`) |
+| Prometheus (profile `observability`) | <http://localhost:9090> | `127.0.0.1` | none; targets under Status -> Targets |
+| Grafana (profile `observability`) | <http://localhost:3001> | `127.0.0.1` | `admin` / `GRAFANA_ADMIN_PASSWORD` |
 
 ## Operational notes
 

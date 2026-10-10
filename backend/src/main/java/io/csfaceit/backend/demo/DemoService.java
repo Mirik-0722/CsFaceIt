@@ -9,6 +9,7 @@ import io.csfaceit.backend.faceit.FaceitGateway;
 import io.csfaceit.backend.match.MatchRepository;
 import io.csfaceit.backend.match.MatchService;
 import io.csfaceit.backend.messaging.DemoImportWorker;
+import io.csfaceit.backend.messaging.DemoMetrics;
 import io.csfaceit.backend.messaging.DemoMessages;
 import io.csfaceit.backend.messaging.DemoMessages.DemoImportRequested;
 import io.csfaceit.backend.messaging.DemoStoredPublisher;
@@ -51,11 +52,12 @@ public class DemoService {
     private final StorageService storage;
     private final DemoStoredPublisher storedPublisher;
     private final DemoUploadProperties uploadProperties;
+    private final DemoMetrics metrics;
 
     public DemoService(MatchService matchService, MatchRepository matches, DemoRepository demos,
                        DemoPersistence persistence, AmqpTemplate amqp, FaceitGateway faceit,
                        RosterSteamIdMapper rosterSteamIds, StorageService storage, DemoStoredPublisher storedPublisher,
-                       DemoUploadProperties uploadProperties) {
+                       DemoUploadProperties uploadProperties, DemoMetrics metrics) {
         this.matchService = matchService;
         this.matches = matches;
         this.demos = demos;
@@ -66,6 +68,7 @@ public class DemoService {
         this.storage = storage;
         this.storedPublisher = storedPublisher;
         this.uploadProperties = uploadProperties;
+        this.metrics = metrics;
     }
 
     /**
@@ -100,13 +103,13 @@ public class DemoService {
      * Takes the demo file of the match from the caller instead of FACEIT. The file is stored as zstd whatever it came
      * as (raw, gzip or zstd), under the key the import worker uses, and the demo becomes STORED and is announced on
      * {@code demo.parse} once that is committed. A manual upload stores from any status, so it also repairs a FAILED
-     * import and, deliberately, parses a PARSED or ANALYZED demo again. An import that is still downloading does
-     * not overwrite the demo row afterwards (the worker checks that the demo is still QUEUED before it stores its
-     * file, and {@link DemoPersistence#markStored} needs it to be QUEUED); only an upload that lands exactly between
-     * that check and the worker's {@code put} can still have its object replaced, see {@link DemoPersistence#restore}.
-     * The match is loaded from FACEIT and stored
-     * first, and its roster's SteamIDs are mapped, before the file is looked at. Every temporary file is deleted,
-     * whatever happens.
+     * import and, deliberately, parses a PARSED or ANALYZED demo again. An import that is still downloading never
+     * overwrites the demo row afterwards (the worker checks that the demo is still QUEUED before it stores its file,
+     * and {@link DemoPersistence#markStored} needs it to be QUEUED). The uploaded object is less safe: the import's
+     * file replaces it when the import's check ran before the upload committed and the import's {@code put} ran
+     * after the upload's own {@code put} (see {@link DemoPersistence#restore}). The match is loaded from FACEIT and
+     * stored first, and its roster's SteamIDs are mapped, before the file is looked at. Every temporary file is
+     * deleted, whatever happens.
      *
      * @param content the file, already known to be non-empty and to have a demo's file name; it is read once and not
      *        closed here
@@ -171,7 +174,8 @@ public class DemoService {
 
     /**
      * Publishes the import request. When that fails the row is already committed as QUEUED with nothing to process
-     * it, so it is marked FAILED (the next import request queues it again) and the failure reaches the caller.
+     * it, so it is marked FAILED (the next import request queues it again), counted as a failed import, and the
+     * failure reaches the caller.
      */
     private void publishImport(long demoId, String faceitMatchId, String demoUrl) {
         try {
@@ -181,7 +185,9 @@ public class DemoService {
             log.error("Could not publish {} for demo {} of match {}, marking the demo FAILED", DemoMessages.Q_IMPORT,
                     demoId, faceitMatchId, e);
             try {
-                persistence.failUnpublished(demoId);
+                if (persistence.failUnpublished(demoId)) {
+                    metrics.failed(DemoMetrics.STAGE_IMPORT);
+                }
             } catch (RuntimeException markFailure) {
                 log.error("Could not mark demo {} FAILED; it stays QUEUED without a message", demoId, markFailure);
                 e.addSuppressed(markFailure);

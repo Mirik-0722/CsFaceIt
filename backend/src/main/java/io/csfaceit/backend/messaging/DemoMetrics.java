@@ -19,10 +19,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class DemoMetrics {
 
-    /** Downloading, storing and announcing a demo. */
+    /**
+     * Queueing the import, downloading, storing and announcing a demo: a demo that could not be queued or announced
+     * because the broker was unavailable counts here too.
+     */
     public static final String STAGE_IMPORT = "import";
 
-    /** Parsing a stored demo (the Rust worker). */
+    /**
+     * Parsing a stored demo (the Rust worker, which records its failures itself; the dead-letter listener counts them).
+     */
     public static final String STAGE_PARSE = "parse";
 
     /** Working on a parsed demo (the analysis of a later sub-project). */
@@ -63,7 +68,7 @@ public class DemoMetrics {
         sample.stop(importDuration);
     }
 
-    /** Counts a demo that has been marked FAILED in {@code stage}. */
+    /** Counts a demo that went to FAILED in {@code stage}; every such transition is counted once. */
     public void failed(String stage) {
         failedCounter(stage).increment();
     }

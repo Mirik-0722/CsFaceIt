@@ -25,15 +25,17 @@ public class DemoStoredPublisher {
 
     private final AmqpTemplate amqp;
     private final DemoPersistence persistence;
+    private final DemoMetrics metrics;
 
-    public DemoStoredPublisher(AmqpTemplate amqp, DemoPersistence persistence) {
+    public DemoStoredPublisher(AmqpTemplate amqp, DemoPersistence persistence, DemoMetrics metrics) {
         this.amqp = amqp;
         this.persistence = persistence;
+        this.metrics = metrics;
     }
 
     /**
      * Publishes {@code demo.parse}. When that fails the demo is STORED with nobody to parse it, so it is marked FAILED
-     * (a new import request or upload queues it again) and the failure is thrown.
+     * (a new import request or upload queues it again), counted as a failed import, and the failure is thrown.
      */
     public void publish(long demoId, String faceitMatchId, String storageKey) {
         try {
@@ -43,7 +45,9 @@ public class DemoStoredPublisher {
             log.error("Could not publish {} for demo {} of match {}, marking the demo FAILED", DemoMessages.Q_PARSE,
                     demoId, faceitMatchId, e);
             try {
-                persistence.failIfStatus(demoId, DemoStatus.STORED, PARSE_PUBLISH_FAILED);
+                if (persistence.failIfStatus(demoId, DemoStatus.STORED, PARSE_PUBLISH_FAILED)) {
+                    metrics.failed(DemoMetrics.STAGE_IMPORT);
+                }
             } catch (RuntimeException markFailure) {
                 log.error("Could not mark demo {} FAILED; it stays STORED without a parse message", demoId,
                         markFailure);

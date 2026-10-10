@@ -96,10 +96,12 @@ public class DemoPersistence {
     /**
      * Marks a demo whose import message could not be published as FAILED, so that the next import request queues
      * it again. A demo that is no longer QUEUED has moved on and is left alone.
+     *
+     * @return whether the demo was marked
      */
     @Transactional
-    public void failUnpublished(long demoId) {
-        failIfStatus(demoId, DemoStatus.QUEUED, PUBLISH_FAILED);
+    public boolean failUnpublished(long demoId) {
+        return failIfStatus(demoId, DemoStatus.QUEUED, PUBLISH_FAILED);
     }
 
     /**
@@ -150,13 +152,16 @@ public class DemoPersistence {
     /**
      * Records that a file the caller put in storage by hand is the demo of the match: the demo becomes STORED with
      * {@code storageKey} whatever its status is (see {@link Demo#restore}), and a match without a demo gets one. The
-     * row is locked, so this and an import of the same demo take their turns, and the row ends up as the upload left
-     * it: an import that is still downloading finds the demo no longer QUEUED when it asks before storing its file
-     * ({@link #isQueued}) and drops the file, and {@link #markStored} refuses to touch a demo that is not QUEUED. The
-     * file in storage is a different matter: an upload that lands between that question and the import's
-     * {@code put} can still have its object overwritten by the downloaded one, because storage and database are
-     * not changed in one step. The row stays correct (STORED, announced for parsing), but the object under the key
-     * may then be the downloaded file.
+     * row is locked, so this and an import of the same demo take their turns, and an import never overwrites what this
+     * has written to the row: once this has committed, an import that asks {@link #isQueued} is told no and drops its
+     * downloaded file, and its {@link #markStored} finds the demo no longer QUEUED and changes nothing.
+     *
+     * <p>The object under the storage key is not protected the same way, because storage and database cannot be
+     * changed in one step. The uploaded object is lost, replaced by the downloaded file, when the import's
+     * {@code isQueued} check ran before this method committed (the demo was still QUEUED) and the import's
+     * {@code put} ran after the upload's own {@code put}: upload {@code put}, import {@code isQueued}, import
+     * {@code put}, upload commit. The row is then correct (STORED, announced for parsing), but the file the parser
+     * reads is the downloaded one.
      *
      * @return the demo as it is now
      */
