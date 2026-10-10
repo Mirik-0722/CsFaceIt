@@ -114,8 +114,9 @@ Open <http://localhost:3000> and search for `s1mple`. The admin key for protecte
 (`X-API-Key` header); because it is public, this mode publishes the web port on `127.0.0.1` only. Stop it with
 `docker compose -f docker-compose.yml -f docker-compose.fake.yml down`.
 The fake ids, what it serves and how to serve a real demo file are described in
-[`dev/fake-faceit/README.md`](dev/fake-faceit/README.md). The override needs Docker Compose 2.24.4 or newer, and
-`down` the stack before you switch between the real and the fake mode (see [Operational notes](#operational-notes)).
+[`dev/fake-faceit/README.md`](dev/fake-faceit/README.md). The override needs Docker Compose 2.24.4 or newer, and the
+stack has to be taken down with `down -v` before you switch between the real and the fake mode (see
+[Operational notes](#operational-notes)).
 
 ## Run in dev mode
 
@@ -127,7 +128,8 @@ and MinIO (with `STORAGE_TYPE=local` it does not need MinIO at all); the demo en
 docker compose up -d postgres redis
 #    To try the demo pipeline as well, start the broker, the object store and the parser too, and set
 #    STORAGE_TYPE=minio in your .env: the parser reads demos from MinIO only, so with the default STORAGE_TYPE=local
-#    a demo stays STORED. (The first build of the parser image takes several minutes.)
+#    it finds no file and marks the demo FAILED ("the stored file is missing"); a demo stays STORED only while no
+#    parser runs. (The first build of the parser image takes several minutes.)
 #    docker compose up -d --build postgres redis rabbitmq minio parser
 
 # 2. Backend on http://localhost:8080 (the shell must export the variables from .env)
@@ -217,12 +219,14 @@ The status of a demo is one of:
 | `ANALYZED` | Reserved for the analysis of a later sub-project; nothing sets it yet. |
 | `FAILED` | Something went wrong; `error` says what, in one sentence. Importing or uploading again starts over. |
 
-The allowed moves are `QUEUED` -> `STORED` -> `PARSED` -> `ANALYZED`, any status -> `FAILED`, and `FAILED` -> `QUEUED`
-(import again) or `STORED` (manual upload). A message that arrives late or twice never undoes progress: delivery is at
-least once, so every worker checks the status first. A message that fails in a backend listener (`demo.import`,
-`demo.parsed`) is tried three times, one second apart and then two, and then sent to the dead-letter queue `demo.dlq`.
+The allowed moves are `QUEUED` -> `STORED` -> `PARSED` -> `ANALYZED`, any status -> `FAILED`, `FAILED` -> `QUEUED`
+(import again), and, for a manual upload, any status -> `STORED` (a `PARSED` or `ANALYZED` demo is then parsed again).
+A message that arrives late or twice never undoes progress: delivery is at least once, so every worker checks the
+status first. A message that fails in a backend listener (`demo.import`, `demo.parsed`) is tried three times, one
+second apart and then two, and then sent to the dead-letter queue `demo.dlq`.
 The parser does not retry a demo it cannot parse: it records `FAILED` itself and rejects the `demo.parse` message on the
-first failure, which dead-letters it too (a storage or database outage is waited out instead, nothing is rejected).
+first failure, which dead-letters it too (a storage or database outage is waited out instead: the message goes back to
+the queue and nothing is dead-lettered).
 The backend marks a dead-lettered demo `FAILED` only if it is still in the status that queue's work starts from
 (`QUEUED` for `demo.import`, `STORED` for `demo.parse`, `PARSED` for `demo.parsed`), so a stale or made-up dead letter
 never undoes progress; a demo the parser has already marked `FAILED` is left as it is, and counted.
@@ -292,10 +296,13 @@ The backend exports Micrometer metrics at `/actuator/prometheus`, among them the
 The meters live in the backend's memory and start from 0 after a restart; `rate()` and `increase()` in Prometheus
 allow for that.
 
-The length of the queues, the dead-letter queue `demo.dlq` and the consumers come from RabbitMQ's own Prometheus
-endpoint (port `15692`, the `rabbitmq_prometheus` plugin the `rabbitmq:4-management` image enables). Prometheus reads
-its `/metrics/per-object` variant, which has a series for every queue, for example
-`rabbitmq_queue_messages_ready{queue="demo.dlq"}`; the plain `/metrics` adds the queues up.
+The length of the queues and the consumers come from RabbitMQ's own Prometheus endpoint (port `15692`, the
+`rabbitmq_prometheus` plugin the `rabbitmq:4-management` image enables). Prometheus reads its `/metrics/per-object`
+variant, which has a series for every queue, for example `rabbitmq_queue_messages_ready{queue="demo.parse"}` (demos
+waiting for the parser); the plain `/metrics` adds the queues up. The dead-letter queue `demo.dlq` is not a signal of
+failed demos: the backend's dead-letter listener empties it at once, so
+`rabbitmq_queue_messages_ready{queue="demo.dlq"}` reads 0 whenever the backend runs (it grows only while no backend
+is there to drain it). Watch `demo_pipeline_failed_total` for failed demos.
 
 Prometheus and Grafana are in the Compose profile `observability`, so a plain `docker compose up` does not start them.
 Set `GRAFANA_ADMIN_PASSWORD` (in `.env` or the environment) and add the profile:
@@ -340,15 +347,24 @@ on all interfaces (`"${WEB_PORT:-3000}:80"`), and `docker-compose.fake.yml`, who
   `RABBITMQ_PASSWORD`, `MINIO_ACCESS_KEY` or `MINIO_SECRET_KEY` later has no effect on the existing data and the
   backend can no longer log in; start over with `docker compose down -v` (this deletes the database, the queues and
   the stored demos too).
-- **Run `down` before switching between real and fake mode.** The two modes configure the same services differently
-  (the backend's FACEIT address and key, the published web port); `docker compose down`, then `up` with the other set
-  of files.
+- **Run `down -v` before switching between real and fake mode.** The two modes configure the same services differently
+  (the backend's FACEIT address and key, the published web port) and use the same volumes. `down` alone keeps them
+  (`pgdata`, `rabbitmqdata`, `miniodata`), so the fake players, the fake matches and the demo files and facts imported
+  through the fake would still be there in real mode. `docker compose down -v` removes them, and everything else they
+  hold; then `up` with the other set of files.
 - **The MinIO image.** `minio/minio` no longer exists on Docker Hub, which is why the default is `alpine/minio`, a
   community build of the MinIO server, pinned by tag and digest in `docker-compose.yml`. To run another build set
   `MINIO_IMAGE` (for example in `.env`) to a full image reference; the command, the ports and the volume stay as
   they are.
-- **A `QUEUED` demo whose message was lost** (the process died between the database commit and the publish, or the
-  queue was purged) can be queued again: repeat the import request after 10 minutes. Within 10 minutes the request
-  only reports the demo, because a download in progress also looks like that.
+- **A `QUEUED` demo whose message was lost** (the process died between the database commit and the publish, the queue
+  was purged, or the database was away for a few seconds while the import worker and then the dead-letter listener
+  gave up on the message, which leaves the demo neither `FAILED` nor counted) can be queued again: repeat the import
+  request after 10 minutes. Within 10 minutes the request only reports the demo, because a download in progress also
+  looks like that.
+- **A `STORED` demo that the parser never took** (its status stays `STORED` for much longer than a parse takes, and
+  `docker compose logs parser` has no line with its demo id, because its `demo.parse` message was lost) is announced
+  to the parser again when you repeat the import request once it has been untouched for 10 minutes; the answer is `202`
+  with the status `STORED`. Within 10 minutes the request only reports the demo, because a demo that waits behind
+  others looks the same. A demo whose file the retention job has removed is not announced; upload it again.
 - **Building the parser on the host needs `protoc`** (the protobuf compiler) and a one-time `./seed-protos.sh`; see
   [`parser/README.md`](parser/README.md). The Docker build needs neither.

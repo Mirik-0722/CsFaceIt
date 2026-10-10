@@ -35,7 +35,11 @@ public class MatchPersistence {
         this.players = players;
     }
 
-    /** Creates the {@code matches} row or updates its map and start/finish times. */
+    /**
+     * Creates the {@code matches} row or updates its map and start/finish times. A {@code null} map name (FACEIT
+     * names the map only once the veto has picked one) never erases the name already stored: the demo parser fills it
+     * from the demo for a match without a pick. A name from FACEIT replaces the stored one.
+     */
     @Transactional
     public void storeMatch(String matchId, String mapName, Instant startedAt, Instant finishedAt) {
         Match match = matches.findByFaceitMatchId(matchId).orElse(null);
@@ -43,7 +47,9 @@ public class MatchPersistence {
             matches.save(new Match(matchId, mapName, startedAt, finishedAt));
             return;
         }
-        match.setMapName(mapName);
+        if (mapName != null) {
+            match.setMapName(mapName);
+        }
         match.setStartedAt(startedAt);
         match.setFinishedAt(finishedAt);
         matches.save(match);

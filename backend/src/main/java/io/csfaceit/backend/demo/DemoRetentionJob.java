@@ -24,8 +24,9 @@ import org.springframework.stereotype.Component;
  *
  * <p>The storage is listed and deleted from with no transaction open; each update of a demo row is a short
  * transaction of its own ({@link DemoPersistence#clearStorageKey}). One file that cannot be handled is logged and
- * skipped; it never stops the run. A file that a manual upload replaces in the seconds between the listing and its
- * turn is removed with the old one (the upload then has to be repeated); runs are daily and the window is that short.
+ * skipped; it never stops the run. A file that a manual upload replaces after the listing and before that key's turn
+ * is removed with the old one (the upload then has to be repeated). That window is the whole run of the job, from the
+ * listing to the key's turn, so it grows with the number of expired files; the job runs once a day.
  */
 @Component
 public class DemoRetentionJob {

@@ -88,7 +88,7 @@ public class DemoMetrics {
 
     private Counter failedCounter(String stage) {
         return Counter.builder("demo.pipeline.failed")
-                .description("Demos marked FAILED by the backend, by the stage they failed in")
+                .description("Demos that went to FAILED, by the stage they failed in")
                 .tag(STAGE_TAG, stage)
                 .register(registry);
     }

@@ -9,9 +9,9 @@ import io.csfaceit.backend.faceit.FaceitGateway;
 import io.csfaceit.backend.match.MatchRepository;
 import io.csfaceit.backend.match.MatchService;
 import io.csfaceit.backend.messaging.DemoImportWorker;
-import io.csfaceit.backend.messaging.DemoMetrics;
 import io.csfaceit.backend.messaging.DemoMessages;
 import io.csfaceit.backend.messaging.DemoMessages.DemoImportRequested;
+import io.csfaceit.backend.messaging.DemoMetrics;
 import io.csfaceit.backend.messaging.DemoStoredPublisher;
 import io.csfaceit.backend.storage.StorageService;
 import java.io.EOFException;
@@ -75,9 +75,11 @@ public class DemoService {
      * Queues the import of the match's demo. The match is loaded from FACEIT and stored first (this also gives the
      * demo URL), then the {@code demos} row is created, or revived when its import FAILED or its message was lost
      * (it has been QUEUED for a long time without anything happening), and the {@code demo.import} message is
-     * published once that row is committed. A demo that is already QUEUED, recently, or further along is reported
-     * as it is, without a message, and without needing a demo URL. Repeating the request, also in parallel,
-     * therefore leaves one row and queues one message. The SteamIDs of the roster are stored first, so that they are
+     * published once that row is committed. A STORED demo that has been untouched for as long (the parser has not
+     * taken it, so its {@code demo.parse} message looks lost) is announced on {@code demo.parse} again, also without
+     * a demo URL, and answered as it is: STORED. A demo that is QUEUED or STORED only recently, or further along, is
+     * reported as it is, without a message, and without needing a demo URL. Repeating the request, also in parallel,
+     * therefore leaves one row and sends one message. The SteamIDs of the roster are stored first, so that they are
      * in place long before the stored demo reaches the parser.
      *
      * @throws NotFoundException {@code MATCH_NOT_FOUND}: FACEIT does not know the match
@@ -93,10 +95,15 @@ public class DemoService {
                 () -> persistence.queue(matchRowId, demoUrlAvailable))
                 .orElseThrow(() -> new ConflictException(DEMO_URL_UNAVAILABLE,
                         "FACEIT has no demo for match " + faceitMatchId));
-        if (queued.publish()) {
-            publishImport(queued.demo().getId(), faceitMatchId, demoUrl);
+        Demo demo = queued.demo();
+        switch (queued.publish()) {
+            case IMPORT -> publishImport(demo.getId(), faceitMatchId, demoUrl);
+            case PARSE -> publishParseAgain(demo, faceitMatchId);
+            case NOTHING -> {
+                // The demo is reported as it is.
+            }
         }
-        return toResponse(faceitMatchId, queued.demo());
+        return toResponse(faceitMatchId, demo);
     }
 
     /**
@@ -194,6 +201,17 @@ public class DemoService {
             }
             throw e;
         }
+    }
+
+    /**
+     * Announces a STORED demo whose {@code demo.parse} message looks lost ({@link DemoPersistence#queue} has touched
+     * it, so that no other request sends the message too). Like every publish this follows the commit. A failed
+     * publish is handled by {@link DemoStoredPublisher}: the demo is marked FAILED and the failure reaches the caller.
+     */
+    private void publishParseAgain(Demo demo, String faceitMatchId) {
+        log.warn("Demo {} of match {} has been STORED for a long time without being parsed; publishing {} again",
+                demo.getId(), faceitMatchId, DemoMessages.Q_PARSE);
+        storedPublisher.publish(demo.getId(), faceitMatchId, demo.getStorageKey());
     }
 
     /**

@@ -9,10 +9,11 @@ import org.springframework.amqp.core.AmqpTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Announces on {@code demo.parse} that a demo is in storage. Every way a demo becomes STORED ends here (the import
- * worker, a redelivered import message, a manual upload), so that they all handle a failed publish alike. The caller
- * calls this only after the STORED status has been committed: a parser that receives the message must find the demo
- * in the state the message is about.
+ * Announces on {@code demo.parse} that a demo is in storage. Every way a demo is announced for parsing ends here (the
+ * import worker after it stored the file, an import message that finds the demo already STORED, an import request
+ * that finds a STORED demo whose message looks lost, a manual upload), so that they all handle a failed publish alike.
+ * The caller calls this only after the STORED status has been committed: a parser that receives the message must find
+ * the demo in the state the message is about.
  */
 @Component
 public class DemoStoredPublisher {

@@ -17,8 +17,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.support.AmqpHeaders;
-import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 /**
@@ -29,10 +27,11 @@ import org.springframework.stereotype.Component;
  * <p>Delivery is at least once, so the same message can arrive twice; the first thing done is to claim the demo,
  * and a demo that is not QUEUED (already stored, failed, or further along) is left alone, with one exception: the
  * process can die after the STORED commit and before {@code demo.parse} is published, and the broker then delivers
- * the import message again, flagged as redelivered. A redelivered message that finds the demo STORED publishes
- * {@code demo.parse} again, so that the demo does not wait for a parser forever. A failure that may go away is
- * thrown, so that the listener container tries the message again and finally dead-letters it, which marks the demo
- * FAILED (see {@link DemoDlqListener}).
+ * the import message again. An import message that finds the demo STORED, redelivered or not, publishes
+ * {@code demo.parse} again, so that the demo does not wait for a parser forever. A second {@code demo.parse} does no
+ * harm: the parser discards a message whose demo is not STORED, and writes only if the demo is still as it was when
+ * its work began. A failure that may go away is thrown, so that the listener container tries the message again and
+ * finally dead-letters it, which marks the demo FAILED (see {@link DemoDlqListener}).
  */
 @Component
 public class DemoImportWorker {
@@ -60,16 +59,11 @@ public class DemoImportWorker {
     }
 
     @RabbitListener(queues = DemoMessages.Q_IMPORT)
-    public void onImportRequested(DemoImportRequested message,
-                                  @Header(AmqpHeaders.REDELIVERED) boolean redelivered) {
+    public void onImportRequested(DemoImportRequested message) {
         long demoId = message.demoId();
         Optional<ImportClaim> claim = persistence.claimForImport(demoId);
         if (claim.isEmpty()) {
-            if (redelivered) {
-                announceIfStored(demoId);
-            } else {
-                log.info("Ignoring {} for demo {}: it is not waiting for an import", DemoMessages.Q_IMPORT, demoId);
-            }
+            announceIfStored(demoId);
             return;
         }
         // The import stage is timed from the claim to the end of the work, whatever the outcome; a message that was
@@ -120,20 +114,19 @@ public class DemoImportWorker {
     }
 
     /**
-     * A redelivered import message for a demo that is no longer QUEUED: if the demo is STORED, the previous delivery
-     * most likely died before it published {@code demo.parse}, so that message is sent now. It may then reach the
-     * parser twice, which delivery at least once allows anyway. A demo in any other status (FAILED, or PARSED and
-     * further) needs nothing.
+     * An import message for a demo that is no longer QUEUED: if the demo is STORED, the delivery that stored it most
+     * likely died before it published {@code demo.parse}, or that message was lost since, so it is sent now. It may
+     * then reach the parser twice, which delivery at least once allows anyway. A demo in any other status (FAILED,
+     * or PARSED and further) needs nothing.
      */
     private void announceIfStored(long demoId) {
         Optional<StoredDemo> stored = persistence.findStored(demoId);
         if (stored.isEmpty()) {
-            log.info("Ignoring the redelivered {} for demo {}: it is not waiting for an import", DemoMessages.Q_IMPORT,
-                    demoId);
+            log.info("Ignoring {} for demo {}: it is not waiting for an import", DemoMessages.Q_IMPORT, demoId);
             return;
         }
         StoredDemo demo = stored.get();
-        log.warn("The redelivered {} for demo {} found it STORED; publishing {} again", DemoMessages.Q_IMPORT, demoId,
+        log.warn("The {} for demo {} found it STORED; publishing {} again", DemoMessages.Q_IMPORT, demoId,
                 DemoMessages.Q_PARSE);
         publishStored(demo.demoId(), demo.faceitMatchId(), demo.storageKey());
     }

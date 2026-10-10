@@ -127,6 +127,9 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    # The import worker and the dead-letter listener run inside the backend, so it is started again after a crash, like
+    # the parser.
+    restart: unless-stopped
 
   parser:
     # The Rust worker that parses the stored demos: it takes `demo.parse` messages, reads the demo from MinIO and

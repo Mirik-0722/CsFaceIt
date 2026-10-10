@@ -24,8 +24,10 @@ import org.springframework.stereotype.Component;
  * short transaction of {@link RosterSteamIdPersistence}.
  *
  * <p>FACEIT calls the SteamID of a roster player {@code game_player_id}. A roster entry without one is skipped without
- * a word; one whose value is not a SteamID (17 digits), that has no id or nickname, or that repeats a player or a
- * SteamID of the same roster, is skipped with a WARN. A bad entry never fails the others.
+ * a line of its own; one whose value is not a SteamID (17 digits), that has no id or nickname, or that repeats a
+ * player or a SteamID of the same roster, is skipped with a WARN. A bad entry never fails the others. Whatever the
+ * reasons, a call that finds fewer usable SteamIDs than the roster has players logs one more WARN with the two
+ * counts: the demo parser may then meet players it cannot look up by SteamID.
  */
 @Component
 public class RosterSteamIdMapper {
@@ -43,7 +45,12 @@ public class RosterSteamIdMapper {
 
     /** Stores the SteamIDs of the roster of {@code match}, creating the players that are not stored yet. */
     public void apply(FaceitMatch match) {
-        List<Entry> entries = entries(match);
+        Roster roster = roster(match);
+        List<Entry> entries = roster.entries();
+        if (entries.size() < roster.players()) {
+            log.warn("The roster of match {} has {} players, but only {} of them have a usable SteamID; the demo "
+                    + "parser may not find the others by SteamID", match.matchId(), roster.players(), entries.size());
+        }
         if (entries.isEmpty()) {
             return;
         }
@@ -54,19 +61,31 @@ public class RosterSteamIdMapper {
         }
     }
 
-    /** The usable roster entries, in the order of their FACEIT ids: players are always locked in the same order. */
-    private static List<Entry> entries(FaceitMatch match) {
+    /** What a match's roster yields: the usable entries, and how many players the roster lists. */
+    private record Roster(List<Entry> entries, int players) {
+    }
+
+    /**
+     * The usable roster entries, in the order of their FACEIT ids (players are always locked in the same order), and
+     * the number of players the roster lists.
+     */
+    private static Roster roster(FaceitMatch match) {
         if (match == null || match.teams() == null) {
-            return List.of();
+            return new Roster(List.of(), 0);
         }
         Map<String, Entry> byPlayer = new TreeMap<>();
         Set<String> steamIds = new HashSet<>();
+        int players = 0;
         for (FaceitMatchTeam team : match.teams().values()) {
             if (team == null || team.roster() == null) {
                 continue;
             }
             for (FaceitRosterPlayer player : team.roster()) {
-                if (player == null || player.gamePlayerId() == null || player.gamePlayerId().isBlank()) {
+                if (player == null) {
+                    continue;
+                }
+                players++;
+                if (player.gamePlayerId() == null || player.gamePlayerId().isBlank()) {
                     continue;
                 }
                 if (player.playerId() == null || player.playerId().isBlank() || player.nickname() == null
@@ -93,7 +112,7 @@ public class RosterSteamIdMapper {
                 byPlayer.put(player.playerId(), new Entry(player.playerId(), player.nickname(), steamId));
             }
         }
-        return List.copyOf(byPlayer.values());
+        return new Roster(List.copyOf(byPlayer.values()), players);
     }
 
     /**

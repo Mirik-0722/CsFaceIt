@@ -10,9 +10,11 @@ scrape_configs:
     static_configs:
       - targets: ["backend:8080"]
 
-  # RabbitMQ's own plugin (rabbitmq_prometheus, enabled in the image): queue lengths, the dead-letter queue, consumers.
+  # RabbitMQ's own plugin (rabbitmq_prometheus, enabled in the image): queue lengths and consumers.
   # /metrics/per-object, not /metrics: the plain endpoint adds all queues up into one number, this one has a series per
-  # queue (rabbitmq_queue_messages_ready{queue="demo.dlq"}).
+  # queue (rabbitmq_queue_messages_ready{queue="demo.parse"}). The dead-letter queue is no signal of failed demos: the
+  # backend's listener empties demo.dlq at once, so rabbitmq_queue_messages_ready{queue="demo.dlq"} reads 0 whenever
+  # the backend runs. Use demo_pipeline_failed_total of the backend job above for that.
   - job_name: rabbitmq
     metrics_path: /metrics/per-object
     static_configs:
