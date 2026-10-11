@@ -227,6 +227,17 @@ Reja bajarilayotganda chiqarilgan qarorlar. Yuqoridagi vazifa matnlari tahrirlan
 - **Highlight'lar faqat demo `ANALYZED` bo'lganda beriladi (Task 5):** ikkala highlight endpointi demosi boshqa holatdagi (yoki demosi yo'q) match uchun hech narsa qaytarmaydi. Highlight'lar faqat tahlil bilan almashtiriladi, shuning uchun fayl qayta yuklanganda yoki qayta parse yiqilganda eski to'plam o'qilib turardi; 5-reja kliplarni saqlangan fayldan shu ticklar bo'yicha kesadi, demak ko'rinib turgan highlight o'sha faylniki bo'lishi shart. Yig'ma statistika endpointiga bu qoida tegmaydi.
 - **O'qish tomoni `JdbcClient` SQL (Task 5):** `HighlightRepository` ga o'qish so'rovlari qo'shilmadi — JPQL proyeksiyasi `rounds` va `round_players` ga yetolmaydi.
 - **Frontend (Task 6):** demo panelidagi uchta amal "Boshqarish" tugmasi ortida (holat hammaga ko'rinadi); qayta tahlildan keyin sahifa 30 soniya demo holatini kuzatadi (`ANALYZED` demoda holat o'zgarmaydi); statistika kataklari telefonda ikki ustun; match sahifasi demo va highlight'larni match yuklangandan keyin so'raydi; highlight tegi matni yozilganidek ko'rsatiladi (`1v3 CLUTCH`).
+- **Yakuniy review'dan keyin (butun reja bo'yicha, 2026-10-12):**
+  - Qayta tahlil endi matchning yangi tahlilda yo'q o'yinchilarga tegishli tahlil qatorlarini (`rounds_played IS NOT NULL`) o'chiradi. Ilgari noto'g'ri fayl yuklanib keyin tuzatilsa, boshqa match o'yinchilarining profilida soxta match qolib ketardi.
+  - Hech bir round tarkibi yozilmagan faktlar (V3 dan oldingi parse, eski parser, pozitsiyalar o'qilmagan demo) tahlil qilinmaydi: demo `PARSED` qoladi va xatosi "The demo was parsed without round rosters: upload the demo file again" bo'ladi; qayta urinish va dead letter yo'q. Bitta o'yinchi tarkibda yo'q bo'lgandagi zaxira qoidasi o'zgarmagan.
+  - `NINJA_DEFUSE` interfeysda `DEFUSE` yorlig'i va "raqib tirik paytida bomba zararsizlantirildi" matni bilan ko'rsatiladi: qoida pozitsiyalarsiz haqiqiy ninja defuse'ni oddiy defuse'dan ajrata olmaydi. API va bazadagi tur nomi o'zgarmagan.
+  - Highlight'dagi `kills` — klip oynasi ichidagi kill'lar (klipda ko'rinadigani), tegni bergan kill'lardan ko'p bo'lishi mumkin. Yangi migratsiya qo'shilmadi: highlight faqat kengaytirilgan ticklarini saqlaydi, shuning uchun `analysis.clip.pre-seconds`/`post-seconds` highlight kalitining bir qismi (5-reja uni `tick_start` bilan taniydi).
+  - Yig'ma ADR o'rtachasi ADR'i nol saqlangan qatorlarni hisobga olmaydi (FACEIT ADR bermagan match shunday saqlanadi).
+  - `HighlightQueryService.find(long highlightId)` qo'shildi — 5-reja bitta highlight'ni `ANALYZED` qoidasini chetlab o'tmasdan o'qishi uchun.
+  - Bir xil (tur, o'yinchi, round, tick) nomzodlar bir marta saqlanadi (bir o'q bilan ikki kill bitta lahza).
+  - O'yinchi sahifasida so'nggi 6 ta highlight (brifdagi 10 o'rniga): 10 ta karta uch ustunli to'rda bittasini yolg'iz qoldiradi.
+  - Demo panelida "FACEIT'dan olish" faqat demo yo'q yoki `FAILED` bo'lganda ko'rinadi (boshqa holatda backend so'rovni e'tiborsiz qoldiradi); tahlil tugmasi `PARSED` da "Tahlil qilish", `ANALYZED` da "Qayta tahlil qilish".
+  - Compose'da parser backend sog'lom bo'lgandan keyin ishga tushadi (Flyway migratsiyasi parserning birinchi xabaridan oldin tugashi uchun).
 - **Vazifalar tartibi:** Task 6 backend'ning 4–5-vazifalari bilan parallel, alohida worktree'da, Task 5 brifidagi DTO'larga qarab yozildi va Task 5 tugagach haqiqiy stack'da tekshirildi.
 
 ---
