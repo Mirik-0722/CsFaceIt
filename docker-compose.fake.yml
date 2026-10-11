@@ -1,0 +1,38 @@
+# Runs the whole stack without a FACEIT API key: the backend talks to a WireMock server that plays FACEIT.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.fake.yml up -d --build --wait
+#
+# See dev/fake-faceit/README.md for what the fake serves. This file only adds what differs from docker-compose.yml.
+services:
+  fake-faceit:
+    # Pinned to an exact version so the fake behaves the same everywhere.
+    image: wiremock/wiremock:3.13.2
+    # Published for local development only, and only on the loopback interface.
+    ports:
+      - "127.0.0.1:8089:8080"
+    volumes:
+      # WireMock reads its stubs from mappings/ and its response files from __files/ under /home/wiremock.
+      - ./dev/fake-faceit:/home/wiremock:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/__admin/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  backend:
+    environment:
+      FACEIT_BASE_URL: http://fake-faceit:8080
+      # Any non-blank value: the backend refuses to start without one, the fake does not check it.
+      FACEIT_API_KEY: fake
+      # Admin key of the demo stack (the X-API-Key header); override it by setting APP_API_KEY.
+      APP_API_KEY: ${APP_API_KEY:-dev-admin-key}
+    depends_on:
+      fake-faceit:
+        condition: service_healthy
+
+  frontend:
+    # The override ships a publicly documented admin key, so the web port is not reachable from the LAN in this mode.
+    # !override replaces the mapping of docker-compose.yml instead of adding a second one.
+    ports: !override
+      - "127.0.0.1:${WEB_PORT:-3000}:80"

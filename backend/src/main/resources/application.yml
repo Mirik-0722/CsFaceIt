@@ -1,0 +1,77 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/csfaceit}
+    username: ${DB_USER:csfaceit}
+    password: ${DB_PASSWORD:csfaceit}
+  jpa:
+    hibernate.ddl-auto: validate
+    open-in-view: false
+  # A manual demo upload is a multipart request; the one size below limits both the file and the whole request. Beyond
+  # it the API answers 413 with PAYLOAD_TOO_LARGE (see ApiExceptionHandler).
+  servlet.multipart:
+    max-file-size: ${demo.upload.max-size}
+    max-request-size: ${demo.upload.max-size}
+  data.redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    # The FACEIT cache is best effort, so Redis must fail fast; Lettuce's default command timeout is 60 s.
+    timeout: 500ms
+    connect-timeout: 500ms
+  # The connection is made on first use, so the backend starts while the broker is still coming up. The timeouts keep a
+  # request thread from hanging on a broker that is unreachable (connection-timeout) or that accepts connections but
+  # stops answering (channel-rpc-timeout bounds the broker's replies to calls such as opening a channel or declaring a
+  # queue, which default to 10 minutes; reply-timeout bounds a send that waits for a reply).
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    connection-timeout: 5s
+    channel-rpc-timeout: 5s
+    template.reply-timeout: 5s
+    # A listener handles one message at a time and can take minutes (a demo download), so it must not reserve more.
+    listener.simple.prefetch: 1
+faceit:
+  base-url: ${FACEIT_BASE_URL:https://open.faceit.com/data/v4}
+  api-key: ${FACEIT_API_KEY}
+  connect-timeout: 5s
+  read-timeout: 10s
+  # FACEIT's history endpoint answers only the last month unless a "from" timestamp is sent; this is how far back it reaches.
+  history-lookback: ${FACEIT_HISTORY_LOOKBACK:365d}
+  retry: { max-attempts: 3, initial-backoff: 200ms, multiplier: 2.0 }
+  cache: { player-ttl: 5m, history-ttl: 2m, match-ttl: 24h, unfinished-match-ttl: 30s, stale-ttl: 7d }
+app:
+  security.api-key: ${APP_API_KEY}
+  cors.allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+management:
+  endpoints.web.exposure.include: health,info,metrics,prometheus
+  # Redis is a best-effort cache here, so an outage must not turn /actuator/health (the container HEALTHCHECK) DOWN.
+  health.redis.enabled: false
+  # Likewise RabbitMQ only serves the demo import: with the broker down the rest of the API still works, so its outage
+  # must not turn /actuator/health DOWN either (the broker is also unreachable for a moment whenever it restarts).
+  health.rabbit.enabled: false
+# Where the demo files are kept: type "local" (a directory, for development) or "minio" (S3-compatible, the compose stack).
+storage:
+  type: ${STORAGE_TYPE:local}
+  local-dir: ${STORAGE_LOCAL_DIR:./data/storage}
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket: ${MINIO_BUCKET:csfaceit}
+demo:
+  download:
+    connect-timeout: 5s
+    # How long a download may stall: the longest silence between two reads of the response, not the whole transfer.
+    read-timeout: 120s
+    # The most a download may transfer, and the most a gzip demo may expand to.
+    max-size: 1GB
+  upload:
+    # The most a manual upload may be, and the most a gzip upload may expand to. Nginx has a limit of its own for the
+    # upload path (frontend/nginx.conf); keep the two in step.
+    max-size: ${DEMO_UPLOAD_MAX_SIZE:1GB}
+  # Stored demo files older than this many days are removed by a job that runs once a day (DemoRetentionJob); the parsed
+  # facts in the database stay. 0 switches the job off. The cron expression (Spring's six fields, server time) is
+  # normally left alone.
+  retention-days: ${DEMO_RETENTION_DAYS:30}
+  retention-cron: ${DEMO_RETENTION_CRON:0 0 4 * * *}

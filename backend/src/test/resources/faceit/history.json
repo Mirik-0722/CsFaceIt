@@ -1,0 +1,94 @@
+{
+  "items": [
+    {
+      "match_id": "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "game_id": "cs2",
+      "region": "EU",
+      "match_type": "",
+      "game_mode": "5v5",
+      "max_players": 10,
+      "teams_size": 5,
+      "teams": {
+        "faction1": {
+          "team_id": "fac10000-0000-4000-8000-000000000001",
+          "nickname": "team_A",
+          "type": "",
+          "players": [
+            {"player_id": "11111111-1111-1111-1111-111111111111", "nickname": "s1mple", "skill_level": 10},
+            {"player_id": "22222222-2222-2222-2222-222222222222", "nickname": "playerA2", "skill_level": 10},
+            {"player_id": "33333333-3333-3333-3333-333333333333", "nickname": "playerA3", "skill_level": 10},
+            {"player_id": "44444444-4444-4444-4444-444444444444", "nickname": "playerA4", "skill_level": 10},
+            {"player_id": "55555555-5555-5555-5555-555555555555", "nickname": "playerA5", "skill_level": 10}
+          ]
+        },
+        "faction2": {
+          "team_id": "fac10000-0000-4000-8000-000000000002",
+          "nickname": "team_B",
+          "type": "",
+          "players": [
+            {"player_id": "66666666-6666-6666-6666-666666666666", "nickname": "playerB1", "skill_level": 10},
+            {"player_id": "77777777-7777-7777-7777-777777777777", "nickname": "playerB2", "skill_level": 10},
+            {"player_id": "88888888-8888-8888-8888-888888888888", "nickname": "playerB3", "skill_level": 10},
+            {"player_id": "99999999-9999-9999-9999-999999999999", "nickname": "playerB4", "skill_level": 10},
+            {"player_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "nickname": "playerB5", "skill_level": 10}
+          ]
+        }
+      },
+      "competition_name": "5v5 RANKED",
+      "competition_type": "matchmaking",
+      "organizer_id": "faceit",
+      "status": "finished",
+      "started_at": 1700000000,
+      "finished_at": 1700002400,
+      "results": {"winner": "faction1", "score": {"faction1": 13, "faction2": 9}},
+      "faceit_url": "https://www.faceit.com/{lang}/cs2/room/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    },
+    {
+      "match_id": "1-bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+      "game_id": "cs2",
+      "region": "EU",
+      "match_type": "",
+      "game_mode": "5v5",
+      "max_players": 10,
+      "teams_size": 5,
+      "teams": {
+        "faction1": {
+          "team_id": "fac10000-0000-4000-8000-000000000001",
+          "nickname": "team_B",
+          "type": "",
+          "players": [
+            {"player_id": "66666666-6666-6666-6666-666666666666", "nickname": "playerB1", "skill_level": 10},
+            {"player_id": "77777777-7777-7777-7777-777777777777", "nickname": "playerB2", "skill_level": 10},
+            {"player_id": "88888888-8888-8888-8888-888888888888", "nickname": "playerB3", "skill_level": 10},
+            {"player_id": "99999999-9999-9999-9999-999999999999", "nickname": "playerB4", "skill_level": 10},
+            {"player_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "nickname": "playerB5", "skill_level": 10}
+          ]
+        },
+        "faction2": {
+          "team_id": "fac10000-0000-4000-8000-000000000002",
+          "nickname": "team_A",
+          "type": "",
+          "players": [
+            {"player_id": "11111111-1111-1111-1111-111111111111", "nickname": "s1mple", "skill_level": 10},
+            {"player_id": "22222222-2222-2222-2222-222222222222", "nickname": "playerA2", "skill_level": 10},
+            {"player_id": "33333333-3333-3333-3333-333333333333", "nickname": "playerA3", "skill_level": 10},
+            {"player_id": "44444444-4444-4444-4444-444444444444", "nickname": "playerA4", "skill_level": 10},
+            {"player_id": "55555555-5555-5555-5555-555555555555", "nickname": "playerA5", "skill_level": 10}
+          ]
+        }
+      },
+      "competition_name": "5v5 RANKED",
+      "competition_type": "matchmaking",
+      "organizer_id": "faceit",
+      "status": "finished",
+      "started_at": 1699990000,
+      "finished_at": 1699993000,
+      "results": {"winner": "faction1", "score": {"faction1": 16, "faction2": 14}},
+      "faceit_url": "https://www.faceit.com/{lang}/cs2/room/1-bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+    }
+  ],
+  "start": 0,
+  "end": 2,
+  "from": 0,
+  "to": 1700002400
+}

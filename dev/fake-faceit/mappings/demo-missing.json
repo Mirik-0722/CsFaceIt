@@ -1,0 +1,17 @@
+{
+  "name": "GET /demos/missing.dem",
+  "request": {
+    "method": "GET",
+    "urlPath": "/demos/missing.dem"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "error": "not_found",
+      "message": "The demo file does not exist"
+    }
+  }
+}

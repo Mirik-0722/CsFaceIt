@@ -1,0 +1,45 @@
+{
+  "match_id": "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "version": 5,
+  "game": "cs2",
+  "region": "EU",
+  "competition_name": "5v5 RANKED",
+  "competition_type": "matchmaking",
+  "organizer_id": "faceit",
+  "teams": {
+    "faction1": {
+      "faction_id": "fac10000-0000-4000-8000-000000000001",
+      "name": "team_A",
+      "type": "",
+      "roster": [
+        {"player_id": "11111111-1111-1111-1111-111111111111", "nickname": "s1mple", "game_skill_level": 10, "membership": "free"},
+        {"player_id": "22222222-2222-2222-2222-222222222222", "nickname": "playerA2", "game_skill_level": 10, "membership": "free"},
+        {"player_id": "33333333-3333-3333-3333-333333333333", "nickname": "playerA3", "game_skill_level": 10, "membership": "free"},
+        {"player_id": "44444444-4444-4444-4444-444444444444", "nickname": "playerA4", "game_skill_level": 10, "membership": "free"},
+        {"player_id": "55555555-5555-5555-5555-555555555555", "nickname": "playerA5", "game_skill_level": 10, "membership": "free"}
+      ]
+    },
+    "faction2": {
+      "faction_id": "fac10000-0000-4000-8000-000000000002",
+      "name": "team_B",
+      "type": "",
+      "roster": [
+        {"player_id": "66666666-6666-6666-6666-666666666666", "nickname": "playerB1", "game_skill_level": 10, "membership": "free"},
+        {"player_id": "77777777-7777-7777-7777-777777777777", "nickname": "playerB2", "game_skill_level": 10, "membership": "free"},
+        {"player_id": "88888888-8888-8888-8888-888888888888", "nickname": "playerB3", "game_skill_level": 10, "membership": "free"},
+        {"player_id": "99999999-9999-9999-9999-999999999999", "nickname": "playerB4", "game_skill_level": 10, "membership": "free"},
+        {"player_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "nickname": "playerB5", "game_skill_level": 10, "membership": "free"}
+      ]
+    }
+  },
+  "voting": {"voted_entity_types": ["map"], "map": {"entities": [{"guid": "de_mirage", "name": "Mirage"}, {"guid": "de_inferno", "name": "Inferno"}], "pick": ["de_mirage"]}},
+  "calculate_elo": true,
+  "configured_at": 1699999900,
+  "started_at": 1700000000,
+  "best_of": 1,
+  "status": "FINISHED",
+  "faceit_url": "https://www.faceit.com/{lang}/cs2/room/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "finished_at": 1700002400,
+  "results": {"winner": "faction1", "score": {"faction1": 13, "faction2": 9}},
+  "demo_url": ["https://demos.example/1.dem.gz"]
+}

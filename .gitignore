@@ -1,0 +1,12 @@
+.env
+backend/target/
+parser/target/
+# Where the backend keeps demo files when STORAGE_TYPE=local (the default); see backend/src/main/resources/application.yml
+backend/data/
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+# A real demo and its stub for the fake FACEIT (see dev/fake-faceit/README.md); demos are large and never committed
+dev/fake-faceit/__files/demos/local.dem
+dev/fake-faceit/mappings/local-*.json

@@ -1,0 +1,8 @@
+target/
+.env
+.env.*
+.idea/
+.vscode/
+*.iml
+# Demo files of a local run (STORAGE_TYPE=local) can be huge and are not part of the image
+data/

@@ -1,0 +1,236 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: csfaceit
+      POSTGRES_USER: ${DB_USER:-csfaceit}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-csfaceit}
+    # Published for local development only, and only on the loopback interface (the default password is public).
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8
+    # A cache must not grow without bound: evict the least recently used keys beyond 256 MB.
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    # RabbitMQ keeps its data in a directory named after the node, which is derived from the hostname; a fixed hostname
+    # lets a recreated container find the queues and messages of the previous one.
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    # Published for local development only, and only on the loopback interface (the default password is public).
+    # 5672 is AMQP, 15672 the management UI and API.
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  minio:
+    # The demo files live here (bucket MINIO_BUCKET). MinIO no longer publishes minio/minio on Docker Hub, so this is
+    # alpine/minio, which builds the community MinIO server from its source and tags it with the upstream release. It
+    # is a community image, so it is pinned by digest: a tag can be moved, the digest cannot. Set MINIO_IMAGE to run
+    # another build of the server.
+    image: ${MINIO_IMAGE:-alpine/minio:RELEASE.2025-10-15T17-29-55Z@sha256:cf23643a6cf9ce159c57643ceb88279e431262282428c9e0bf3a7ef1a97e84b4}
+    command: ["server", "/data", "--console-address", ":9001"]
+    # The image runs as an unprivileged user that cannot write to a fresh named volume (root owns it), so MinIO runs as
+    # root here, with every capability dropped. Development stack only.
+    user: "0:0"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    # Published for local development only, and only on the loopback interface (the default password is public).
+    # 9000 is the S3 API, 9001 the web console.
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  backend:
+    build: ./backend
+    # Settings are interpolated from the compose environment (.env or --env-file), not passed through with env_file:,
+    # so the host-oriented DB_URL, REDIS_HOST and CORS_ALLOWED_ORIGINS of a copied .env.example cannot leak in.
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/csfaceit
+      DB_USER: ${DB_USER:-csfaceit}
+      DB_PASSWORD: ${DB_PASSWORD:-csfaceit}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      # The demo files go to the minio service; the same credentials create the server and log the backend in.
+      STORAGE_TYPE: minio
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-csfaceit}
+      # The most a manual demo upload may be (a size such as 1GB). Nginx limits the upload path to 1 GB, see frontend/nginx.conf.
+      DEMO_UPLOAD_MAX_SIZE: ${DEMO_UPLOAD_MAX_SIZE:-1GB}
+      # Stored demo files older than this many days are deleted once a day (the parsed facts stay); 0 keeps them forever.
+      DEMO_RETENTION_DAYS: ${DEMO_RETENTION_DAYS:-30}
+      # When that clean-up runs: six fields (second minute hour day month weekday), server time. Normally left alone.
+      DEMO_RETENTION_CRON: "${DEMO_RETENTION_CRON:-0 0 4 * * *}"
+      # Required. Empty by default only so that `docker compose up postgres redis` works without a .env;
+      # the backend refuses to start with an empty FACEIT_API_KEY.
+      FACEIT_API_KEY: ${FACEIT_API_KEY:-}
+      # Overridable so that the stack can be pointed at a fake FACEIT.
+      FACEIT_BASE_URL: ${FACEIT_BASE_URL:-https://open.faceit.com/data/v4}
+      FACEIT_HISTORY_LOOKBACK: ${FACEIT_HISTORY_LOOKBACK:-365d}
+      APP_API_KEY: ${APP_API_KEY:-}
+      CORS_ALLOWED_ORIGINS: http://localhost:${WEB_PORT:-3000}
+    # Reachable only from other services of this stack (the Nginx in `frontend`); no host port.
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    # The import worker and the dead-letter listener run inside the backend, so it is started again after a crash, like
+    # the parser.
+    restart: unless-stopped
+
+  parser:
+    # The Rust worker that parses the stored demos: it takes `demo.parse` messages, reads the demo from MinIO and
+    # writes the facts to PostgreSQL. It serves nothing, so it has no port. Its settings are put together from the
+    # variables of the services it talks to; a password with a character that is special in a URL (@ : / ? # %)
+    # has to be percent-encoded in AMQP_URL and DATABASE_URL.
+    build: ./parser
+    environment:
+      AMQP_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/%2f
+      DATABASE_URL: postgres://${DB_USER:-csfaceit}:${DB_PASSWORD:-csfaceit}@postgres:5432/csfaceit
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${MINIO_BUCKET:-csfaceit}
+      S3_REGION: us-east-1
+      # The most a demo may be once decompressed, in bytes (2 GiB). A stored demo comes from an upload and could be
+      # a small file that expands without end; beyond this the demo is FAILED as too large.
+      PARSER_MAX_DEMO_BYTES: ${PARSER_MAX_DEMO_BYTES:-2147483648}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    # On a stop the worker finishes the demo it is parsing before it exits. A demo takes 1 to 3 seconds (24 to 41
+    # when the container was held to a fifth of a CPU core), so a minute is ample; Docker kills a worker that takes
+    # longer, and the broker then delivers its demo again.
+    stop_grace_period: 60s
+
+  # Metrics and dashboards. Both services are in the profile `observability`, so a plain `docker compose up` does not
+  # start them: add `--profile observability` (and set GRAFANA_ADMIN_PASSWORD).
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    profiles: ["observability"]
+    # The image's own command with the retention bounded; the scrape targets are in ops/prometheus/prometheus.yml.
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+    # Published for local development only, and only on the loopback interface (the query API has no login).
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    # Targets that are not up yet show as down until they are; Prometheus does not wait for them.
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      # No default on purpose: a password that is written in a public repository protects nothing. (Compose cannot be
+      # told to require the variable for this service only: `${VAR:?}` would also stop a plain `docker compose up`.)
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    # Without the password the container stops at once with a message instead of starting Grafana, whose own default
+    # is the password `admin`.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'if [ -z "$$GF_SECURITY_ADMIN_PASSWORD" ]; then echo "ERROR: GRAFANA_ADMIN_PASSWORD is not set. Grafana will not start with a default password; set it in .env or the environment (see README)." >&2; exit 1; fi; exec /run.sh'
+    # 3000 inside the container; 3001 on the host because 3000 is the web UI of this stack. Loopback only.
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      # The Prometheus data source, provisioned: Grafana has it from the first start.
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+        # Nginx resolves `backend` only when it starts, so it has to restart when the backend container is recreated.
+        restart: true
+
+volumes:
+  pgdata:
+  rabbitmqdata:
+  miniodata:
+  prometheusdata:
+  grafanadata:

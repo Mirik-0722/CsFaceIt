@@ -1,0 +1,369 @@
+{
+  "mappings": [
+    {
+      "name": "GET /matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "request": {
+        "method": "GET",
+        "urlPath": "/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "match_id": "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+          "version": 5,
+          "game": "cs2",
+          "region": "EU",
+          "competition_name": "5v5 RANKED",
+          "competition_type": "matchmaking",
+          "organizer_id": "faceit",
+          "teams": {
+            "faction1": {
+              "faction_id": "fac10000-0000-4000-8000-000000000001",
+              "name": "team_A",
+              "type": "",
+              "roster": [
+                {
+                  "player_id": "11111111-1111-1111-1111-111111111111",
+                  "nickname": "s1mple",
+                  "game_skill_level": 10,
+                  "membership": "free",
+                  "game_player_id": "76561198000000001"
+                },
+                {
+                  "player_id": "22222222-2222-2222-2222-222222222222",
+                  "nickname": "playerA2",
+                  "game_skill_level": 10,
+                  "membership": "free",
+                  "game_player_id": "76561198000000002"
+                },
+                {
+                  "player_id": "33333333-3333-3333-3333-333333333333",
+                  "nickname": "playerA3",
+                  "game_skill_level": 10,
+                  "membership": "free",
+                  "game_player_id": "76561198000000003"
+                },
+                {
+                  "player_id": "44444444-4444-4444-4444-444444444444",
+                  "nickname": "playerA4",
+                  "game_skill_level": 10,
+                  "membership": "free",
+                  "game_player_id": "76561198000000004"
+                },
+                {
+                  "player_id": "55555555-5555-5555-5555-555555555555",
+                  "nickname": "playerA5",
+                  "game_skill_level": 10,
+                  "membership": "free",
+                  "game_player_id": "76561198000000005"
+                }
+              ]
+            },
+            "faction2": {
+              "faction_id": "fac10000-0000-4000-8000-000000000002",
+              "name": "team_B",
+              "type": "",
+              "roster": [
+                {
+                  "player_id": "66666666-6666-6666-6666-666666666666",
+                  "nickname": "playerB1",
+                  "game_skill_level": 10,
+                  "membership": "free",
+                  "game_player_id": "76561198000000006"
+                },
+                {
+                  "player_id": "77777777-7777-7777-7777-777777777777",
+                  "nickname": "playerB2",
+                  "game_skill_level": 10,
+                  "membership": "free",
+                  "game_player_id": "76561198000000007"
+                },
+                {
+                  "player_id": "88888888-8888-8888-8888-888888888888",
+                  "nickname": "playerB3",
+                  "game_skill_level": 10,
+                  "membership": "free",
+                  "game_player_id": "76561198000000008"
+                },
+                {
+                  "player_id": "99999999-9999-9999-9999-999999999999",
+                  "nickname": "playerB4",
+                  "game_skill_level": 10,
+                  "membership": "free",
+                  "game_player_id": "76561198000000009"
+                },
+                {
+                  "player_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                  "nickname": "playerB5",
+                  "game_skill_level": 10,
+                  "membership": "free",
+                  "game_player_id": "76561198000000010"
+                }
+              ]
+            }
+          },
+          "voting": {
+            "voted_entity_types": [
+              "map"
+            ],
+            "map": {
+              "entities": [
+                {
+                  "guid": "de_mirage",
+                  "name": "Mirage"
+                },
+                {
+                  "guid": "de_inferno",
+                  "name": "Inferno"
+                }
+              ],
+              "pick": [
+                "de_mirage"
+              ]
+            }
+          },
+          "calculate_elo": true,
+          "configured_at": 1699999900,
+          "started_at": 1700000000,
+          "best_of": 1,
+          "status": "FINISHED",
+          "faceit_url": "https://www.faceit.com/{lang}/cs2/room/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+          "finished_at": 1700002400,
+          "results": {
+            "winner": "faction1",
+            "score": {
+              "faction1": 13,
+              "faction2": 9
+            }
+          },
+          "demo_url": [
+            "http://fake-faceit:8080/demos/sample.dem"
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/stats",
+      "request": {
+        "method": "GET",
+        "urlPath": "/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/stats"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "rounds": [
+            {
+              "best_of": "1",
+              "game_id": "cs2",
+              "game_mode": "5v5",
+              "match_id": "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+              "match_round": "1",
+              "played": "1",
+              "round_stats": {
+                "Map": "de_mirage",
+                "Region": "EU",
+                "Rounds": "22",
+                "Score": "13 / 9",
+                "Winner": "fac10000-0000-4000-8000-000000000001"
+              },
+              "teams": [
+                {
+                  "team_id": "fac10000-0000-4000-8000-000000000001",
+                  "premade": false,
+                  "team_stats": {
+                    "Team": "team_A",
+                    "Team Win": "1",
+                    "Final Score": "13",
+                    "First Half Score": "7",
+                    "Second Half Score": "6"
+                  },
+                  "players": [
+                    {
+                      "player_id": "11111111-1111-1111-1111-111111111111",
+                      "nickname": "s1mple",
+                      "player_stats": {
+                        "Kills": "25",
+                        "Deaths": "14",
+                        "Assists": "3",
+                        "Headshots": "12",
+                        "Headshots %": "48",
+                        "K/D Ratio": "1.79",
+                        "K/R Ratio": "1.14",
+                        "ADR": "95.4",
+                        "MVPs": "4",
+                        "Result": "1"
+                      }
+                    },
+                    {
+                      "player_id": "22222222-2222-2222-2222-222222222222",
+                      "nickname": "playerA2",
+                      "player_stats": {
+                        "Kills": "18",
+                        "Deaths": "13",
+                        "Assists": "5",
+                        "Headshots": "8",
+                        "Headshots %": "44",
+                        "K/D Ratio": "1.38",
+                        "K/R Ratio": "0.82",
+                        "ADR": "78.2",
+                        "MVPs": "3",
+                        "Result": "1"
+                      }
+                    },
+                    {
+                      "player_id": "33333333-3333-3333-3333-333333333333",
+                      "nickname": "playerA3",
+                      "player_stats": {
+                        "Kills": "15",
+                        "Deaths": "13",
+                        "Assists": "6",
+                        "Headshots": "7",
+                        "Headshots %": "47",
+                        "K/D Ratio": "1.15",
+                        "K/R Ratio": "0.68",
+                        "ADR": "70.1",
+                        "MVPs": "2",
+                        "Result": "1"
+                      }
+                    },
+                    {
+                      "player_id": "44444444-4444-4444-4444-444444444444",
+                      "nickname": "playerA4",
+                      "player_stats": {
+                        "Kills": "12",
+                        "Deaths": "12",
+                        "Assists": "4",
+                        "Headshots": "5",
+                        "Headshots %": "42",
+                        "K/D Ratio": "1.00",
+                        "K/R Ratio": "0.55",
+                        "ADR": "61.5",
+                        "MVPs": "2",
+                        "Result": "1"
+                      }
+                    },
+                    {
+                      "player_id": "55555555-5555-5555-5555-555555555555",
+                      "nickname": "playerA5",
+                      "player_stats": {
+                        "Kills": "10",
+                        "Deaths": "12",
+                        "Assists": "7",
+                        "Headshots": "4",
+                        "Headshots %": "40",
+                        "K/D Ratio": "0.83",
+                        "K/R Ratio": "0.45",
+                        "ADR": "55.3",
+                        "MVPs": "1",
+                        "Result": "1"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "team_id": "fac10000-0000-4000-8000-000000000002",
+                  "premade": false,
+                  "team_stats": {
+                    "Team": "team_B",
+                    "Team Win": "0",
+                    "Final Score": "9",
+                    "First Half Score": "5",
+                    "Second Half Score": "4"
+                  },
+                  "players": [
+                    {
+                      "player_id": "66666666-6666-6666-6666-666666666666",
+                      "nickname": "playerB1",
+                      "player_stats": {
+                        "Kills": "17",
+                        "Deaths": "17",
+                        "Assists": "4",
+                        "Headshots": "9",
+                        "Headshots %": "53",
+                        "K/D Ratio": "1.00",
+                        "K/R Ratio": "0.77",
+                        "ADR": "80.6",
+                        "MVPs": "2",
+                        "Result": "0"
+                      }
+                    },
+                    {
+                      "player_id": "77777777-7777-7777-7777-777777777777",
+                      "nickname": "playerB2",
+                      "player_stats": {
+                        "Kills": "14",
+                        "Deaths": "16",
+                        "Assists": "3",
+                        "Headshots": "6",
+                        "Headshots %": "43",
+                        "K/D Ratio": "0.88",
+                        "K/R Ratio": "0.64",
+                        "ADR": "71.9",
+                        "MVPs": "2",
+                        "Result": "0"
+                      }
+                    },
+                    {
+                      "player_id": "88888888-8888-8888-8888-888888888888",
+                      "nickname": "playerB3",
+                      "player_stats": {
+                        "Kills": "13",
+                        "Deaths": "16",
+                        "Assists": "5",
+                        "Headshots": "5",
+                        "Headshots %": "38",
+                        "K/D Ratio": "0.81",
+                        "K/R Ratio": "0.59",
+                        "ADR": "66.4",
+                        "MVPs": "2",
+                        "Result": "0"
+                      }
+                    },
+                    {
+                      "player_id": "99999999-9999-9999-9999-999999999999",
+                      "nickname": "playerB4",
+                      "player_stats": {
+                        "Kills": "11",
+                        "Deaths": "16",
+                        "Assists": "2",
+                        "Headshots": "4",
+                        "Headshots %": "36",
+                        "K/D Ratio": "0.69",
+                        "K/R Ratio": "0.50",
+                        "ADR": "58.7",
+                        "MVPs": "1",
+                        "Result": "0"
+                      }
+                    },
+                    {
+                      "player_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                      "nickname": "playerB5",
+                      "player_stats": {
+                        "Kills": "9",
+                        "Deaths": "15",
+                        "Assists": "6",
+                        "Headshots": "3",
+                        "Headshots %": "33",
+                        "K/D Ratio": "0.60",
+                        "K/R Ratio": "0.41",
+                        "ADR": "49.8",
+                        "MVPs": "1",
+                        "Result": "0"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

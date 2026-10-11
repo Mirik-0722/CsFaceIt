@@ -1,0 +1,17 @@
+{
+  "name": "GET /demos/forbidden.dem",
+  "request": {
+    "method": "GET",
+    "urlPath": "/demos/forbidden.dem"
+  },
+  "response": {
+    "status": 403,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "error": "forbidden",
+      "message": "The demo download link is not accessible"
+    }
+  }
+}
