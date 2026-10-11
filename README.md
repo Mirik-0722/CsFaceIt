@@ -177,6 +177,9 @@ the four [demo endpoints](#demo-pipeline) are described in their own section, an
 | `GET /api/v1/players/{playerId}/history?offset=0&limit=20` | A page of the player's matches (`offset` 0-1000, `limit` 1-100). |
 | `GET /api/v1/matches/{matchId}` | Match details: map, status, times, teams and winner. |
 | `GET /api/v1/matches/{matchId}/stats` | Per-team, per-player stats of a match. |
+| `GET /api/v1/matches/{matchId}/highlights?type=&playerId=` | The highlights the analysis found in the match's demo (see [Highlights and statistics](#highlights-and-statistics)). |
+| `GET /api/v1/players/{playerId}/highlights?type=&offset=0&limit=50` | A page of the player's highlights over all his analyzed matches, the newest match first (`offset` 0-10000, `limit` 1-100). |
+| `GET /api/v1/players/{playerId}/stats` | The player's statistics over the matches the backend has stored: K/D, HS%, ADR, KAST, entry and trade kills, clutch %, win rate. |
 
 ```bash
 curl "http://localhost:3000/api/v1/players?nickname=s1mple"
@@ -184,13 +187,16 @@ curl "http://localhost:3000/api/v1/players/<playerId>"
 curl "http://localhost:3000/api/v1/players/<playerId>/history?offset=0&limit=20"
 curl "http://localhost:3000/api/v1/matches/<matchId>"
 curl "http://localhost:3000/api/v1/matches/<matchId>/stats"
+curl "http://localhost:3000/api/v1/matches/<matchId>/highlights?type=K3"
+curl "http://localhost:3000/api/v1/players/<playerId>/highlights?offset=0&limit=10"
+curl "http://localhost:3000/api/v1/players/<playerId>/stats"
 ```
 
 Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls.
 
 | Status | `code` | When |
 | --- | --- | --- |
-| 400 | `VALIDATION_ERROR` | A nickname, id or paging parameter is malformed; for the upload also a bad file name, an empty or corrupt file, or a multipart body that is malformed or was cut off. |
+| 400 | `VALIDATION_ERROR` | A nickname, id, highlight `type` or paging parameter is malformed; for the upload also a bad file name, an empty or corrupt file, or a multipart body that is malformed or was cut off. |
 | 401 | `UNAUTHORIZED` | A protected request is missing a valid `X-API-Key` header. |
 | 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND`, `DEMO_NOT_FOUND` | FACEIT does not know the player or match, or the match has no demo record yet. |
 | 409 | `DEMO_URL_UNAVAILABLE`, `DEMO_NOT_PARSED` | A demo import was requested but FACEIT has no demo for the match (yet); or an analysis was requested but the demo is not `PARSED` or `ANALYZED`. |
@@ -406,7 +412,8 @@ rate)`, where the round's start and end are its `start_tick` and `end_tick` (an 
 which the parser's facts do not produce, is not stored). Every analysis replaces the highlights of
 the match as a whole, in the same transaction that stores the statistics: the earlier rows are deleted and the new ones
 inserted, so repeating an analysis leaves no duplicates, and an analysis that fails leaves the earlier highlights as they
-were.
+were. The API lists the highlights of a match only while its demo is `ANALYZED` (see
+[Highlights and statistics](#highlights-and-statistics)).
 
 The thresholds of the analysis are the `analysis` block of `backend/src/main/resources/application.yml`. They are
 validated when the backend starts (all must be positive) and are meant to be changed there, not in `.env`; Spring's
@@ -437,6 +444,84 @@ The one failure that leaves nothing on the demo is the database being unavailabl
 noted either: the dead letter is tried three times, then dropped with an `ERROR` line ("Dropping a dead-lettered
 message ..."), the demo stays as it was, with no `error`, and `demo_pipeline_failed_total` does not count it. Start the
 analysis again with `POST .../demo/analyze` once the database is back.
+
+### Highlights and statistics
+
+Three `GET` endpoints serve what the analysis stored. They are open (no key) and read the database only (nothing is
+asked of FACEIT). An id the database does not know is not an error: the lists are empty and the statistics say
+`matches: 0`. The examples use the Compose address; `<playerId>` is a FACEIT player id.
+
+| Endpoint | Answer |
+| --- | --- |
+| `GET /api/v1/matches/{matchId}/highlights?type=&playerId=` | An array of the highlights of the match, by round and, within a round, by the first tick of the clip. `type` (one of the highlight types above) and `playerId` narrow the list; both are optional. |
+| `GET /api/v1/players/{playerId}/highlights?type=&offset=0&limit=50` | `{"items": [...], "offset": 0, "limit": 50}`: a page of the highlights of the player over all his matches, the newest match first (a match with no start time last), then by round and clip. `type` as above, `offset` 0-10000, `limit` 1-100. |
+| `GET /api/v1/players/{playerId}/stats` | The statistics of the player over the matches the backend has stored. |
+
+```bash
+curl "http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/highlights"
+curl "http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/highlights?type=K3&playerId=<playerId>"
+curl "http://localhost:3000/api/v1/players/<playerId>/highlights?type=ACE&offset=0&limit=10"
+curl "http://localhost:3000/api/v1/players/<playerId>/stats"
+```
+
+**The list is empty until the demo is analyzed (again).** The highlights of a match are served only while its demo is
+`ANALYZED`. An analysis is the only thing that replaces them, so after the demo was uploaded again (it is `STORED`, then
+`PARSED`, then `ANALYZED`) or was parsed again and ended `FAILED`, the set of the earlier analysis is still in the
+table, but it was found in a file that is no longer the stored one, and a clip is cut from the stored file by these
+ticks. Until a new analysis has run, a match whose demo is in any other status, or that has no demo at all, gives `[]` on
+the match endpoint and adds nothing to the page of a player. The statistics endpoint is not affected.
+
+A `type` that is not one of the highlight types, an `offset` or `limit` out of range and a `playerId` that is not made of
+letters, digits and `-` are a `400 VALIDATION_ERROR`. A player known only from a demo has the id `steam:<SteamID>`, whose
+colon that rule does not allow: such a player cannot be asked for by id, and his highlights can only be read from the
+highlights of the match (where `playerId` is the `steam:` id).
+
+A highlight, here a `K3` (the player's id is shortened):
+
+```json
+{"id": 3, "type": "K3", "playerId": "...", "nickname": "garnet", "roundNumber": 5, "side": "CT",
+ "tickStart": 33246, "tickEnd": 35467, "roundStartTick": 32605, "roundEndTick": 38673, "durationSeconds": 35,
+ "kills": [{"tick": 33438, "weapon": "awp", "headshot": false, "victimNickname": "ashen"}, "..."],
+ "matchId": "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "mapName": "de_mirage", "startedAt": "2023-11-14T22:13:20Z"}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | The id of the highlight. It changes whenever the match is analyzed again, so do not keep it. |
+| `type` | One of the types in the table above. |
+| `playerId`, `nickname` | The player the highlight belongs to: his FACEIT id (`steam:<SteamID>` for a player known only from the demo) and nickname. |
+| `roundNumber` | The round of the demo, counted from 1. |
+| `side` | `"CT"` or `"T"`: the side the player played that round on, from his `round_players` row. `null` when there is no such row, as for a demo parsed before the roster of a round was recorded. |
+| `tickStart`, `tickEnd` | The clip, in ticks of the demo; both lie inside the round. |
+| `roundStartTick`, `roundEndTick` | The `start_tick` and `end_tick` of the round. |
+| `durationSeconds` | The length of the clip, `tickEnd - tickStart` over the tick rate of the demo (64 when it does not say), rounded to the nearest whole second. |
+| `kills` | The kills of an enemy the player made from `tickStart` to `tickEnd`, both included, in the order they happened (a team kill, a kill of oneself and a death by the world are not kills, as in the rest of the analysis). `weapon` is the weapon as the demo names it. The array is empty when the clip holds no such kill. Reading a page costs one more statement for the kills of all its highlights, not one for each. |
+| `matchId`, `mapName`, `startedAt` | The FACEIT match id, and the map and start time of the match, `null` while the match has none. |
+
+The statistics, here of a player with one analyzed match:
+
+```json
+{"playerId": "...", "matches": 1, "analyzedMatches": 1, "winRate": 100.0, "kd": 1.71, "hsPercent": 65.5, "adr": 117.4,
+ "kast": 83.3, "entryKillsPerMatch": 4.0, "tradeKillsPerMatch": 4.0, "clutchPercent": 0.0, "clutchAttempts": 2,
+ "clutchWins": 0}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `matches`, `analyzedMatches` | The matches the player has a row of statistics for, and how many of those were analyzed from a demo (`rounds_played` is set). The others hold FACEIT's own numbers only. |
+| `winRate` | The percent of the matches with a known result (`won`) that the player's team won. |
+| `kd` | All kills over all deaths (over 1 for a player who never died), with two decimals. |
+| `hsPercent` | The percent of all kills that were headshots, 0 without a kill. |
+| `adr` | The mean of the ADR of the matches that have one, with one decimal; a match counts once whatever its length. |
+| `kast` | The percent of the rounds played in the analyzed matches in which the player had a kill, an assist, survived or was traded: the KAST of each match weighted by the rounds he played in it. |
+| `entryKillsPerMatch`, `tradeKillsPerMatch` | The entry kills, and the trade kills, per analyzed match, with two decimals. |
+| `clutchPercent` | The percent of the player's clutches that his side won. Every situation in which he is the last of his side alive against an enemy is a clutch, so a few percent is normal. |
+| `clutchAttempts`, `clutchWins` | The clutches he played, and the ones his side won. |
+
+`kd`, `hsPercent` and `adr` use every row, FACEIT's numbers included; the other figures come from analyzed matches only.
+A percentage is 0 to 100 with one decimal. A figure with no data behind it is `null`, never 0: `winRate` while no result
+of the player is known, `adr` without a stored ADR, `kast` and the two per-match figures without an analyzed match and
+`clutchPercent` without a clutch. A player the database does not know has `matches: 0` and all of these `null`.
 
 ### Retention
 

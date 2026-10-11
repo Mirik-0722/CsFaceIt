@@ -38,8 +38,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 public class AnalysisPersistence {
 
-    /** The ticks per second of a demo whose parser could not tell; the parser itself falls back on the same value. */
-    static final int DEFAULT_TICK_RATE = 64;
+    /**
+     * The ticks per second of a demo whose parser could not tell; the parser itself falls back on the same value.
+     * Public because the read side of the highlights uses it to turn ticks into seconds.
+     */
+    public static final int DEFAULT_TICK_RATE = 64;
 
     /** The demo an analysis has taken over, as it was when it was read: {@code updatedAt} is its version. */
     public record Claim(long demoId, long matchRowId, String faceitMatchId, int tickRate, Instant updatedAt) {

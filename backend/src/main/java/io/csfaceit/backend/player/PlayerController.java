@@ -21,8 +21,8 @@ public class PlayerController {
     private static final String NICKNAME_MESSAGE = "must be 2-32 characters: letters, digits, '_' or '-'";
 
     /** FACEIT ids are UUID-like. They end up in Redis keys ({@code faceit:player:{id}}), so no punctuation. */
-    private static final String PLAYER_ID_PATTERN = "^[A-Za-z0-9-]{1,64}$";
-    private static final String PLAYER_ID_MESSAGE = "must be 1-64 characters: letters, digits or '-'";
+    public static final String PLAYER_ID_PATTERN = "^[A-Za-z0-9-]{1,64}$";
+    public static final String PLAYER_ID_MESSAGE = "must be 1-64 characters: letters, digits or '-'";
 
     /** FACEIT rejects a history offset above 1000 with a 400, which would otherwise surface as a 502. */
     private static final int MAX_HISTORY_OFFSET = 1000;
