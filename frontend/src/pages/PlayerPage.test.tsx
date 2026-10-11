@@ -19,13 +19,16 @@ const PLAYER_URL = '/api/v1/players/p1'
 const FIRST_PAGE_URL = '/api/v1/players/p1/history?offset=0&limit=20'
 const SECOND_PAGE_URL = '/api/v1/players/p1/history?offset=20&limit=20'
 
-/** `count` matches named `m{first}`, `m{first + 1}`, ... whose score is `13 : {id}`, so each row is distinguishable. */
+/**
+ * `count` matches named `m{first}`, `m{first + 1}`, ... whose score is `13 : {id}`, so each row is distinguishable.
+ * The list shows the player's own rounds first, so the 13 is the player's: a win up to 13 : 13, a loss above it.
+ */
 function matches(first: number, count: number): MatchSummary[] {
   return Array.from({ length: count }, (_, i) => ({
     matchId: `m${first + i}`,
     startedAt: '2026-10-01T10:00:00Z',
     finishedAt: '2026-10-01T10:45:00Z',
-    result: 'WIN',
+    result: first + i > 13 ? 'LOSS' : 'WIN',
     score: { faction1: 13, faction2: first + i },
   }))
 }

@@ -157,8 +157,8 @@ cd frontend && npm test -- --run
 # Install the browser once; the Vite dev server is started by the test run itself.
 cd frontend && npx playwright install chromium && npm run e2e
 
-# Frontend: screenshots of every page (several data scenarios, 1440 and 390 px wide, both languages)
-# into frontend/shots/, to compare the interface with the design spec.
+# Frontend: screenshots of every page into frontend/shots/, to compare the interface with the design spec:
+# several data scenarios at 1440 and 390 px in Uzbek, the default one in English as well.
 cd frontend && SHOTS=1 npx playwright test e2e/shots.spec.ts
 ```
 

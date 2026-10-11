@@ -5,10 +5,26 @@ import { useLocale, useT } from '@/i18n'
 import { formatDate } from '@/lib/formatDate'
 import type { MatchResult, MatchSummary } from '@/api/types'
 
-/** `13 : 9`, or an en dash when FACEIT reported no score for one of the factions. */
-function formatScore(score: Record<string, number>): string {
+/**
+ * `13 : 9` with the player's own rounds first, or an en dash when FACEIT reported no score for one of the factions.
+ * FACEIT orders the score by faction, not by player; the result tells the sides apart, because the winner has more
+ * rounds. Without a known result the order stays as FACEIT sent it.
+ */
+function formatScore(score: Record<string, number>, result: MatchResult): string {
   const { faction1, faction2 } = score
-  return typeof faction1 === 'number' && typeof faction2 === 'number' ? `${faction1} : ${faction2}` : '–'
+  if (typeof faction1 !== 'number' || typeof faction2 !== 'number') {
+    return '–'
+  }
+  const higher = Math.max(faction1, faction2)
+  const lower = Math.min(faction1, faction2)
+  switch (result) {
+    case 'WIN':
+      return `${higher} : ${lower}`
+    case 'LOSS':
+      return `${lower} : ${higher}`
+    default:
+      return `${faction1} : ${faction2}`
+  }
 }
 
 /** The result as a word in its colour; an unknown result is a neutral dash that screen readers hear in words. */
@@ -49,7 +65,7 @@ export default function MatchList({ items }: { items: MatchSummary[] }) {
             </time>
             <Result result={match.result} />
             <span className="font-mono text-[19px] leading-none font-semibold tabular-nums">
-              {formatScore(match.score)}
+              {formatScore(match.score, match.result)}
             </span>
             <ChevronRight aria-hidden="true" className="size-4 text-subtle" />
           </Link>

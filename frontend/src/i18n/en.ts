@@ -3,7 +3,8 @@
 // another language lacks is a compile error. Texts with a number in them are functions.
 export const en = {
   app: {
-    homeLink: 'CS2 FACEIT Analyzer',
+    // Not the old header text: the logo is the link now, and this follows the wordmark in the link's name.
+    homeLink: 'Home',
   },
   home: {
     eyebrow: 'CS2 · FACEIT analytics',

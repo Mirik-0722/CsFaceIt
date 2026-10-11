@@ -9,7 +9,8 @@ export default function LanguageSwitch() {
   const t = useT()
   const locale = useLocale()
   return (
-    <div role="group" aria-label={t.language.label} className="flex items-center">
+    // `ml-auto` keeps the buttons on the right when the top bar wraps them onto a row of their own.
+    <div role="group" aria-label={t.language.label} className="ml-auto flex items-center">
       {LOCALES.map((code) => (
         <Button
           key={code}

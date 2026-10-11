@@ -64,7 +64,7 @@ describe('MatchList', () => {
   })
 
   it('renders a 0 score', () => {
-    renderList([match({ score: { faction1: 0, faction2: 13 } })])
+    renderList([match({ score: { faction1: 0, faction2: 13 }, result: 'LOSS' })])
     expect(screen.getByText('0 : 13')).toBeInTheDocument()
   })
 

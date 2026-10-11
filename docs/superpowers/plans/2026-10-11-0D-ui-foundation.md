@@ -171,6 +171,18 @@ frontend/src/pages/{PlayerPage,MatchPage}.tsx, README.md                  #     
 - **Spec 8:** 3-reja T6 va 5-reja T6 matnlari shu reja bilan birga yangilangan (o'z fayllarida).
 - **Tiplar:** `Locale`, `Messages`, `useT`, `setLocale` — Task 1 da aniqlanadi, Task 2–3 da shu nomlar bilan ishlatiladi; `mapTile`/`mapScene`/`mapLabel` — Task 3.
 
+## Bajarish paytidagi qarorlar (2026-10-12)
+
+Reja matnidan farq qiladigan joylar; kod shu qarorlarga ko'ra yozilgan.
+
+- `lib/badgeStyles.ts` (`WIN_BADGE_CLASS`) olib tashlandi: g'alaba va g'olib `Badge variant="positive"` va `text-positive` bilan beriladi. `PLAYER_NOT_FOUND_MESSAGE` va `MATCH_NOT_FOUND_MESSAGE` eksportlari olib tashlandi — ularni hech kim ishlatmas edi.
+- `positive` va `negative` teglari chegarasi to'liq rangda (maketdagidek); jadval sarlavhasi kataklariga aniq vazn berildi.
+- Bosh sahifa havolasining nomi: `csfaceit · <t.app.homeLink>`, `en` da `Home` — ko'rinadigan yozuv nomning ichida bo'lishi uchun (WCAG 2.5.3). `<title>` va `theme-color` Task 2 da qo'shildi.
+- **Xatti-harakat o'zgarishi (Global Constraints'dan istisno):** match ro'yxatida hisob o'yinchi tomonidan ko'rsatiladi — o'z raundlari birinchi (natijadan aniqlanadi). Haqiqiy ma'lumotda g'alaba "11 : 13" ko'rinishida chiqqani uchun.
+- Scoreboard: D va A xira; tor ekranda o'yinchi ustuni va jamoa sarlavhasi joyida qoladi; yutqazgan jamoaning nomi va hisobi faqat match hal bo'lganda xira (`StatsTable` ga ixtiyoriy `lost`); `PlayerHeader` ga ixtiyoriy `size`.
+- Match holati (`FINISHED`, `ONGOING`) mono qatorda, teg emas.
+- Task 3 ni controller o'zi alohida worktree'da yozdi (foydalanuvchi ko'rsatmasi), review alohida agentda o'tdi.
+
 ## Yakunlash
 
 Uch vazifadan keyin butun branch bo'yicha yakuniy review, topilmalar bitta tuzatish to'lqini bilan yopiladi. So'ng yo'l xaritasiga holat yoziladi, `feature/highlights-stats` shu branch uchiga suriladi. Push — foydalanuvchi ochiq repozitoriy haqidagi savolga javob bergach.

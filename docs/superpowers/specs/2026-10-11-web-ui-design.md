@@ -89,7 +89,7 @@ Sans — `Geist Variable` (`@fontsource-variable/geist`, loyihada bor); mono —
 | `Button` | `default`: fon `--primary`; `outline`: shaffof, chegarasi `--line-strong`; `ghost`; `link`: tagiga chizilgan. O'lchamlar: 44px (yon 18px, 14px/600), `lg` 52px (yon 24px, 15px/600), `icon` 44×44. "Yozish" amalida matndan oldin 8px `--rec` nuqta | D |
 | `Badge` (teg) | 22px, mono 11px/600, 0.06em, bosh harflar. `default` (to'ldirilgan och) — faqat eng yuqori daraja uchun (ACE); `outline` (chegarasi `--ring`); `secondary` (chegarasi `--border`, matn `--muted-foreground`); `positive` va `negative` (kontur va rangli matn) | D |
 | `Input` | 44px (hero'da 52px), fon `--card`, chegarasi `--border`, placeholder `--subtle` | D |
-| Jadval (scoreboard) | panel (`--card`, chegarasi `--border`); sarlavha qatori 36px, mono yorliq; qatorlar 44px, ustida chiziq; ism 14px/500, raqamlar mono 13px, o'ngga tekislangan; K qalin; K/D 1 dan past bo'lsa `--muted-foreground` | D |
+| Jadval (scoreboard) | panel (`--card`, chegarasi `--border`); sarlavha qatori 36px, mono yorliq; qatorlar 44px, ustida chiziq; ism 14px/500, raqamlar mono 13px, o'ngga tekislangan; K qalin; D va A `--muted-foreground`; K/D 1 dan past bo'lsa `--muted-foreground`; tor ekranda jadval o'z qutisida suriladi, o'yinchi ustuni va jamoa sarlavhasi joyida qoladi | D |
 | Natija belgisi | "G'alaba" `--positive`, "Mag'lubiyat" `--negative`, har doim so'z bilan | D |
 | `MapTile` | xarita tusidagi kvadrat, 36 yoki 44px, chegarasi `--line-strong` | D |
 | `MatchScore` | `team_A 13 : 9 team_B`: hisob "katta hisob" o'lchamida; g'olib `--foreground`, yutqazgan `--subtle` | D |
@@ -132,8 +132,8 @@ Kirish, highlight va kliplar hali yo'q, shuning uchun D-reja faqat ishlab turgan
 
 - **Tepa panel:** logo (bosh sahifaga havola) va til tugmalari. Navigatsiya bandlari, qidiruv maydoni, balans va avatar o'z rejalari bilan keladi.
 - **Bosh sahifa (`/`):** hero uslubidagi qidiruv — mono yorliq, hero sarlavha, bir jumla izoh, nickname maydoni (52px) va "Qidirish" tugmasi (`lg`); pastida topilgan o'yinchi kartasi. Maketdagi marketing bo'limlari klip bo'lganda qo'shiladi.
-- **O'yinchi (`/players/:playerId`):** sarlavha (avatar yoki bosh harf, nickname, mamlakat, ELO mono, daraja tegi) va match tarixi: har qator — sana (mono), natija so'zi (rangda), hisob (mono 19px/600), o'ngda strelka; "Yana ko'rsatish" — `outline` tugma.
-- **Match (`/matches/:matchId`):** panel — `MapTile`, xarita nomi, mono qatorda sana va holat, statistika kelgach `MatchScore`; ostida har jamoa uchun scoreboard paneli (jamoa nomi, g'olib tegi, hisob mono 22px/600).
+- **O'yinchi (`/players/:playerId`):** sarlavha (avatar yoki bosh harf, nickname, mamlakat, ELO mono, daraja tegi) va match tarixi: har qator — sana (mono), natija so'zi (rangda), hisob (mono 19px/600, o'yinchining o'z raundlari birinchi: FACEIT hisobni jamoa tartibida beradi), o'ngda strelka; "Yana ko'rsatish" — `outline` tugma.
+- **Match (`/matches/:matchId`):** panel — `MapTile`, xarita nomi (26px/1.2/600, maketdagidek), mono qatorda xom xarita nomi, sana va holat (har biri alohida element), statistika kelgach `MatchScore`; ostida har jamoa uchun scoreboard paneli (jamoa nomi, g'olib tegi, hisob mono 22px/600).
 - **404:** sahifa sarlavhasi va bosh sahifaga havola.
 
 ## 7. Qulaylik

@@ -22,11 +22,13 @@ export default function MatchScore({ teams }: { teams: TeamStatsResponse[] }) {
         {first.name ?? t.stats.team}
       </span>
       <span className="order-first col-span-2 justify-self-center font-mono text-[clamp(44px,5vw,64px)] leading-none font-semibold whitespace-nowrap tabular-nums sm:order-none sm:col-span-1">
-        <span className={cn(lost(first) && 'text-subtle')}>{first.score}</span>
-        <span aria-hidden="true" className="mx-[0.25em] text-subtle">
-          :
+        {/* Read out as "13 : 9": the two big numbers stand side by side and would otherwise run into one. */}
+        <span className="sr-only">{`${first.score} : ${second.score}`}</span>
+        <span aria-hidden="true">
+          <span className={cn(lost(first) && 'text-subtle')}>{first.score}</span>
+          <span className="mx-[0.25em] text-subtle">:</span>
+          <span className={cn(lost(second) && 'text-subtle')}>{second.score}</span>
         </span>
-        <span className={cn(lost(second) && 'text-subtle')}>{second.score}</span>
       </span>
       <span
         className={cn('truncate text-right text-lg font-semibold sm:text-left', lost(second) && 'text-muted-foreground')}

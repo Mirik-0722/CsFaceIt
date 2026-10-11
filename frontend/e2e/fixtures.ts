@@ -26,7 +26,7 @@ export const playerFixture: PlayerResponse = {
   level: 10,
 }
 
-/** One page of history: a win (13 : 9) and a loss (16 : 14 for the other faction). */
+/** One page of history: a win (13 : 9) and a loss (16 : 14 for the other faction, shown as 14 : 16: the player's rounds first). */
 export const historyFixture: MatchHistoryResponse = {
   items: [
     {

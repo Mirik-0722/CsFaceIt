@@ -79,7 +79,7 @@ test('search -> profile -> match stats', async ({ page, api }) => {
     const matches = page.getByRole('link', { name: /\d+ : \d+/ })
     await expect(matches).toHaveCount(historyFixture.items.length)
     await expect(page.getByRole('link', { name: /13 : 9/ })).toContainText('WIN')
-    await expect(page.getByRole('link', { name: /16 : 14/ })).toContainText('LOSS')
+    await expect(page.getByRole('link', { name: /14 : 16/ })).toContainText('LOSS')
   })
 
   await test.step('open the match and read both scoreboards', async () => {
@@ -110,7 +110,7 @@ test('search -> profile -> match stats', async ({ page, api }) => {
     await expect(page).toHaveURL(`/players/${PLAYER_ID}`)
     await expect(page.getByText('ELO 3500')).toBeVisible()
     await expect(page.getByRole('link', { name: /13 : 9/ })).toBeVisible()
-    await expect(page.getByRole('link', { name: /16 : 14/ })).toBeVisible()
+    await expect(page.getByRole('link', { name: /14 : 16/ })).toBeVisible()
   })
 
   // Every fixture was used, so none of them is dead weight that would hide a missing request.

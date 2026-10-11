@@ -4,7 +4,6 @@ import { useMatch, useMatchStats } from '@/api/queries'
 import MapTile from '@/components/MapTile'
 import MatchScore from '@/components/MatchScore'
 import StatsTable from '@/components/StatsTable'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useT } from '@/i18n'
@@ -30,15 +29,15 @@ function MatchHeader({ match, teams }: { match: MatchResponse; teams: TeamStatsR
             <CardTitle className="truncate text-[26px] leading-[1.2] tracking-[-0.02em]">
               {mapLabel(match.mapName) ?? t.match.unknownMap}
             </CardTitle>
-            {(match.mapName || match.startedAt) && (
-              // The raw map name and the date are separate elements: each is one fact of its own.
+            {(match.mapName || match.startedAt || match.status) && (
+              // The raw map name, the date and the status are separate elements: each is one fact of its own.
               <div className="flex flex-wrap gap-x-3 font-mono text-xs text-subtle">
                 {match.mapName && <span>{match.mapName}</span>}
                 {match.startedAt && <time dateTime={match.startedAt}>{formatDate(match.startedAt, locale)}</time>}
+                {match.status && <span>{match.status}</span>}
               </div>
             )}
           </div>
-          {match.status && <Badge variant="secondary">{match.status}</Badge>}
         </div>
         {teams && <MatchScore teams={teams} />}
       </CardContent>
@@ -61,11 +60,13 @@ function StatsSkeleton() {
 function MatchStats({ stats }: { stats: UseQueryResult<MatchStatsResponse, ApiError> }) {
   const t = useT()
   if (stats.data) {
-    return stats.data.teams.length === 0 ? (
-      <p className="text-sm text-muted-foreground">{t.match.statsUnavailable}</p>
-    ) : (
-      stats.data.teams.map((team) => <StatsTable key={team.teamId} team={team} />)
-    )
+    const teams = stats.data.teams
+    if (teams.length === 0) {
+      return <p className="text-sm text-muted-foreground">{t.match.statsUnavailable}</p>
+    }
+    // A team is shown as the loser only when the other one won: without a winner neither is dimmed.
+    const decided = teams.length === 2 && teams[0].win !== teams[1].win
+    return teams.map((team) => <StatsTable key={team.teamId} team={team} lost={decided && !team.win} />)
   }
   if (stats.isError) {
     // The backend answers 404 for the stats of a match that is still being played; the match itself exists.
