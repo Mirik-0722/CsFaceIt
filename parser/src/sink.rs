@@ -1,6 +1,7 @@
 //! The database side of the worker: the status of a demo and the facts of its match. The tables belong to the backend
-//! (`V1__init.sql` and `V2__demo_pipeline.sql` there); the worker writes `rounds`, `kills`, `damages` and `heat_bins`,
-//! creates the players it does not find, and moves a demo from STORED to PARSED or FAILED.
+//! (its migrations `V1__init.sql`, `V2__demo_pipeline.sql` and `V3__analysis.sql`); the worker writes `rounds`,
+//! `round_players`, `kills`, `damages` and `heat_bins`, creates the players it does not find, and moves a demo from
+//! STORED to PARSED or FAILED.
 //!
 //! A demo can be stored again (a manual upload) while the worker is busy with its previous file, and the same message
 //! can arrive twice. So the worker remembers the `updated_at` of the demo when it starts, as a version, and writes only
@@ -40,6 +41,7 @@ pub struct DemoState {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Counts {
     pub rounds: usize,
+    pub round_players: usize,
     pub kills: usize,
     pub damages: usize,
     pub heat_bins: usize,
@@ -156,6 +158,10 @@ pub async fn write(
         .bind(match_id)
         .execute(&mut *tx)
         .await?;
+    sqlx::query("DELETE FROM round_players WHERE match_id = $1")
+        .bind(match_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("DELETE FROM rounds WHERE match_id = $1")
         .bind(match_id)
         .execute(&mut *tx)
@@ -167,20 +173,48 @@ pub async fn write(
             .map(|r| optional_player(r.defuser_steam_id))
             .collect::<Result<Vec<_>, _>>()?;
         sqlx::query(
-            "INSERT INTO rounds (match_id, round_number, winner_side, win_reason, start_tick, end_tick, \
+            "INSERT INTO rounds (match_id, round_number, winner_side, win_reason, start_tick, decided_tick, end_tick, \
              bomb_planted_tick, bomb_defused_tick, defuser_id) \
              SELECT $1::int8, * FROM UNNEST($2::int4[], $3::text[], $4::text[], $5::int4[], $6::int4[], $7::int4[], \
-             $8::int4[], $9::int8[])",
+             $8::int4[], $9::int4[], $10::int8[])",
         )
         .bind(match_id)
         .bind(rounds.iter().map(|r| r.round_number).collect::<Vec<_>>())
         .bind(rounds.iter().map(|r| r.winner_side.map(|side| side.as_str())).collect::<Vec<_>>())
         .bind(rounds.iter().map(|r| r.win_reason.as_deref()).collect::<Vec<_>>())
         .bind(rounds.iter().map(|r| r.start_tick).collect::<Vec<_>>())
+        .bind(rounds.iter().map(|r| r.decided_tick).collect::<Vec<_>>())
         .bind(rounds.iter().map(|r| r.end_tick).collect::<Vec<_>>())
         .bind(rounds.iter().map(|r| r.bomb_planted_tick).collect::<Vec<_>>())
         .bind(rounds.iter().map(|r| r.bomb_defused_tick).collect::<Vec<_>>())
         .bind(defusers)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    for round_players in facts.round_players.chunks(BATCH_ROWS) {
+        let members = round_players
+            .iter()
+            .map(|p| player(p.steam_id))
+            .collect::<Result<Vec<_>, _>>()?;
+        sqlx::query(
+            "INSERT INTO round_players (match_id, round_number, player_id, side) \
+             SELECT $1::int8, * FROM UNNEST($2::int4[], $3::int8[], $4::text[])",
+        )
+        .bind(match_id)
+        .bind(
+            round_players
+                .iter()
+                .map(|p| p.round_number)
+                .collect::<Vec<_>>(),
+        )
+        .bind(members)
+        .bind(
+            round_players
+                .iter()
+                .map(|p| p.side.as_str())
+                .collect::<Vec<_>>(),
+        )
         .execute(&mut *tx)
         .await?;
     }
@@ -292,6 +326,7 @@ pub async fn write(
 
     Ok(Written::Done(Counts {
         rounds: facts.rounds.len(),
+        round_players: facts.round_players.len(),
         kills: facts.kills.len(),
         damages: facts.damages.len(),
         heat_bins: bins.len(),
@@ -347,6 +382,7 @@ async fn resolve_players(
             .iter()
             .filter_map(|round| round.defuser_steam_id),
     );
+    steam_ids.extend(facts.round_players.iter().map(|player| player.steam_id));
     steam_ids.extend(bins.iter().map(|bin| bin.steam_id));
 
     let mut players: HashMap<u64, i64> = HashMap::new();

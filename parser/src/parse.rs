@@ -1,12 +1,13 @@
-//! Turns a CS2 demo file into facts: rounds, kills, damages and sampled positions. Nothing is interpreted here; what
-//! a kill or a round means for a player's statistics is the backend's business.
+//! Turns a CS2 demo file into facts: rounds, the players of every round, kills, damages and sampled positions. Nothing
+//! is interpreted here; what a kill or a round means for a player's statistics is the backend's business.
 //!
 //! The reading is done by the `parser` crate of <https://github.com/LaihoE/demoparser> (the core of demoparser2). It
 //! is asked twice. The first pass collects game events; every event carries the tick, the SteamID, name, team and
 //! position of the players it names, and the state of the game rules. The second pass collects the position of every
 //! player at the sampled ticks, because the crate gathers either events or per-tick values in one pass.
 
-use std::collections::HashMap;
+use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::fs::File;
 use std::io;
@@ -21,7 +22,7 @@ use demoparser::second_pass::parser_settings::create_huffman_lookup_table;
 use demoparser::second_pass::variants::{VarVec, Variant};
 use memmap2::Mmap;
 use prost::Message;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// What a demo says when it carries no playback information to derive the tick rate from. CS2 servers run at 64.
 pub const DEFAULT_TICK_RATE: i32 = 64;
@@ -88,6 +89,9 @@ pub struct Facts {
     pub player_names: HashMap<u64, String>,
     /// At least one, in the order they were played; the tick ranges do not overlap.
     pub rounds: Vec<Round>,
+    /// Who played each round, in the order of the rounds; a player is there once per round. Taken from the sampled
+    /// positions, so a demo without usable positions has none.
+    pub round_players: Vec<RoundPlayer>,
     pub kills: Vec<Kill>,
     pub damages: Vec<Damage>,
     pub positions: Vec<Position>,
@@ -102,12 +106,23 @@ pub struct Round {
     pub win_reason: Option<String>,
     /// The tick the freeze time ended, that is, the round went live.
     pub start_tick: i32,
+    /// The tick the round was decided: that of the `round_end` that closed it. Never before `start_tick` or after
+    /// `end_tick`.
+    pub decided_tick: i32,
     /// The last tick before the next round starts: the seconds after the round is decided belong to it, because the
     /// game still counts the kills made then.
     pub end_tick: i32,
     pub bomb_planted_tick: Option<i32>,
     pub bomb_defused_tick: Option<i32>,
     pub defuser_steam_id: Option<u64>,
+}
+
+/// A player who played a counted round, and the side the player was on in it.
+#[derive(Debug)]
+pub struct RoundPlayer {
+    pub round_number: i32,
+    pub steam_id: u64,
+    pub side: Side,
 }
 
 #[derive(Debug)]
@@ -150,8 +165,6 @@ pub struct Damage {
 /// Where a living player stood at a sampled tick of a counted round.
 #[derive(Debug)]
 pub struct Position {
-    /// Part of the fact, though the heat bins, the only use of a position so far, do not look at it.
-    #[allow(dead_code)]
     pub tick: i32,
     pub steam_id: u64,
     pub side: Side,
@@ -230,12 +243,14 @@ pub fn parse_demo(path: &Path) -> Result<Facts, ParseError> {
     drop(output);
 
     let positions = positions_of(&bytes, &huffman, &rounds)?;
+    let round_players = round_players_of(&positions, &rounds);
 
     Ok(Facts {
         tick_rate: tick_rate(&bytes).unwrap_or(DEFAULT_TICK_RATE),
         map_name,
         player_names,
         rounds,
+        round_players,
         kills,
         damages,
         positions,
@@ -474,7 +489,8 @@ fn rounds_of(events: &[GameEvent]) -> Vec<Round> {
                 if let Some(decided_at) = open.decided_at {
                     if event.tick <= decided_at.saturating_add(SAME_ROUND_END_TICKS) {
                         // The same round end reported twice (a demo can carry the game event and also be given
-                        // the one made up from the game rules): keep the first, take from the second what it lacks.
+                        // the one made up from the game rules): keep the first, whose tick is the one the round
+                        // was decided at, and take from the second what it lacks.
                         if let Some(last) = rounds.last_mut() {
                             last.winner_side = last.winner_side.or(winner_side);
                             last.win_reason = last.win_reason.take().or(win_reason);
@@ -507,6 +523,8 @@ fn rounds_of(events: &[GameEvent]) -> Vec<Round> {
                     winner_side,
                     win_reason,
                     start_tick,
+                    decided_tick: event.tick,
+                    // Moved on once the start of the next round, or the end of the match, is seen.
                     end_tick: event.tick,
                     bomb_planted_tick: open.bomb_planted,
                     bomb_defused_tick: open.bomb_defused,
@@ -730,7 +748,8 @@ fn positions_of(
         column("Y"),
     )
     else {
-        debug!("the demo has no usable player positions");
+        // The demo is parsed all the same, with its rounds, kills and damages.
+        warn!("the demo has no usable player positions: it gets no movement heat bins and no round players");
         return Ok(vec![]);
     };
     let rows = ticks
@@ -768,6 +787,51 @@ fn positions_of(
         });
     }
     Ok(positions)
+}
+
+/// Who played each counted round, and on which side: every player that has a sampled position in the round, with the
+/// side of the earliest one. In the order of the rounds and, within a round, of the SteamIDs.
+///
+/// Only the living are sampled, so a player who died before the first sampled tick of a round is not among its
+/// players, and a round too short to hold a sampled tick has none.
+fn round_players_of(positions: &[Position], rounds: &[Round]) -> Vec<RoundPlayer> {
+    // Per round and player, the earliest sampled tick the player is seen at and the side then. The rows are not
+    // relied on to come in tick order.
+    let mut first_seen: BTreeMap<(i32, u64), (i32, Side)> = BTreeMap::new();
+    let mut on_both_sides: BTreeSet<(i32, u64)> = BTreeSet::new();
+    for position in positions {
+        let Some(round) = round_at(rounds, position.tick) else {
+            continue;
+        };
+        let key = (round.round_number, position.steam_id);
+        match first_seen.entry(key) {
+            Entry::Vacant(entry) => {
+                entry.insert((position.tick, position.side));
+            }
+            Entry::Occupied(mut entry) => {
+                let (tick, side) = *entry.get();
+                if position.side != side {
+                    on_both_sides.insert(key);
+                }
+                if position.tick < tick {
+                    entry.insert((position.tick, position.side));
+                }
+            }
+        }
+    }
+    debug!(
+        round_players = first_seen.len(),
+        on_both_sides = on_both_sides.len(),
+        "round players taken from the sampled positions; a player seen on both sides in a round keeps the first"
+    );
+    first_seen
+        .into_iter()
+        .map(|((round_number, steam_id), (_, side))| RoundPlayer {
+            round_number,
+            steam_id,
+            side,
+        })
+        .collect()
 }
 
 /// The tick rate, from the file information the demo header points to: the ticks played divided by the seconds played.

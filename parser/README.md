@@ -1,14 +1,15 @@
 # Demo parser worker
 
 A Rust worker that turns a stored CS2 demo into raw facts. It consumes `demo.parse` from RabbitMQ, reads the demo from
-the S3-compatible storage (MinIO), parses it and writes rounds, kills, damages and position heat bins to PostgreSQL,
-then publishes `demo.parsed`. It shares nothing with the backend but those three services, and it only reports what
-the demo says: highlights and statistics are computed elsewhere.
+the S3-compatible storage (MinIO), parses it and writes rounds, the players of every round, kills, damages and
+position heat bins to PostgreSQL, then publishes `demo.parsed`. It shares nothing with the backend but those three
+services, and it only reports what the demo says: highlights and statistics are computed elsewhere.
 
 ```
 demo.parse {demoId, faceitMatchId, storageKey}
    -> download demos/<match>.dem.zst to a temporary file -> decompress (zstd) -> parse -> heat bins
-   -> one transaction: players, rounds, kills, damages, heat_bins, matches.map_name, demos.status = PARSED
+   -> one transaction: players, rounds, round_players, kills, damages, heat_bins, matches.map_name,
+      demos.status = PARSED
    -> demo.parsed {demoId, faceitMatchId} -> ack
 ```
 
@@ -47,9 +48,10 @@ password containing a character that is special in a URL (`@ : / ? # %`) must be
   is still `STORED` and has not been touched since the work began (`updated_at` is the version); a demo that was
   stored again meanwhile is left to the message of that upload.
 - **A new parse replaces the old one.** All writes for a demo are one transaction: the players are resolved, the
-  match's `heat_bins`, `damages`, `kills` and `rounds` are deleted and inserted again, `matches.map_name` is filled
-  when it is empty, and the demo becomes `PARSED` with its `tick_rate`. Nothing is deleted before the new demo has
-  been parsed, so a demo that fails leaves the facts of an earlier parse of the match as they are.
+  match's `heat_bins`, `damages`, `kills`, `round_players` and `rounds` are deleted and inserted again,
+  `matches.map_name` is filled when it is empty, and the demo becomes `PARSED` with its `tick_rate`. Nothing is
+  deleted before the new demo has been parsed, so a demo that fails leaves the facts of an earlier parse of the
+  match as they are.
 - **`demo.parsed` is not lost.** It is published as persistent JSON with publisher confirms before `demo.parse` is
   acknowledged. If the worker dies in between, the redelivered message finds the demo `PARSED` and the announcement
   is made again.

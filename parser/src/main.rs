@@ -429,6 +429,7 @@ impl Worker {
                     outcome = "PARSED",
                     duration_ms,
                     rounds = counts.rounds,
+                    round_players = counts.round_players,
                     kills = counts.kills,
                     damages = counts.damages,
                     heat_bins = counts.heat_bins,
