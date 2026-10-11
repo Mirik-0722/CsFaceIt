@@ -80,6 +80,9 @@
 @layer base {
     * {
         @apply border-border;
+        /* The outline has its final colour before it appears: `transition-colors` (Button, Input) includes
+           `outline-color`, and without this the ring would fade in from the text colour. */
+        outline-color: var(--ring);
     }
     /* Spec 2.3: a 2px --ring outline, 2px away from the element. */
     :focus-visible {

@@ -9,8 +9,9 @@ export default function LanguageSwitch() {
   const t = useT()
   const locale = useLocale()
   return (
-    // `ml-auto` keeps the buttons on the right when the top bar wraps them onto a row of their own.
-    <div role="group" aria-label={t.language.label} className="ml-auto flex items-center">
+    // `ml-auto` keeps the buttons on the right when the top bar wraps them onto a row of their own. The glyphs sit in
+    // 44px targets, so the group is pulled out by 12px (`-mr-3`) to put the last glyph on the page column's edge.
+    <div role="group" aria-label={t.language.label} className="-mr-3 ml-auto flex items-center">
       {LOCALES.map((code) => (
         <Button
           key={code}

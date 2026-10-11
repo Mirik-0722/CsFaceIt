@@ -16,12 +16,15 @@ const TINTS = new Map<string, MapTint>([
 ])
 const OTHER_MAP: MapTint = { tile: '#2A2F35', scene: '#1E2226' }
 
-/** `de_mirage` → `mirage`: FACEIT's map name in lower case without the `de_` prefix; null when there is no name. */
+/**
+ * `de_mirage` → `mirage`: FACEIT's map name in lower case without its two-letter game-mode prefix (`de_`, `cs_`,
+ * `ar_`: `cs_office` → `office`); null when there is no name.
+ */
 export function mapKey(mapName: string | null): string | null {
   if (!mapName) {
     return null
   }
-  return mapName.toLowerCase().replace(/^de_/, '')
+  return mapName.toLowerCase().replace(/^[a-z]{2}_/, '')
 }
 
 function tintOf(mapName: string | null): MapTint {

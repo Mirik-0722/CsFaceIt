@@ -1,11 +1,11 @@
 import { ApiError } from '@/api/client'
-import { type Messages, messagesFor } from '@/i18n'
+import type { Messages } from '@/i18n'
 
 /**
- * The text shown to the user for a failed request, in the language of `t` (English when none is given); anything the
- * pages do not single out gets a generic message.
+ * The text shown to the user for a failed request, in the language of `t`; anything the pages do not single out gets
+ * a generic message.
  */
-export function errorMessage(error: Error, t: Messages = messagesFor('en')): string {
+export function errorMessage(error: Error, t: Messages): string {
   if (error instanceof ApiError) {
     if (error.code === 'PLAYER_NOT_FOUND') {
       return t.errors.playerNotFound

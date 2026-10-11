@@ -43,7 +43,7 @@ Qoidalar:
 - Natija, tomon va holat hech qachon faqat rang bilan berilmaydi: yonida so'z yoki harf bo'ladi.
 - Video kadri foni: `#0E1013` ustida xarita tusi — `radial-gradient(90% 80% at 35% 45%, <sahna> 0%, #15130F 50%, #0E1013 82%)`.
 
-Xarita tuslari (FACEIT nomidagi `de_` olib tashlanadi, kichik harfda solishtiriladi):
+Xarita tuslari (FACEIT nomidagi ikki harfli o'yin rejimi old qo'shimchasi — `de_`, `cs_`, `ar_` — olib tashlanadi, kichik harfda solishtiriladi; `cs_office` — "Office"):
 
 | Xarita | Katakcha | Sahna |
 |--------|----------|-------|
@@ -76,7 +76,7 @@ Sans — `Geist Variable` (`@fontsource-variable/geist`, loyihada bor); mono —
 - Konteyner: eng ko'pi 1280px, yon bo'shliq `clamp(16px, 4vw, 40px)`; sahifa tepasida 36px, pastida 72px; bo'limlar orasi 24–36px.
 - Bosiladigan har element kamida 44px: tugma 44px (`lg` 52px), ikonka tugmasi 44×44, jadval qatori 44px, ro'yxat qatori 56–72px.
 - Radius: panel 0; tugma va input 4px; teg 2px; avatar doira.
-- Fokus: 2px `--ring` kontur, 2px masofada.
+- Fokus: 2px `--ring` kontur, 2px masofada. Istisno: suriladigan quti ichidagi havola (scoreboard'dagi nickname) konturni o'z ichida chizadi (`-outline-offset-2`), chunki quti chekkasi tashqi konturni kesib qo'yadi; kontur harflarga tegmasligi uchun havolaning o'zida 8px yon bo'shliq bor (manfiy tashqi bo'shliq uni joyida ushlaydi) va u kamida 44px kenglikda.
 - 390px kenglikda sahifa yon tomonga surilmaydi: keng jadval o'z qutisi ichida suriladi, tepa panel va tugma qatorlari yangi qatorga tushadi.
 
 ## 3. Komponentlar
@@ -86,13 +86,13 @@ Sans — `Geist Variable` (`@fontsource-variable/geist`, loyihada bor); mono —
 | Komponent | Tuzilishi | Qachon |
 |-----------|-----------|--------|
 | `Logo` | 26px belgi: to'rt burchak qavsi (2px chiziq, matn rangida) va markazda `--rec` doira; yonida mono 15px/600 `csfaceit` (ishchi nom) | D |
-| `Button` | `default`: fon `--primary`; `outline`: shaffof, chegarasi `--line-strong`; `ghost`; `link`: tagiga chizilgan. O'lchamlar: 44px (yon 18px, 14px/600), `lg` 52px (yon 24px, 15px/600), `icon` 44×44. "Yozish" amalida matndan oldin 8px `--rec` nuqta | D |
+| `Button` | `default`: fon `--primary`; `outline`: shaffof, chegarasi `--line-strong`; `ghost`; `link`: tagiga chizilgan. O'lchamlar: 44px (yon 18px, 14px/600), `lg` 52px (yon 24px, 15px/600), `icon` 44×44. "Yozish" amalida matndan oldin 8px `--rec` nuqta | D (nuqtasiz); "Yozish" amali va nuqta — 5-reja T6 |
 | `Badge` (teg) | 22px, mono 11px/600, 0.06em, bosh harflar. `default` (to'ldirilgan och) — faqat eng yuqori daraja uchun (ACE); `outline` (chegarasi `--ring`); `secondary` (chegarasi `--border`, matn `--muted-foreground`); `positive` va `negative` (kontur va rangli matn) | D |
 | `Input` | 44px (hero'da 52px), fon `--card`, chegarasi `--border`, placeholder `--subtle` | D |
-| Jadval (scoreboard) | panel (`--card`, chegarasi `--border`); sarlavha qatori 36px, mono yorliq; qatorlar 44px, ustida chiziq; ism 14px/500, raqamlar mono 13px, o'ngga tekislangan; K qalin; D va A `--muted-foreground`; K/D 1 dan past bo'lsa `--muted-foreground`; tor ekranda jadval o'z qutisida suriladi, o'yinchi ustuni va jamoa sarlavhasi joyida qoladi | D |
+| Jadval (scoreboard) | panel (`--card`, chegarasi `--border`); sarlavha qatori 36px, mono yorliq; qatorlar 44px, ustida chiziq; ism 14px/500, raqamlar mono 13px, o'ngga tekislangan; K qalin; D va A `--muted-foreground`; K/D 1 dan past bo'lsa `--muted-foreground`; sarlavhada mag'lub jamoaning hisobi `--subtle`, nomi `--muted-foreground` (`MatchScore` bilan bir xil); telefonda (`sm` dan past) raqam ustunlari 8px yon bo'shliq bilan ixcham: oltita raqam ustuni ham 360px da sig'adi, `sm` dan boshlab ustun kamida 68px va yon bo'shliq 16px; juda tor ekranda yoki juda uzun nickname'da jadval o'z qutisida suriladi, o'yinchi ustuni va jamoa sarlavhasi joyida qoladi | D |
 | Natija belgisi | "G'alaba" `--positive`, "Mag'lubiyat" `--negative`, har doim so'z bilan | D |
 | `MapTile` | xarita tusidagi kvadrat, 36 yoki 44px, chegarasi `--line-strong` | D |
-| `MatchScore` | `team_A 13 : 9 team_B`: hisob "katta hisob" o'lchamida; g'olib `--foreground`, yutqazgan `--subtle` | D |
+| `MatchScore` | `team_A 13 : 9 team_B`: hisob "katta hisob" o'lchamida; g'olib `--foreground`; yutqazgan jamoaning hisobi `--subtle`, nomi `--muted-foreground` | D |
 | `StatTile` | mono yorliq, mono 26px/600 qiymat, foizli ko'rsatkichda 3px chiziq, 12px izoh; to'rt ustun (kamida 260px) | 3-reja T6 (`StatsCards`) |
 | Highlight kartasi | teg (ACE to'ldirilgan, qolganlari kontur), `14-RAUND · T` (tomon o'z rangida), davomiylik; o'yinchi 17px/600 va qisqa tavsif; `KillTimeline`; pastda amal yoki holat | 3-reja T6 (amalsiz), 5-reja T6 (amal bilan) |
 | `KillTimeline` | 2px yo'l (`--line-strong`); kill belgilari 2×16px `--rec`; klip oynasi — ikki yonida 2px och chegara va 8% och fon. Ikki rejim: raund ichidagi oyna (highlight kartasi) va klipning o'zi (pleyer ostidagi chiziq, 0:00 dan oxirigacha; belgi bosilsa video shu joyga o'tadi) | 3-reja T6, 5-reja T6 |
@@ -133,20 +133,22 @@ Kirish, highlight va kliplar hali yo'q, shuning uchun D-reja faqat ishlab turgan
 - **Tepa panel:** logo (bosh sahifaga havola) va til tugmalari. Navigatsiya bandlari, qidiruv maydoni, balans va avatar o'z rejalari bilan keladi.
 - **Bosh sahifa (`/`):** hero uslubidagi qidiruv — mono yorliq, hero sarlavha, bir jumla izoh, nickname maydoni (52px) va "Qidirish" tugmasi (`lg`); pastida topilgan o'yinchi kartasi. Maketdagi marketing bo'limlari klip bo'lganda qo'shiladi.
 - **O'yinchi (`/players/:playerId`):** sarlavha (avatar yoki bosh harf, nickname, mamlakat, ELO mono, daraja tegi) va match tarixi: har qator — sana (mono), natija so'zi (rangda), hisob (mono 19px/600, o'yinchining o'z raundlari birinchi: FACEIT hisobni jamoa tartibida beradi), o'ngda strelka; "Yana ko'rsatish" — `outline` tugma.
-- **Match (`/matches/:matchId`):** panel — `MapTile`, xarita nomi (26px/1.2/600, maketdagidek), mono qatorda xom xarita nomi, sana va holat (har biri alohida element), statistika kelgach `MatchScore`; ostida har jamoa uchun scoreboard paneli (jamoa nomi, g'olib tegi, hisob mono 22px/600).
+- **Match (`/matches/:matchId`):** panel — `MapTile`, xarita nomi (26px/1.2/600, harf oralig'i −0.02em, maketdagidek), mono qatorda xom xarita nomi, sana va holat (har biri alohida element), statistika kelgach `MatchScore`; ostida har jamoa uchun scoreboard paneli (jamoa nomi, g'olib tegi, hisob mono 22px/600).
 - **404:** sahifa sarlavhasi va bosh sahifaga havola.
 
 ## 7. Qulaylik
 
 - Tugma — `<button>`, o'tish — `<a>`, maydon — `<label>` bilan; ikonka tugmasida `aria-label`; bezak SVG `aria-hidden`.
+- Maydonning nomi haqiqiy `<label>` (`htmlFor` va `id` bilan), `aria-label` emas; yorliq ko'rinmasa — `sr-only`. Placeholder nom o'rnini bosmaydi: yozilishi bilan yo'qoladi. Input chegarasi (`--border`) bezak: maydonni belgilovchi narsa u emas, yorlig'i va placeholder'i, shuning uchun uning past kontrasti ruxsat etiladi.
 - Matn kontrasti kamida 4.5:1 (24px dan katta matnda 3:1). `--subtle` faqat `--background`, `--card` va `--secondary` ustida ishlatiladi.
 - Klaviatura bilan har amalga yetib boriladi, fokus ko'rinadi.
 - Harakat: faqat REC nuqtasining miltillashi (1.4 s); `prefers-reduced-motion` da o'chadi.
+- Yuklanish holati: chegarali (1px `--border`) skeleton va uning ustida mono yorliq ko'rinishidagi yuklanish matni, `aria-live="polite"` bo'limi ichida; animatsiya yo'q.
 
 ## 8. Rejalarga ta'siri
 
 - **3-reja T5:** highlight kartasi uchun `HighlightResponse` ga maydonlar qo'shildi: `side`, `roundStartTick`, `roundEndTick`, `durationSeconds`, `kills` (tick, qurol, headshot, qurbon).
-- **3-reja T6:** `StatsCards` — `StatTile` ko'rinishida; `HighlightList` — highlight kartalari (rangli badge'lar o'rniga 3-bo'limdagi teglar); matnlar lug'atdan (ikki tilda).
+- **3-reja T6:** `StatsCards` — `StatTile` ko'rinishida; `HighlightList` — highlight kartalari (rangli badge'lar o'rniga 3-bo'limdagi teglar); matnlar lug'atdan (ikki tilda); 2.2 dagi shrift rollaridan hozir komponentlarda inline yozilganlari (sahifa sarlavhasi, bo'lim sarlavhasi, mono raqam, katta hisob) `label-mono` yonidagi `@utility` sinflariga ko'tariladi.
 - **5-reja T1:** klip sahifasi uchun `ClipResponse` ga `kills` (video vaqt chizig'idagi o'rni bilan) va `expiresAt` qo'shildi.
 - **5-reja T6:** tayyor klip dialogda emas, o'z sahifasida ochiladi (`/clips/:clipId`) — havolasini ulashish mumkin bo'lishi uchun; sifat tanlovi alohida buyurtma dialogida; holatlar `StatusChip` bilan. Pleyer brauzerning o'z boshqaruvi bilan qoladi (to'liq ekran va telefon uchun), kill belgilari uning ostidagi `KillTimeline` da. Maketdagi kadr ustidagi kill feed — videoning o'zidagi tasvir, interfeys qatlami emas.
 - **Keyinga qolgani:** "Kliplar" sahifasidagi holat tablari va "Mening" filtri — 6-reja (klip egaligi bilan); kompilyatsiya panelidagi ko'p segmentli chiziq va taxminiy davomiylik — 6-reja (oldindan hisoblash endpointi bilan); Telegram belgisi — 7-reja; narx va balans — 8-reja; raundlar chizig'i, xaritalar jadvali — 9-reja; buyurtma dialogida FPS pog'onasi (60–600), motion blur, ovoz, raqib ko'zidan ko'rsatish va skin tanlovi, har biri narxi bilan — 10-reja (narxlar 8-rejada).

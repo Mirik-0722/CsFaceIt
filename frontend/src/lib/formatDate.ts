@@ -5,11 +5,20 @@ const englishFormat = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 
 // Spelled out here rather than taken from `Intl`: the Uzbek month names differ between engines.
 const UZBEK_MONTHS = ['yan', 'fev', 'mar', 'apr', 'may', 'iyn', 'iyl', 'avg', 'sen', 'okt', 'noy', 'dek']
 
-/** An ISO-8601 instant in the viewer's time zone: `01 Oct 2026` in English (the default), `1-okt 2026` in Uzbek. */
-export function formatDate(iso: string, locale: Locale = 'en'): string {
+// One format per language: a language added to `Locale` without a date format here does not compile.
+const FORMATS: Record<Locale, (date: Date) => string> = {
+  en: (date) => englishFormat.format(date),
+  uz: (date) => `${date.getDate()}-${UZBEK_MONTHS[date.getMonth()]} ${date.getFullYear()}`,
+}
+
+/**
+ * An ISO-8601 instant in the viewer's time zone: `01 Oct 2026` in English, `1-okt 2026` in Uzbek. A string that is not
+ * a date gives an empty string in every language.
+ */
+export function formatDate(iso: string, locale: Locale): string {
   const date = new Date(iso)
-  if (locale === 'uz') {
-    return `${date.getDate()}-${UZBEK_MONTHS[date.getMonth()]} ${date.getFullYear()}`
+  if (Number.isNaN(date.getTime())) {
+    return ''
   }
-  return englishFormat.format(date)
+  return FORMATS[locale](date)
 }

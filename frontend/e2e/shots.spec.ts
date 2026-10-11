@@ -3,6 +3,7 @@ import type {
   MatchHistoryResponse,
   MatchResponse,
   MatchStatsResponse,
+  MatchSummary,
   PlayerResponse,
 } from '../src/api/types.ts'
 import {
@@ -15,9 +16,9 @@ import {
 } from './fixtures.ts'
 
 /**
- * A screenshot tool, not a test: it opens the pages of the app in every scenario, at every width and language, and
- * writes a full-page PNG per combination to `shots/<scenario>-<page>-<width>-<language>.png`, to be compared with
- * the design spec by eye. Nothing is asserted. It is skipped unless SHOTS is set:
+ * A screenshot tool, not a test: it opens the pages of the app in every scenario, at the scenario's widths and
+ * languages, and writes a full-page PNG per combination to `shots/<scenario>-<page>-<width>-<language>.png`, to be
+ * compared with the design spec by eye. Nothing is asserted. It is skipped unless SHOTS is set:
  *
  *   SHOTS=1 npx playwright test e2e/shots.spec.ts
  *
@@ -26,6 +27,11 @@ import {
  */
 
 type Language = 'uz' | 'en'
+
+interface Viewport {
+  width: number
+  height: number
+}
 
 /** What the mocked backend serves; a scenario replaces the parts it needs to. */
 interface Backend {
@@ -53,6 +59,7 @@ interface ShotPage {
 }
 
 interface Scenario {
+  /** The start of every file name it writes. Two rows may share a name: the width or the language tells them apart. */
   name: string
   /** Replaces parts of the default backend. */
   backend?: Partial<Backend>
@@ -60,14 +67,18 @@ interface Scenario {
   pages?: PageName[]
   /** The languages it photographs in: Uzbek only when left out. */
   languages?: Language[]
+  /** The viewports it photographs at: the desktop and the phone when left out. */
+  viewports?: Viewport[]
   /** The last thing done to the page before the picture. */
   before?: (page: Page, shotPage: ShotPage) => Promise<void>
 }
 
-const VIEWPORTS = [
-  { width: 1440, height: 900 },
-  { width: 390, height: 844 },
-]
+const DESKTOP: Viewport = { width: 1440, height: 900 }
+const PHONE: Viewport = { width: 390, height: 844 }
+// The narrowest phone the design is held to (all six number columns of a scoreboard have to fit in it).
+const SMALL_PHONE: Viewport = { width: 360, height: 780 }
+
+const DEFAULT_VIEWPORTS = [DESKTOP, PHONE]
 
 // The `localStorage` key of the language choice: LOCALE_STORAGE_KEY of src/i18n, repeated here because that module
 // needs a DOM to load and this file runs in Node.
@@ -98,31 +109,59 @@ const DEFAULT_BACKEND: Backend = {
   stats: statsFixture,
 }
 
+// A 32-character nickname and team names longer than 32 characters (one with spaces, one without).
+const LONG_BACKEND: Partial<Backend> = {
+  nickname: LONG_NICKNAME,
+  player: { ...playerFixture, nickname: LONG_NICKNAME },
+  match: {
+    ...matchFixture,
+    teams: matchFixture.teams.map((team, index) => ({ ...team, name: LONG_TEAM_NAMES[index] })),
+  },
+  stats: {
+    ...statsFixture,
+    teams: statsFixture.teams.map((team, index) => ({
+      ...team,
+      name: LONG_TEAM_NAMES[index],
+      // The top row of the first team carries the long nickname.
+      players: team.players.map((player, row) =>
+        index === 0 && row === 0 ? { ...player, nickname: LONG_NICKNAME } : player,
+      ),
+    })),
+  },
+}
+
+/**
+ * A full page of history, 20 rows, so that the page offers "Load more". Most rows are wins and losses; one has the
+ * result UNKNOWN (it could not be told from the history item) and one has no score for either faction.
+ */
+function edgeHistory(): MatchHistoryResponse {
+  const DAY = 24 * 60 * 60 * 1000
+  const latest = Date.parse('2026-10-10T20:00:00Z')
+  const items = Array.from({ length: 20 }, (_, index): MatchSummary => {
+    const startedAt = new Date(latest - index * DAY)
+    const lost = index % 3 === 2
+    return {
+      matchId: `1-edge-${index}`,
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date(startedAt.getTime() + 45 * 60 * 1000).toISOString(),
+      result: lost ? 'LOSS' : 'WIN',
+      // The score comes in faction order, the winner has more rounds: 11 : 13 is the player's loss.
+      score: lost ? { faction1: 11, faction2: 13 } : { faction1: 13, faction2: 7 + (index % 5) },
+    }
+  })
+  items[4] = { ...items[4], result: 'UNKNOWN' }
+  items[9] = { ...items[9], score: {} }
+  return { items, offset: 0, limit: 20 }
+}
+
 const SCENARIOS: Scenario[] = [
   { name: 'default', languages: ['uz', 'en'] },
+  // The same pages once more, in Uzbek, on the narrowest phone.
+  { name: 'default', viewports: [SMALL_PHONE] },
   {
-    // A 32-character nickname and team names longer than 32 characters (one with spaces, one without).
     name: 'long',
     pages: ['result', 'player', 'match'],
-    backend: {
-      nickname: LONG_NICKNAME,
-      player: { ...playerFixture, nickname: LONG_NICKNAME },
-      match: {
-        ...matchFixture,
-        teams: matchFixture.teams.map((team, index) => ({ ...team, name: LONG_TEAM_NAMES[index] })),
-      },
-      stats: {
-        ...statsFixture,
-        teams: statsFixture.teams.map((team, index) => ({
-          ...team,
-          name: LONG_TEAM_NAMES[index],
-          // The top row of the first team carries the long nickname.
-          players: team.players.map((player, row) =>
-            index === 0 && row === 0 ? { ...player, nickname: LONG_NICKNAME } : player,
-          ),
-        })),
-      },
-    },
+    backend: LONG_BACKEND,
   },
   {
     // A player without CS2 data and without a single match.
@@ -142,6 +181,22 @@ const SCENARIOS: Scenario[] = [
       stats: null,
     },
   },
+  {
+    // What real data holds that the default does not: a history of 20 rows (with "Load more", an UNKNOWN result and a
+    // row without a score) and a match whose second team has an empty roster.
+    name: 'edge',
+    pages: ['player', 'match'],
+    backend: {
+      history: edgeHistory(),
+      match: { ...matchFixture, teams: [matchFixture.teams[0], { ...matchFixture.teams[1], players: [] }] },
+      stats: { ...statsFixture, teams: [statsFixture.teams[0], { ...statsFixture.teams[1], players: [] }] },
+    },
+  },
+  // The first scoreboard scrolled to its right end, on a phone: the player column and the team header stay in place.
+  // The default scoreboard fits in 390px, so this one does not move; the one with the 32-character nickname still
+  // overflows and shows the columns at work.
+  { name: 'scrolled', pages: ['match'], viewports: [PHONE], before: scrollScoreboard },
+  { name: 'scrolled-long', pages: ['match'], viewports: [PHONE], backend: LONG_BACKEND, before: scrollScoreboard },
   // Where the focus ring is on each page's content: the element that the page's `tabs` presses of Tab reach.
   { name: 'focus', before: pressTab },
 ]
@@ -218,6 +273,13 @@ async function pressTab(page: Page, { tabs }: ShotPage) {
   }
 }
 
+/** Scrolls the first scoreboard's box to its right end; a table that fits in its box does not move. */
+async function scrollScoreboard(page: Page) {
+  await page.locator('[data-slot="table-container"]').first().evaluate((box) => {
+    box.scrollLeft = box.scrollWidth
+  })
+}
+
 /** One test per scenario, page, width and language. */
 function defineShots() {
   for (const scenario of SCENARIOS) {
@@ -228,7 +290,7 @@ function defineShots() {
       test.describe(`${scenario.name} in ${language}`, () => {
         test.use({ storageState: languageState(language) })
 
-        for (const viewport of VIEWPORTS) {
+        for (const viewport of scenario.viewports ?? DEFAULT_VIEWPORTS) {
           for (const shotPage of pages) {
             const name = `${scenario.name}-${shotPage.name}-${viewport.width}-${language}`
 

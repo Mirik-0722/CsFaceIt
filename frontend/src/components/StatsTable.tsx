@@ -6,16 +6,18 @@ import { cn } from '@/lib/utils'
 import type { TeamStatsResponse } from '@/api/types'
 
 const COLUMN_COUNT = 7
-const NUMBER_HEAD = 'min-w-17 px-4 text-right'
-const NUMBER_CELL = 'px-4 text-right font-mono text-[13px] tabular-nums'
-// The player column stays in place while the numbers scroll under it on a narrow screen, so every number keeps its
-// name. It takes the row's background, hover included.
+// A number column is as wide as its figures plus 8px each side on a phone, so that all six fit in 360px; from `sm` up
+// it is at least 68px wide with 16px each side.
+const NUMBER_HEAD = 'px-2 text-right sm:min-w-17 sm:px-4'
+const NUMBER_CELL = 'px-2 text-right font-mono text-[13px] tabular-nums sm:px-4'
+// The player column stays in place while the numbers scroll under it, on a screen too narrow for all of them (or with
+// a very long nickname), so every number keeps its name. It takes the row's background, hover included.
 const STICKY = 'sticky left-0 bg-inherit'
 
 /**
  * One team's scoreboard: the team name, its score and a Winner badge in the table header, then a row per player,
- * most kills first (players with equal kills keep the order the API gave them). `lost` dims the name and the score
- * of the team that lost a decided match.
+ * most kills first (players with equal kills keep the order the API gave them). `lost` dims the team that lost a
+ * decided match: its score is `text-subtle` and its name `text-muted-foreground`, as in the match header.
  */
 export default function StatsTable({ team, lost = false }: { team: TeamStatsResponse; lost?: boolean }) {
   const t = useT()
@@ -23,8 +25,8 @@ export default function StatsTable({ team, lost = false }: { team: TeamStatsResp
   return (
     <div className="@container border border-border bg-card">
       {/* The shadcn Table puts the caption below the table (`caption-bottom`, inherited); the team header goes on
-          top. The minimum width makes a narrow screen scroll the table inside its box instead of squeezing it. */}
-      <Table className="min-w-[34rem] caption-top">
+          top. The table is as wide as its cells need: when that is more than the box, the box scrolls. */}
+      <Table className="caption-top">
         <TableCaption className="mt-0 text-left text-foreground">
           {/* As wide as the box, not as the table, and stuck to its left edge: the team name, the Winner badge and
               the score stay in view while the columns scroll under them. */}
@@ -36,7 +38,7 @@ export default function StatsTable({ team, lost = false }: { team: TeamStatsResp
             <span
               className={cn(
                 'ml-auto font-mono text-[22px] leading-none font-semibold tabular-nums',
-                lost && 'text-muted-foreground',
+                lost && 'text-subtle',
               )}
             >
               <span className="sr-only">{t.stats.score}</span> {team.score}
@@ -67,10 +69,11 @@ export default function StatsTable({ team, lost = false }: { team: TeamStatsResp
               <TableRow key={player.playerId} className="bg-card">
                 <TableCell className={cn(STICKY, 'px-4 py-0')}>
                   {/* The outline is drawn inside the link: the last row ends at the edge of the scrolling box, which
-                      would cut an outline drawn around it. */}
+                      would cut an outline drawn around it. The 8px of padding (taken back by the negative margin)
+                      keep that inset outline off the letters, and `min-w-11` keeps a short nickname a 44px target. */}
                   <Link
                     to={`/players/${encodeURIComponent(player.playerId)}`}
-                    className="inline-flex min-h-11 max-w-44 items-center font-medium underline-offset-4 -outline-offset-2 hover:underline sm:max-w-none"
+                    className="-mx-2 inline-flex min-h-11 max-w-44 min-w-11 items-center px-2 font-medium underline-offset-4 -outline-offset-2 hover:underline sm:max-w-none"
                   >
                     {/* On a narrow screen a long nickname is cut, so that it does not push every number out of view. */}
                     <span className="truncate">{player.nickname}</span>

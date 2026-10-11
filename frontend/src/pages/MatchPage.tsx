@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/formatDate'
+import { hasLost } from '@/lib/hasLost'
 import { mapLabel } from '@/lib/mapTint'
 import type { ApiError } from '@/api/client'
 import type { MatchResponse, MatchStatsResponse, TeamStatsResponse } from '@/api/types'
@@ -30,11 +31,16 @@ function MatchHeader({ match, teams }: { match: MatchResponse; teams: TeamStatsR
               {mapLabel(match.mapName) ?? t.match.unknownMap}
             </CardTitle>
             {(match.mapName || match.startedAt || match.status) && (
-              // The raw map name, the date and the status are separate elements: each is one fact of its own.
+              // The raw map name, the date and the status are separate elements: each is one fact of its own. The
+              // status is upper case by CSS, so its look does not depend on the case FACEIT sends.
               <div className="flex flex-wrap gap-x-3 font-mono text-xs text-subtle">
                 {match.mapName && <span>{match.mapName}</span>}
                 {match.startedAt && <time dateTime={match.startedAt}>{formatDate(match.startedAt, locale)}</time>}
-                {match.status && <span>{match.status}</span>}
+                {match.status && (
+                  <span data-slot="match-status" className="uppercase">
+                    {match.status}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -45,14 +51,17 @@ function MatchHeader({ match, teams }: { match: MatchResponse; teams: TeamStatsR
   )
 }
 
+/** Two outlined boxes where the scoreboards will be, with the loading text as a label above them (spec 7). */
 function StatsSkeleton() {
   const t = useT()
   return (
-    <>
-      <Skeleton className="h-64 w-full" />
-      <Skeleton className="h-64 w-full" />
-      <span className="sr-only">{t.match.loadingStats}</span>
-    </>
+    <div className="flex flex-col gap-2">
+      <p className="label-mono">{t.match.loadingStats}</p>
+      <div className="flex flex-col gap-6">
+        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    </div>
   )
 }
 
@@ -64,9 +73,7 @@ function MatchStats({ stats }: { stats: UseQueryResult<MatchStatsResponse, ApiEr
     if (teams.length === 0) {
       return <p className="text-sm text-muted-foreground">{t.match.statsUnavailable}</p>
     }
-    // A team is shown as the loser only when the other one won: without a winner neither is dimmed.
-    const decided = teams.length === 2 && teams[0].win !== teams[1].win
-    return teams.map((team) => <StatsTable key={team.teamId} team={team} lost={decided && !team.win} />)
+    return teams.map((team) => <StatsTable key={team.teamId} team={team} lost={hasLost(team, teams)} />)
   }
   if (stats.isError) {
     // The backend answers 404 for the stats of a match that is still being played; the match itself exists.
@@ -87,12 +94,14 @@ function MatchDetails({ matchId }: { matchId: string }) {
   const matchFailed = match.isError && !match.data
 
   return (
-    <>
+    // 24px between the header panel and the first scoreboard, as between the scoreboards (spec 2.3: 24–36px between
+    // sections).
+    <div className="flex flex-col gap-6">
       <div aria-live="polite">
         {match.isPending && (
           <>
+            <p className="label-mono mb-2">{t.match.loading}</p>
             <Skeleton className="h-24 w-full" />
-            <span className="sr-only">{t.match.loading}</span>
           </>
         )}
         {matchFailed && <p className="text-sm text-destructive">{errorMessage(match.error, t)}</p>}
@@ -104,7 +113,7 @@ function MatchDetails({ matchId }: { matchId: string }) {
           {match.data ? <MatchStats stats={stats} /> : <StatsSkeleton />}
         </div>
       )}
-    </>
+    </div>
   )
 }
 

@@ -23,8 +23,8 @@ function PlayerProfile({ playerId }: { playerId: string }) {
       <div aria-live="polite">
         {player.isPending && (
           <>
+            <p className="label-mono mb-2">{t.player.loading}</p>
             <Skeleton className="h-26 w-full" />
-            <span className="sr-only">{t.player.loading}</span>
           </>
         )}
         {playerFailed && <p className="text-sm text-destructive">{errorMessage(player.error, t)}</p>}
@@ -36,10 +36,10 @@ function PlayerProfile({ playerId }: { playerId: string }) {
           <div aria-live="polite" className="flex flex-col gap-3">
             {history.isPending && (
               <>
+                <p className="label-mono">{t.player.loadingMatches}</p>
                 <Skeleton className="h-14 w-full" />
                 <Skeleton className="h-14 w-full" />
                 <Skeleton className="h-14 w-full" />
-                <span className="sr-only">{t.player.loadingMatches}</span>
               </>
             )}
             {matches && <MatchList items={matches} />}

@@ -240,7 +240,7 @@ describe('MatchPage', () => {
     expect(header).not.toBeNull()
     expect(container.querySelector('time')).toBeNull()
     expect(within(header).queryByText(/null|undefined|Invalid/)).not.toBeInTheDocument()
-    expect(header.querySelector('[data-slot="badge"]')).toBeNull()
+    expect(header.querySelector('[data-slot="match-status"]')).toBeNull()
     expect(await screen.findAllByRole('table')).toHaveLength(2)
     expect(screen.queryByText('Winner')).not.toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 2, name: 'Team' })).toHaveLength(2)

@@ -140,7 +140,7 @@ Har quyi loyiha o'z rejasi bilan bajariladi va o'zi ishlaydigan natija beradi. 1
 | 10 | Klip variantlari va brending | Har biri mijoz tanlaydigan pullik variant: sifat va FPS (60–600; csdemo.uz da 60 va 120), motion blur va slow-mo, ovoz, raqib ko'zidan ko'rsatish (ketma-ket yoki yonma-yon), skin; yana watermark va o'yinchi kartasi, X-ray, vertikal 9:16, montaj, to'liq round | 5 |
 | 11 | Ijtimoiy qism | Ommaviy klip sahifasi, Reels, like/izoh, profil, tanlov | 6, 10 |
 | 12 | Admin konsoli va ekspluatatsiya | Job va host boshqaruvi, analitika, prod deploy, monitoring | 5–8 |
-| 13+ | Keyin | Steam matchmaking sinxroni, 3D replay, skin/fun mode, turnirlar, mobil ilova, ko'p tillilik, AI ranking | — |
+| 13+ | Keyin | Steam matchmaking sinxroni, 3D replay, fun mode, turnirlar, mobil ilova, ko'p tillilik, AI ranking | — |
 
 **Tartib asosi.** Video birinchi, chunki eng katta texnik xavf shu yerda (Windows kompyuter, CS2, HLAE) va foydalanuvchi qiymati ham shu yerda. U hisoblarsiz ham ishlaydi: klipni admin kaliti bilan so'rash mumkin. Hisoblar ikkinchi, chunki ularsiz boshqa odam foydalana olmaydi. Coin ochiq foydalanishdan oldin kerak, aks holda yagona yozuvchi kompyuter navbati boshqarilmaydi. 9 va 10 mustaqil — 6–8 bilan parallel yurishi mumkin.
 

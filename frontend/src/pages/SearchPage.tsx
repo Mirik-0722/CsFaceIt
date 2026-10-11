@@ -46,12 +46,21 @@ export default function SearchPage() {
       <p className="mt-5 max-w-[30em] text-lg text-pretty text-muted-foreground">{t.home.subtitle}</p>
       {/* The field and the button share a row from 640px up and stack below that. */}
       <form onSubmit={handleSubmit} className="mt-9 flex max-w-[560px] flex-col gap-3 sm:flex-row">
+        {/* A real label, hidden: the placeholder is not a name, and it goes away as soon as something is typed. */}
+        <label htmlFor="nickname" className="sr-only">
+          {t.home.nicknameLabel}
+        </label>
+        {/* FACEIT's nickname lookup is case-sensitive: a phone must not capitalise or correct what is typed. */}
         <Input
+          id="nickname"
           name="nickname"
           className="h-13"
-          aria-label={t.home.nicknameLabel}
           placeholder={t.home.placeholder}
           autoComplete="off"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="search"
           value={input}
           onChange={(event) => setInput(event.target.value)}
           aria-invalid={invalidNickname ? true : undefined}
@@ -69,8 +78,8 @@ export default function SearchPage() {
         )}
         {search.isLoading && (
           <>
+            <p className="label-mono">{t.home.searching}</p>
             <Skeleton className="h-20 w-full" />
-            <span className="sr-only">{t.home.searching}</span>
           </>
         )}
         {search.isError && <p className="text-sm text-destructive">{errorMessage(search.error, t)}</p>}

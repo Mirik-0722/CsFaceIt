@@ -1,10 +1,12 @@
 import { useT } from '@/i18n'
+import { hasLost } from '@/lib/hasLost'
 import { cn } from '@/lib/utils'
 import type { TeamStatsResponse } from '@/api/types'
 
 /**
  * The result of a match in one line: the first team, `13 : 9`, the second team. Once the match is decided the losing
- * side is dimmed. Draws nothing unless there are exactly two teams.
+ * side is dimmed: its score is `text-subtle` and its name `text-muted-foreground`, as in its scoreboard. Draws
+ * nothing unless there are exactly two teams.
  */
 export default function MatchScore({ teams }: { teams: TeamStatsResponse[] }) {
   const t = useT()
@@ -13,8 +15,7 @@ export default function MatchScore({ teams }: { teams: TeamStatsResponse[] }) {
   }
   const [first, second] = teams
   // Without a winner (a match that is still being played) neither side is dimmed.
-  const decided = first.win !== second.win
-  const lost = (team: TeamStatsResponse) => decided && !team.win
+  const lost = (team: TeamStatsResponse) => hasLost(team, teams)
   return (
     // On a narrow screen the score takes the first row and the two names share the second.
     <div className="grid grid-cols-2 items-center gap-x-6 gap-y-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">

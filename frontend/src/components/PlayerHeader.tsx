@@ -36,21 +36,25 @@ export default function PlayerHeader({ player, size = 'default' }: { player: Pla
     <Card>
       <CardContent className="flex items-center gap-4">
         <Avatar player={player} size={size} />
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <CardTitle className="truncate text-xl leading-[1.3]">{player.nickname}</CardTitle>
-          {(player.country || player.elo !== null) && (
-            <div className="flex flex-wrap gap-x-3 font-mono text-xs text-muted-foreground">
-              {/* FACEIT sends the country code in lower case; it is shown as a code. */}
-              {player.country && <span className="uppercase">{player.country}</span>}
-              {player.elo !== null && <span>{t.player.elo(player.elo)}</span>}
-            </div>
+        {/* Everything beside the avatar wraps as one: when the row is too narrow for the name (at least `basis-44`)
+            and the tag side by side, the tag drops below the name and its line and the name keeps the full width. */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex min-w-0 grow basis-44 flex-col gap-1">
+            <CardTitle className="truncate text-xl leading-[1.3]">{player.nickname}</CardTitle>
+            {(player.country || player.elo !== null) && (
+              <div className="flex flex-wrap gap-x-3 font-mono text-xs text-muted-foreground">
+                {/* FACEIT sends the country code in lower case; it is shown as a code. */}
+                {player.country && <span className="uppercase">{player.country}</span>}
+                {player.elo !== null && <span>{t.player.elo(player.elo)}</span>}
+              </div>
+            )}
+          </div>
+          {hasCs2Data ? (
+            player.level !== null && <Badge variant="outline">{t.player.level(player.level)}</Badge>
+          ) : (
+            <Badge variant="secondary">{t.player.noCs2Data}</Badge>
           )}
         </div>
-        {hasCs2Data ? (
-          player.level !== null && <Badge variant="outline">{t.player.level(player.level)}</Badge>
-        ) : (
-          <Badge variant="secondary">{t.player.noCs2Data}</Badge>
-        )}
       </CardContent>
     </Card>
   )
