@@ -155,6 +155,10 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      # The backend applies the Flyway migrations (the tables the parser writes to) before it is healthy, so the parser
+      # consumes its first message only once they are in place.
+      backend:
+        condition: service_healthy
     restart: unless-stopped
     # On a stop the worker finishes the demo it is parsing before it exits. A demo takes 1 to 3 seconds (24 to 41
     # when the container was held to a fifth of a CPU core), so a minute is ample; Docker kills a worker that takes

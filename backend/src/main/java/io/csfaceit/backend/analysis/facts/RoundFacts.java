@@ -12,8 +12,8 @@ import java.util.TreeSet;
  *
  * <p>{@code sides} is the roster of the round: who played it and on which side. It comes from
  * {@code round_players} and, for a player the roster does not list, from the sides the kill events of the round
- * name (a fallback for a parse that has no roster rows); where the two disagree, the roster wins. A player who is
- * not in {@code sides} did not play the round: he is not counted among the living, in the denominator of a
+ * name (a player who died before the first sampled position, say); where the two disagree, the roster wins. A player
+ * who is not in {@code sides} did not play the round: he is not counted among the living, in the denominator of a
  * per-round figure or in {@code roundsPlayed}.
  *
  * <p>{@code decidedTick} is {@code rounds.decided_tick}, or {@code endTick} for a round parsed before that fact was
@@ -43,7 +43,8 @@ public record RoundFacts(
 
     /**
      * Whether the two players played this round on different sides. A player who is not in the roster, and
-     * {@code null}, is nobody's enemy.
+     * {@code null}, is nobody's enemy. {@code HighlightQueryService.KILLS_SQL} is the SQL copy of this rule and must
+     * change with it.
      */
     public boolean enemies(Long a, Long b) {
         if (a == null || b == null) {

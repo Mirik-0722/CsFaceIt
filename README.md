@@ -4,7 +4,7 @@ A web app for looking up Counter-Strike 2 players on [FACEIT](https://www.faceit
 see the profile and the recent match history, and open a match to read the per-team stats tables (kills, deaths,
 assists, headshots, K/D, K/R, ADR). Behind that sits a demo pipeline: the demo (`.dem`) of a match is downloaded or
 uploaded, stored, and parsed by a Rust worker into rounds, the players of every round, kills, damages and position
-heat bins, from which the backend computes the statistics of every player of the match.
+heat bins, from which the backend computes the statistics of every player of the match and finds its highlights.
 
 ```
 Browser --> Nginx (frontend container) --/api/--> Spring Boot backend --> FACEIT Data API v4
@@ -36,17 +36,18 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
 
 - `/` - search for a player by FACEIT nickname.
 - `/players/{playerId}` - the profile: the statistics over the stored matches as eight tiles (K/D, HS%, ADR, KAST,
-  entry and trade kills per match, clutch %, win rate), the ten newest highlights and the match history. A figure
+  entry and trade kills per match, clutch %, win rate), the six newest highlights and the match history. A figure
   without data behind it is a dash; the four that come from demos say so until one of the player's demos is analyzed.
 - `/players/{playerId}/highlights` - every highlight of the player, newest match first, with a filter by type that the
   server answers.
 - `/matches/{matchId}` - the score, the demo panel, the highlights of the match with a filter by kind (multi-kill,
   clutch, special) and a scoreboard per team.
 
-The demo panel shows the status of the match's demo to everyone. Behind "Manage" it has the three requests that need
-the admin key (`X-API-Key`): import from FACEIT, upload a file, analyze again. The key is typed once and kept in the
-memory of the page only - never in `localStorage`, `sessionStorage` or a cookie - so reloading the page forgets it,
-and a key the backend rejects is forgotten at once.
+The demo panel shows the status of the match's demo to everyone. Behind "Manage" it has the requests that need the
+admin key (`X-API-Key`): import from FACEIT (offered only for a match without a demo or with a failed one, because the
+backend ignores it for any other), upload a file, and analyze (offered for a `PARSED` demo, as "Re-analyze" for an
+`ANALYZED` one). The key is typed once and kept in the memory of the page only - never in `localStorage`,
+`sessionStorage` or a cookie - so reloading the page forgets it, and a key the backend rejects is forgotten at once.
 
 ## Prerequisites
 
@@ -237,7 +238,8 @@ POST .../demo/import  (or .../demo/upload with a file)
   -> backend import worker: download from FACEIT, compress to zstd, store in MinIO  -> STORED -> demo.parse
   -> Rust parser: read from MinIO, parse, write rounds / round_players / kills / damages / heat_bins
      -> PARSED -> demo.parsed
-  -> backend listener: analyze the facts into the statistics of every player -> ANALYZED  (see "Analysis")
+  -> backend listener: analyze the facts into the statistics and the highlights of the players -> ANALYZED
+     (see "Analysis")
 ```
 
 The status of a demo is one of:
@@ -247,7 +249,7 @@ The status of a demo is one of:
 | `QUEUED` | The import is requested and waits for (or is in) the download. |
 | `STORED` | The file is in storage (always as `demos/<matchId>.dem.zst`) and waits for the parser. |
 | `PARSED` | The parser has written the facts of the demo to the database; the analysis is next. It is also the status of a demo whose analysis failed, then `error` says so (see [Analysis](#analysis)). |
-| `ANALYZED` | The facts have been analyzed and the statistics of the players are stored. |
+| `ANALYZED` | The facts have been analyzed and the statistics of the players and the highlights of the match are stored. |
 | `FAILED` | Something went wrong; `error` says what, in one sentence. Importing or uploading again starts over. |
 
 The allowed moves are `QUEUED` -> `STORED` -> `PARSED` -> `ANALYZED`, any status -> `FAILED`, `FAILED` -> `QUEUED`
@@ -264,6 +266,13 @@ The backend marks a dead-lettered demo `FAILED` only if it is still in the statu
 demo the parser has already marked `FAILED` is left as it is, and counted. A dead letter from `demo.parsed` is an
 analysis that failed three times: it never marks the demo `FAILED`, because the parsed facts are intact (see
 [Analysis](#analysis)).
+
+**Upgrading from a version without the analysis.** A demo that an earlier version left `PARSED` is not analyzed by
+itself: only a new `demo.parsed` message starts an analysis, and the parser sends it when it has parsed a demo. Have such
+a demo analyzed with `POST .../demo/analyze` (see [Endpoints](#endpoints)). If it was parsed without round rosters (the
+parse is older than `V3`, see [The facts](#the-facts)), that request answers `202` as always, but nothing is analyzed:
+the demo stays `PARSED` and its `error` says that the file has to be uploaded again. Upload it, and the new parse
+writes the rosters and is analyzed on its own.
 
 ### Endpoints
 
@@ -306,7 +315,8 @@ demo file. Through Nginx an upload may be up to 1 GB (see `DEMO_UPLOAD_MAX_SIZE`
 Have a parsed demo analyzed again (see [Analysis](#analysis)). The answer is `202` with the demo as it is now, before the
 analysis has run: it needs neither FACEIT nor the demo file, only the parsed facts, so it also works after the retention
 job has removed the file. `404 DEMO_NOT_FOUND` when the match has no demo, `409 DEMO_NOT_PARSED` when the demo is not
-`PARSED` or `ANALYZED`. Repeating the request is safe:
+`PARSED` or `ANALYZED`. The answer is `202` also for a demo that was parsed without round rosters: nothing is analyzed
+then, and the demo's `error` says to upload the file again (see [Analysis](#analysis)). Repeating the request is safe:
 
 ```bash
 curl -X POST -H 'X-API-Key: dev-admin-key' \
@@ -335,10 +345,11 @@ the exact definitions. For each match it writes:
 - `kills`, `damages` and `heat_bins` (where the players stood, counted in squares of 64 map units).
 
 `round_players` and `rounds.decided_tick` come with the migration `V3__analysis.sql`. The backend applies its
-migrations before it connects to RabbitMQ and declares `demo.parse`, and the parser waits for that queue, so on a new
-stack the parser never writes to a database that lacks them (when you upgrade a running stack, bring the backend up
-first). A demo parsed before `V3` stays without them: upload the demo file again, and the new parse replaces the old
-one.
+migrations before it connects to RabbitMQ and declares `demo.parse`, and the parser waits for that queue (in the
+Compose stack it also waits for the backend to be healthy), so on a new stack the parser never writes to a database that
+lacks them (when you upgrade a running stack, bring the backend up first). A demo parsed before `V3` stays without
+them, and is not analyzed until the demo file is uploaded again and the new parse replaces the old one (see
+[Analysis](#analysis)).
 
 ### Analysis
 
@@ -353,10 +364,17 @@ announces itself.
 
 Who played a round, and on which side, is the roster of the round: its `round_players` rows, plus the players that the
 kill events of the round name with their side and the roster does not list. Where the two disagree the roster wins. A
-player who is not in the roster did not play the round, and a round counts for a player only if he is in it. (A demo
-parsed before `V3` has no roster rows, so only the players its kill events name are found: upload the demo file again
-before relying on its numbers.) Two players of one round on different sides are enemies; players on the same side are
-teammates.
+player who is not in the roster did not play the round, and a round counts for a player only if he is in it. Two
+players of one round on different sides are enemies; players on the same side are teammates.
+
+A match that has no roster row at all (a demo parsed before `V3`, an older parser, or a demo whose positions could not
+be read) is **not analyzed**: the sides of a round would be only what its kill events name, and `rounds_played`, ADR,
+KAST and the clutches computed from that would be wrong. Nothing is stored and one warning is logged; this is a property
+of the facts, so there is no retry and no dead letter. A `PARSED` demo stays `PARSED` and its `error` becomes `The demo
+was parsed without round rosters: upload the demo file again` (an `ANALYZED` demo is left as it is, like for any analysis
+that does not run). Upload the demo file again: the new parse writes the rosters, is announced on `demo.parsed` and is
+analyzed. The fallback for a single player that an otherwise recorded roster lacks (one who died before the first
+sampled position) stays.
 
 What is computed for each player of the match:
 
@@ -365,7 +383,7 @@ What is computed for each player of the match:
 | `kills`, `headshots` | Kills of an enemy, and the headshots among them. A kill counts only if the killer is a player other than the victim who played the round on the other side than the victim: a team kill, a kill of oneself and a death by the world or the bomb are not kills. |
 | `deaths` | Every kill row the player is the victim of, whoever caused the death. |
 | `assists` | The kill rows the player is named as the assister of, whose victim was his enemy. |
-| `rounds_played` | The number of rounds the player is in the roster of. A row whose `rounds_played` is set was analyzed from the current facts of the demo. Without it the row holds FACEIT's numbers, or the numbers of an earlier analysis that did not mention the player (a new parse can have a different roster). |
+| `rounds_played` | The number of rounds the player is in the roster of. A row whose `rounds_played` is set was analyzed from the current facts of the demo. Without it the row holds FACEIT's numbers only. |
 | `adr` | The damage the player did to enemies per round played, with two decimals. Within a round every player starts with 100 health and the hits are taken in the order they happened. A hit takes no more than the health its victim had left, whoever dealt it (an AWP headshot of over 400 is 100 at most, and damage a teammate or the world did earlier is health the victim no longer has), and only what was taken from an enemy is the attacker's damage. |
 | `won` | Whether the player's team won the match. The team that wins the last round of the demo has won the match, so this is the side of the player in the last round compared with the winner of that round; it stays empty for a player who is not in the roster of the last round and when the round has no known winner. It is written only into a row that has no result yet: FACEIT's own result, stored whenever `GET /api/v1/matches/{matchId}/stats` is called, is the official one and replaces it, but only when FACEIT names exactly one winning team (statistics without a "Team Win", or with several, leave `won` as it is). |
 | `kast` | The share of the rounds the player played in which he had a kill, gave an assist, survived or had his death traded (K, A, S, T), in percent with two decimals, from 0 to 100. A round counts once however many of the four apply. A kill and an assist are those of `kills` and `assists` (an assist counts when the assister is an enemy of the victim, whoever killed him, even if the row is a team kill, a kill of oneself or a death by the world). *Survived* means that no kill row of the round has the player as its victim, whoever caused the death and whenever it happened. *Traded* means that a teammate killed the player's killer in time (see `trade_kills`). |
@@ -388,9 +406,14 @@ and when the player is left alone only after the round was decided. When both si
 has a clutch. The enemies of a clutch are the ones alive at its beginning, at most five. A round without a known winner
 is won by nobody.
 
-Each analysis first clears `rounds_played`, `kast` and the entry, trade and clutch counts of every row of the match and
-then writes all of them for every player who played a round (a count of 0 is written as 0), so a row that has them was
-analyzed from the current facts and a row this analysis did not write holds `NULL` there. Calling
+Each analysis first deletes the rows of the match that an analysis wrote (`rounds_played` is set) for a player this
+analysis does not mention: a new parse can have a different roster, or a wrong demo can have been uploaded to the match
+and corrected, and such a row would keep the kills, deaths, ADR and result of the old facts for good, and be counted in
+the player's totals. Rows that only FACEIT's numbers fill (`rounds_played` is `NULL`) are never deleted, and FACEIT's
+writer recreates the row of a FACEIT player that was deleted the next time `GET /api/v1/matches/{matchId}/stats` is
+called. Then the analysis clears `rounds_played`, `kast` and the entry, trade and clutch counts of the rows that stay
+and writes all of them for every player who played a round (a count of 0 is written as 0), so a row that has them was
+analyzed from the current facts. Calling
 `GET /api/v1/matches/{matchId}/stats` does not disturb an analyzed row: FACEIT's kills, deaths, assists, headshots and
 ADR are written only into a row that was not analyzed from a demo, so every number of an analyzed row comes from the
 same facts. The demo's players are not necessarily FACEIT's: a SteamID that no roster knows is stored as a placeholder
@@ -398,8 +421,10 @@ player `steam:<SteamID>`, so a match can have both analyzed rows (placeholders) 
 
 **Highlights.** The same analysis finds the moments of the match that are worth a clip and stores them in
 `highlights`: one row per highlight, with the player it belongs to (`player_id`), its type, the round, and the first and
-last tick of the clip (`tick_start`, `tick_end`). Only the kills of an enemy take part in a highlight (see `kills`
-above): a team kill, a kill of oneself and a death by the world or the bomb never do.
+last tick of the clip (`tick_start`, `tick_end`). A multi-kill (`ACE`, `K4`, `K3`) and a special kill (`NO_SCOPE`,
+`KNIFE_KILL`, `WALLBANG`, `SMOKE_KILL`) is made of kills of an enemy only (see `kills` above): a team kill, a kill of
+oneself and a death by the world or the bomb are none. A clutch and a ninja defuse rest on the timeline of the round
+instead, in which every death counts, whoever caused it.
 
 | Type | Rule | The event lasts |
 | --- | --- | --- |
@@ -413,19 +438,22 @@ above): a team kill, a kill of oneself and a death by the world or the bomb neve
 | `NINJA_DEFUSE` | The bomb was defused by a player of the round's roster while at least one player of the other side was alive at that tick (one who dies on that very tick is not). The highlight belongs to the defuser. | From `analysis.ninja.defuse-seconds` before the defuse to the tick of the defuse. |
 
 One kill can be several highlights (a wallbang through smoke is a `WALLBANG` and a `SMOKE_KILL`), and the kills of a
-multi-kill can be special kills as well. Weapon names are compared without regard to case.
+multi-kill can be special kills as well. A special kill is one highlight per moment, not per victim: two kills of one
+player on the same tick with the same flag (a bullet that goes through two players behind a wall) are one `WALLBANG`,
+stored once, and both kills show in its `kills`. Weapon names are compared without regard to case.
 
 **What `NINJA_DEFUSE` does not check.** A ninja defuse in the game's sense is a defuse that is finished while the
 enemies are away from the bomb. The parser stores no position per tick, so this rule only knows that an enemy was alive
 when the bomb was defused, not whether he was near it when the defuse began. A defuse that is finished with an enemy
 right beside the bomb is a `NINJA_DEFUSE` here too, so expect more of them than the game would call by the name. A
-stricter rule needs positions in the facts and a new parse of the demo.
+stricter rule needs positions in the facts and a new parse of the demo. The web interface is as modest: it tags these
+highlights `DEFUSE` and starts the description with "Bomb defused with an enemy alive".
 
 The clip starts `analysis.clip.pre-seconds` before the first tick of the event and ends `analysis.clip.post-seconds`
 after its last, as ticks of the demo (64 per second when the demo does not say), but never outside the round:
 `tick_start = max(round start, first tick - pre x tick rate)` and `tick_end = min(round end, last tick + post x tick
 rate)`, where the round's start and end are its `start_tick` and `end_tick` (an event that lies wholly outside its round,
-which the parser's facts do not produce, is not stored). Every analysis replaces the highlights of
+which the parser's facts do not produce, is not stored and is logged at `WARN`). Every analysis replaces the highlights of
 the match as a whole, in the same transaction that stores the statistics: the earlier rows are deleted and the new ones
 inserted, so repeating an analysis leaves no duplicates, and an analysis that fails leaves the earlier highlights as they
 were. The API lists the highlights of a match only while its demo is `ANALYZED` (see
@@ -446,10 +474,18 @@ All four are read: `analysis.trade-window-seconds` by `trade_kills` and the T of
 `analysis.clip.post-seconds` by the clip of every highlight, and `analysis.ninja.defuse-seconds` by `NINJA_DEFUSE`.
 Seconds become ticks with the tick rate of the demo (64 when the demo does not say).
 
+**Changing `analysis.clip.pre-seconds` or `analysis.clip.post-seconds` changes the identity of a highlight.** They decide
+its `tick_start` and `tick_end`, and a highlight is told apart from the others by its match, player, type, round and
+`tick_start` (its `id` changes with every analysis, so it is no handle; whatever is made from a highlight, a clip, finds
+it again by these five). Once clips exist, changing either setting and analyzing again gives the highlights other
+`tick_start` values, and the clips made before no longer find theirs: change them before clips are made, or make the
+clips again.
+
 **When the analysis fails.** The backend tries the `demo.parsed` message three times (an exception in the analysis
 itself, say, from facts it cannot handle; every failed attempt is logged at `ERROR` with the exception and its stack
-trace) and then gives up. The demo is not marked `FAILED`, because the facts the parser wrote are intact and a re-upload
-would be wasted work (and impossible once the retention job has removed the file). A `PARSED` demo stays `PARSED` and its
+trace) and then gives up. The demo is not marked `FAILED`, because the facts the parser wrote are intact and parsing
+the file again would be wasted work (an upload always works, also after the retention job has removed the file: it
+restores the demo, see [Retention](#retention)). A `PARSED` demo stays `PARSED` and its
 `error` becomes `Analyzing the demo failed after 3 attempts. The parsed data is kept; start the analysis again.`. Start
 the analysis again with `POST .../demo/analyze`: a successful analysis moves the demo to `ANALYZED` and clears the error,
 and uploading the file again clears it too. An `ANALYZED` demo whose repeated analysis fails is not changed at all: it
@@ -469,7 +505,7 @@ asked of FACEIT). An id the database does not know is not an error: the lists ar
 
 | Endpoint | Answer |
 | --- | --- |
-| `GET /api/v1/matches/{matchId}/highlights?type=&playerId=` | An array of the highlights of the match, by round and, within a round, by the first tick of the clip. `type` (one of the highlight types above) and `playerId` narrow the list; both are optional. |
+| `GET /api/v1/matches/{matchId}/highlights?type=&playerId=` | An array of the highlights of the match, by round and, within a round, by the first tick of the clip. `type` (one of the types in the table of highlight types in [Analysis](#analysis)) and `playerId` narrow the list; both are optional. |
 | `GET /api/v1/players/{playerId}/highlights?type=&offset=0&limit=50` | `{"items": [...], "offset": 0, "limit": 50}`: a page of the highlights of the player over all his matches, the newest match first (a match with no start time last), then by round and clip. `type` as above, `offset` 0-10000, `limit` 1-100. |
 | `GET /api/v1/players/{playerId}/stats` | The statistics of the player over the matches the backend has stored. |
 
@@ -489,8 +525,9 @@ the match endpoint and adds nothing to the page of a player. The statistics endp
 
 A `type` that is not one of the highlight types, an `offset` or `limit` out of range and a `playerId` that is not made of
 letters, digits and `-` are a `400 VALIDATION_ERROR`. A player known only from a demo has the id `steam:<SteamID>`, whose
-colon that rule does not allow: such a player cannot be asked for by id, and his highlights can only be read from the
-highlights of the match (where `playerId` is the `steam:` id).
+colon that rule does not allow: as a path variable and as `?playerId=steam:...` of the match endpoint such an id is a
+`400` too, so this player cannot be asked for by id. His highlights are in the list of the match without that filter:
+the `playerId` of each of its items is the `steam:` id.
 
 A highlight, here a `K3` (the player's id is shortened):
 
@@ -504,14 +541,14 @@ A highlight, here a `K3` (the player's id is shortened):
 | Field | Meaning |
 | --- | --- |
 | `id` | The id of the highlight. It changes whenever the match is analyzed again, so do not keep it. |
-| `type` | One of the types in the table above. |
+| `type` | One of the types in the table of highlight types in [Analysis](#analysis). |
 | `playerId`, `nickname` | The player the highlight belongs to: his FACEIT id (`steam:<SteamID>` for a player known only from the demo) and nickname. |
 | `roundNumber` | The round of the demo, counted from 1. |
 | `side` | `"CT"` or `"T"`: the side the player played that round on, from his `round_players` row. `null` when there is no such row, as for a demo parsed before the roster of a round was recorded. |
 | `tickStart`, `tickEnd` | The clip, in ticks of the demo; both lie inside the round. |
 | `roundStartTick`, `roundEndTick` | The `start_tick` and `end_tick` of the round. |
 | `durationSeconds` | The length of the clip, `tickEnd - tickStart` over the tick rate of the demo (64 when it does not say), rounded to the nearest whole second. |
-| `kills` | The kills of an enemy the player made from `tickStart` to `tickEnd`, both included, in the order they happened (a team kill, a kill of oneself and a death by the world are not kills, as in the rest of the analysis). `weapon` is the weapon as the demo names it. The array is empty when the clip holds no such kill. Reading a page costs one more statement for the kills of all its highlights, not one for each. |
+| `kills` | The kills of an enemy the player made from `tickStart` to `tickEnd`, both included, in the order they happened (a team kill, a kill of oneself and a death by the world are not kills, as in the rest of the analysis): what a clip of the highlight would show. They can be more than the kills that earned the tag, since a clip also holds the other kills of the player that fall in its window. `weapon` is the weapon as the demo names it. The array is empty when the clip holds no such kill. Reading a page costs one more statement for the kills of all its highlights, not one for each. |
 | `matchId`, `mapName`, `startedAt` | The FACEIT match id, and the map and start time of the match, `null` while the match has none. |
 
 The statistics, here of a player with one analyzed match:
@@ -528,16 +565,20 @@ The statistics, here of a player with one analyzed match:
 | `winRate` | The percent of the matches with a known result (`won`) that the player's team won. |
 | `kd` | All kills over all deaths (over 1 for a player who never died), with two decimals. |
 | `hsPercent` | The percent of all kills that were headshots, 0 without a kill. |
-| `adr` | The mean of the ADR of the matches that have one, with one decimal; a match counts once whatever its length. |
+| `adr` | The mean of the ADR of the matches that have one, with one decimal; a match counts once whatever its length. A stored ADR of 0 is no ADR: FACEIT's numbers hold `0.00` for a match whose statistics carry none, so such a row is left out of the mean (`null` when no row has an ADR above zero). |
 | `kast` | The percent of the rounds played in the analyzed matches in which the player had a kill, an assist, survived or was traded: the KAST of each match weighted by the rounds he played in it. |
 | `entryKillsPerMatch`, `tradeKillsPerMatch` | The entry kills, and the trade kills, per analyzed match, with two decimals. |
 | `clutchPercent` | The percent of the player's clutches that his side won. Every situation in which he is the last of his side alive against an enemy is a clutch, so a few percent is normal. |
 | `clutchAttempts`, `clutchWins` | The clutches he played, and the ones his side won. |
 
-`kd`, `hsPercent` and `adr` use every row, FACEIT's numbers included; the other figures come from analyzed matches only.
-A percentage is 0 to 100 with one decimal. A figure with no data behind it is `null`, never 0: `winRate` while no result
-of the player is known, `adr` without a stored ADR, `kast` and the two per-match figures without an analyzed match and
-`clutchPercent` without a clutch. A player the database does not know has `matches: 0` and all of these `null`.
+`matches` counts every stored row, and `winRate`, `kd`, `hsPercent` and `adr` use every stored row, FACEIT's numbers
+included (`winRate` the rows whose result is known); only `kast`, the two per-match figures and the clutch figures come
+from analyzed matches. A percentage is 0 to 100 with one decimal. A figure with no data behind it is `null`, never 0:
+`winRate` while no result of the player is known, `adr` without a stored ADR above zero, `kast` and the two per-match
+figures without an analyzed match and `clutchPercent` without a clutch. `kd` and `hsPercent` are the exception: they are
+numbers, `0.0` for a player without a stored row (and `hsPercent` for one without a kill), so a consumer that has to tell
+"no data" from "zero" tests `matches > 0`. A player the database does not know has `matches: 0`, `kd` and `hsPercent`
+`0.0` and all the other figures `null`.
 
 ### Retention
 
@@ -553,7 +594,7 @@ The backend exports Micrometer metrics at `/actuator/prometheus`, among them the
 | Metric (Prometheus name) | Meaning |
 | --- | --- |
 | `demo_pipeline_stage_duration_seconds_count`, `_sum`, `_max` (`stage="import"`) | How long an import took, from taking over the message to the announcement on `demo.parse`, failed imports included. |
-| `demo_pipeline_stage_duration_seconds_count`, `_sum`, `_max` (`stage="analyze"`) | How long one handling of a `demo.parsed` message took, the analysis of the demo from reading its facts to storing the statistics; an attempt that failed and a message that found nothing to analyze are included. |
+| `demo_pipeline_stage_duration_seconds_count`, `_sum`, `_max` (`stage="analyze"`) | How long one handling of a `demo.parsed` message took, the analysis of the demo from reading its facts to storing the statistics and the highlights; an attempt that failed and a message that found nothing to analyze are included. |
 | `demo_pipeline_failed_total` (`stage` = `import`, `parse` or `analyze`) | Failures, each counted once, in the stage it failed in. `import`: a rejected download, a dead letter from `demo.import`, and a demo whose `demo.import` or `demo.parse` message could not be published because the broker was unavailable. `parse`: the parser's own failures (it records `FAILED` and rejects the message; the backend counts the rejection when it reads the dead letter) and a dead letter from `demo.parse` for a demo that was still `STORED`. These demos went to `FAILED`. `analyze`: an analysis that failed three times (a dead letter from `demo.parsed`) for a demo that is `PARSED` or `ANALYZED`; the demo does not go to `FAILED` (see [Analysis](#analysis)). A demo set to `FAILED` by hand in the database is not counted. |
 | `demo_pipeline_parsed_total` | `demo.parsed` messages handled by the backend, each time the listener handles one: a message whose analysis fails is tried three times and counts three times. It also counts messages for a demo that is not there or is no longer `PARSED`, which the analysis skips. |
 

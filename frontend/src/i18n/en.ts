@@ -70,7 +70,7 @@ export const en = {
     noData: 'No data',
     clutchRecord: (wins: number, attempts: number) => `${wins} of ${attempts} won`,
     basedOn: (matches: number, analyzed: number) =>
-      `Based on ${matches} stored matches (${analyzed} with demo analysis)`,
+      `Based on ${matches} stored ${matches === 1 ? 'match' : 'matches'} (${analyzed} with demo analysis)`,
   },
   highlight: {
     title: 'Highlights',
@@ -83,8 +83,10 @@ export const en = {
     // Tags are shown as they are written here.
     knifeKill: 'KNIFE KILL',
     smokeKill: 'SMOKE KILL',
+    // A weapon label that is a plain word, not an item name of the game.
+    knife: 'Knife',
     headshots: (count: number) => (count === 1 ? '1 headshot' : `${count} headshots`),
-    bombDefused: 'Bomb defused',
+    bombDefused: 'Bomb defused with an enemy alive',
     noKills: 'No kills',
     filterLabel: 'Kind of highlight',
     groupAll: 'All',
@@ -110,6 +112,7 @@ export const en = {
     fileLabel: 'Demo file (.dem, .dem.gz, .dem.zst)',
     upload: 'Upload',
     importFromFaceit: 'Import from FACEIT',
+    analyze: 'Analyze',
     reanalyze: 'Re-analyze',
     wrongKey: 'Wrong admin key',
     sending: 'Sending the request…',

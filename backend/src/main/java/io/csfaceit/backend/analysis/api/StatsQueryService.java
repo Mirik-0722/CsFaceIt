@@ -18,7 +18,8 @@ import org.springframework.stereotype.Service;
  *   <li>{@code kd}: all kills over all deaths (over 1 for a player who never died); {@code hsPercent}: the share of the
  *       kills that were headshots. Both use every row, FACEIT's own numbers included.
  *   <li>{@code adr}: the mean of the stored per-match ADR, which is the damage per round of each match, not weighted by
- *       the rounds.
+ *       the rounds. A row with an ADR of 0 is left out, because FACEIT's writer stores 0.00 for a match whose
+ *       statistics carry no ADR, and that would pull the mean down.
  *   <li>{@code kast}: the KAST of the matches analyzed from a demo, each weighted by the rounds the player played in
  *       it, so it is the share of all the rounds played.
  *   <li>{@code entryKillsPerMatch} and {@code tradeKillsPerMatch}: the entry kills and the trade kills over the matches
@@ -36,9 +37,11 @@ public class StatsQueryService {
 
     /**
      * One row of sums, also for a player with no rows: {@code count} gives 0 and {@code coalesce} turns the sums of
-     * nothing into 0, while {@code adr} stays null when no row has an ADR. {@code known_results} are the rows whose
-     * {@code won} is set (true or false), {@code wins} those where it is true. The KAST of a row counts only together
-     * with its {@code rounds_played}, so a KAST that is not weighted by anything never enters the figure.
+     * nothing into 0, while {@code adr} stays null when no row has an ADR. Only an ADR above zero is one: FACEIT's
+     * writer stores {@code 0.00} for a match whose statistics carry no ADR, and a mean over those zeros would be wrong.
+     * {@code known_results} are the rows whose {@code won} is set (true or false), {@code wins} those where it is true.
+     * The KAST of a row counts only together with its {@code rounds_played}, so a KAST that is not weighted by anything
+     * never enters the figure.
      */
     private static final String TOTALS_SQL = """
             SELECT count(*) AS matches,
@@ -48,7 +51,7 @@ public class StatsQueryService {
                    coalesce(sum(s.kills), 0) AS kills,
                    coalesce(sum(s.deaths), 0) AS deaths,
                    coalesce(sum(s.headshots), 0) AS headshots,
-                   avg(s.adr) AS adr,
+                   avg(s.adr) FILTER (WHERE s.adr > 0) AS adr,
                    coalesce(sum(s.kast * s.rounds_played), 0) AS kast_weighted,
                    coalesce(sum(s.rounds_played) FILTER (WHERE s.kast IS NOT NULL), 0) AS kast_rounds,
                    coalesce(sum(s.entry_kills), 0) AS entry_kills,

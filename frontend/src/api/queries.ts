@@ -89,21 +89,38 @@ export function useMatchStats(matchId: string) {
 /** How often the demo is asked for again while the backend is still working on it. */
 const DEMO_POLL_MS = 3000
 
-/** A demo that has not changed for this long is taken to be one that nothing is working on. */
+/** A demo that this page has seen unchanged for this long is taken to be one that nothing is working on. */
 const DEMO_STALLED_MS = 30 * 60 * 1000
 
 /**
- * True while the pipeline will move the demo on by itself: queued, stored, or parsed with its analysis to come. A
- * demo that has stood in such a state for half an hour is not being worked on (one parsed before analyses existed
- * stays PARSED for good), so it does not count: asking about it every three seconds would never end.
+ * The last stamp (status and write time) of the demo of each match that this page has seen, and when it first saw it.
+ * The server's time is never compared with the browser's clock, which may be set to anything; only two readings of
+ * the browser's own clock are.
  */
-function isInProgress(demo: DemoResponse | null | undefined): boolean {
+const demoSightings = new Map<string, { stamp: string; since: number }>()
+
+/**
+ * True while the pipeline will move the demo on by itself: queued, stored, or parsed with its analysis to come. A
+ * demo that this page has seen in the same such state for half an hour is not being worked on (one parsed before
+ * analyses existed stays PARSED for good), so it does not count: asking about it every three seconds would never end.
+ * A new stamp restarts the half hour. Asking again about the same stamp changes nothing.
+ */
+function isInProgress(matchId: string, demo: DemoResponse | null | undefined): boolean {
   if (!demo) {
     return false
   }
   const moving = demo.status === 'QUEUED' || demo.status === 'STORED' || (demo.status === 'PARSED' && !demo.error)
-  // An unreadable time compares false, which keeps the demo in progress.
-  return moving && !(Date.now() - Date.parse(demo.updatedAt) > DEMO_STALLED_MS)
+  if (!moving) {
+    return false
+  }
+  const stamp = `${demo.status} ${demo.updatedAt}`
+  const now = Date.now()
+  const seen = demoSightings.get(matchId)
+  if (seen?.stamp !== stamp) {
+    demoSightings.set(matchId, { stamp, since: now })
+    return true
+  }
+  return now - seen.since <= DEMO_STALLED_MS
 }
 
 /**
@@ -124,7 +141,7 @@ export function useDemo(matchId: string, watching = false) {
         throw error
       }
     },
-    refetchInterval: (query) => (watching || isInProgress(query.state.data) ? DEMO_POLL_MS : false),
+    refetchInterval: (query) => (watching || isInProgress(matchId, query.state.data) ? DEMO_POLL_MS : false),
     retry: retryUnlessClientError,
   })
 }
@@ -144,7 +161,9 @@ function useDemoAction<Variables extends { apiKey: string }>(
   const queryClient = useQueryClient()
   return useMutation<DemoResponse, ApiError, Variables>({
     mutationFn: send,
-    // The variables hold the admin key: the cache drops a finished request at once instead of after five minutes.
+    // The variables hold the admin key. A finished request is dropped from the cache as soon as nothing observes it,
+    // not five minutes later; the hook of a mounted panel still observes it, so a rejected key is cleared there (see
+    // DemoPanel).
     gcTime: 0,
     onSuccess: (demo) => {
       queryClient.setQueryData<DemoResponse | null>(['demo', matchId], demo)

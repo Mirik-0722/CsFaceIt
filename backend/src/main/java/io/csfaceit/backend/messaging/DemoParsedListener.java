@@ -24,7 +24,10 @@ import org.springframework.stereotype.Component;
  * tried three times and then dead-lettered, and {@link DemoDlqListener} records the failure on the demo, which stays
  * PARSED so that the analysis can be started again. This is the only place that logs the exception itself. Each of the
  * attempts is a failure of its own and is logged as one; neither the retry nor the dead-letter listener logs the trace
- * again (the latter only has the exception's message, from the headers of the dead letter).
+ * again (the dead letter carries it in its {@code x-exception-stacktrace} header, but nothing reads it out; the
+ * dead-letter listener logs the exception's message only). An {@link Error} is logged the same way, and since the retry
+ * does not repeat it (see {@link RabbitConfig#rabbitListenerContainerFactory}) its message is dead-lettered at once:
+ * this is the one place its stack trace is logged.
  */
 @Component
 public class DemoParsedListener {
@@ -45,7 +48,7 @@ public class DemoParsedListener {
         Timer.Sample sample = metrics.startAnalyze();
         try {
             analysis.analyze(message.demoId());
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | Error e) {
             log.error("Analyzing demo {} of match {} failed", message.demoId(), message.faceitMatchId(), e);
             throw e;
         } finally {

@@ -19,8 +19,10 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>Each table is one query, ordered by round and, where there is a tick, by {@code (tick, id)}. Rows that belong
  * to a round number {@code rounds} has no row for are dropped. A side the database holds that is not {@code CT} or
  * {@code T} counts as no side. The roster of a round starts as its {@code round_players} rows; a player the kill
- * events of the round name with a side and the roster lacks is added (a parse that has no roster rows, or a player
- * who died before the first sampled position), and where the two disagree the roster wins.
+ * events of the round name with a side and the roster lacks is added (a player who died before the first sampled
+ * position, say), and where the two disagree the roster wins. A match that has no roster row at all (a parse from
+ * before the roster was recorded, or a demo whose positions could not be read) is loaded all the same, but
+ * {@link MatchFacts#rosterRecorded()} is false for it.
  *
  * <p>The four queries run in one read-only transaction at the repeatable-read level, so they see one snapshot: a new
  * parse that commits between them cannot mix two parses into one {@link MatchFacts}. (The analysis would drop such a
@@ -94,10 +96,13 @@ public class FactsLoader {
                     roster(rosters.getOrDefault(row.roundNumber(), Map.of()), roundKills), roundKills,
                     damages.getOrDefault(row.roundNumber(), List.of())));
         }
-        return new MatchFacts(matchRowId, tickRate, rounds);
+        return new MatchFacts(matchRowId, tickRate, !rosters.isEmpty(), rounds);
     }
 
-    /** The roster rows of the round, plus the players of its kill events that they do not list, with their sides. */
+    /**
+     * The roster rows of the round, plus the players of its kill events that they do not list, with their sides.
+     * {@code HighlightQueryService.KILLS_SQL} is the SQL copy of this rule and must change with it.
+     */
     private static Map<Long, Side> roster(Map<Long, Side> listed, List<KillFact> kills) {
         Map<Long, Side> sides = new TreeMap<>(listed);
         for (KillFact kill : kills) {

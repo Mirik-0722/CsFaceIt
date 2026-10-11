@@ -35,10 +35,11 @@ function failureText(action: Action, error: ApiError, t: Messages): string {
 }
 
 /**
- * The demo of a match: its status and the reason of a failure, for everyone; behind "Manage", the three requests that
- * need the admin key — import from FACEIT, upload a file, analyze again. The key is asked for once and kept in memory
- * until the page is reloaded; a key the backend rejects is forgotten. The panel belongs to one match: render it with
- * the match id as its `key`, so that nothing it remembers follows the visitor to another match.
+ * The demo of a match: its status and the reason of a failure, for everyone; behind "Manage", the requests that need
+ * the admin key — import from FACEIT (offered only where it starts something: the match has no demo, or its import
+ * failed), upload a file, analyze (again). The key is asked for once and kept in memory until the page is reloaded; a
+ * key the backend rejects is forgotten. The panel belongs to one match: render it with the match id as its `key`, so
+ * that nothing it remembers follows the visitor to another match.
  */
 export default function DemoPanel({ matchId }: { matchId: string }) {
   const t = useT()
@@ -66,9 +67,14 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
   const importDemo = useImportDemo(matchId)
   const uploadDemo = useUploadDemo(matchId)
   const analyzeDemo = useAnalyzeDemo(matchId)
+  const requests = { import: importDemo, upload: uploadDemo, analyze: analyzeDemo }
   const busy = importDemo.isPending || uploadDemo.isPending || analyzeDemo.isPending
   const disabled = busy || apiKey.length === 0
   const status = demo.data?.status
+  // The backend ignores an import request for a demo that is queued, stored, parsed or analyzed, so the button is
+  // offered only where the request starts something: the match has no demo, or its import failed.
+  const canImport = demo.data === null || status === 'FAILED'
+  const canAnalyze = status === 'PARSED' || status === 'ANALYZED'
 
   // What is computed from the demo is asked for again when the demo changes: its status, or the time it was written.
   const stamp = demo.data ? `${demo.data.status} ${demo.data.updatedAt}` : demo.data === null ? 'none' : undefined
@@ -122,10 +128,12 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
       },
       onError: (error: ApiError) => {
         if (error.status === 401) {
-          // A rejected key is forgotten everywhere: the stored one and the one still in the field.
+          // A rejected key is forgotten everywhere: the stored one, the one still in the field and the one the
+          // rejected request keeps in its variables.
           setAdminKey(null)
           setTypedKey('')
           setKeyRejected(true)
+          requests[action].reset()
         } else {
           setFailure({ action, error })
         }
@@ -134,7 +142,7 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
   }
 
   return (
-    <section aria-labelledby={titleId} aria-busy={busy} className="border border-border bg-card">
+    <section aria-labelledby={titleId} className="border border-border bg-card">
       <div className="flex min-h-14 items-center gap-x-4 py-1.5 pr-2 pl-4">
         <h2 id={titleId} className="label-mono">
           {t.demo.title}
@@ -180,7 +188,7 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
               <Input
                 id={keyId}
                 type="password"
-                autoComplete="off"
+                autoComplete="new-password"
                 value={typedKey}
                 onChange={(event) => setTypedKey(event.target.value)}
                 aria-invalid={keyRejected ? true : undefined}
@@ -211,26 +219,30 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
               {t.demo.upload}
             </Button>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={disabled}
-              onClick={() => importDemo.mutate({ apiKey }, callbacks('import'))}
-            >
-              {t.demo.importFromFaceit}
-            </Button>
-            {(status === 'PARSED' || status === 'ANALYZED') && (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={disabled}
-                onClick={() => analyzeDemo.mutate({ apiKey }, callbacks('analyze'))}
-              >
-                {t.demo.reanalyze}
-              </Button>
-            )}
-          </div>
+          {(canImport || canAnalyze) && (
+            <div className="flex flex-wrap gap-3">
+              {canImport && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={disabled}
+                  onClick={() => importDemo.mutate({ apiKey }, callbacks('import'))}
+                >
+                  {t.demo.importFromFaceit}
+                </Button>
+              )}
+              {canAnalyze && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={disabled}
+                  onClick={() => analyzeDemo.mutate({ apiKey }, callbacks('analyze'))}
+                >
+                  {status === 'ANALYZED' ? t.demo.reanalyze : t.demo.analyze}
+                </Button>
+              )}
+            </div>
+          )}
           {/* Always in the page, so that its first message is announced; while empty it takes back the gap above. */}
           <div id={messagesId} aria-live="polite" className="text-sm empty:-mt-4">
             {busy && (

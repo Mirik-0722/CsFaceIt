@@ -70,18 +70,19 @@ public final class RoundTimeline {
      * are down to one player each of them has one.
      */
     public Optional<ClutchAttempt> clutch(Side side) {
-        int alive = round.players(side).size();
+        // The side's living players before the deaths of the tick at hand.
+        int aliveBefore = round.players(side).size();
         for (int tick : new TreeSet<>(diedAt.values())) {
             if (tick > round.decidedTick()) {
                 break;
             }
             Set<Long> own = aliveAt(side, tick);
             int enemies = aliveAt(side.opposite(), tick).size();
-            if (alive >= 2 && own.size() == 1 && enemies >= 1) {
+            if (aliveBefore >= 2 && own.size() == 1 && enemies >= 1) {
                 return Optional.of(new ClutchAttempt(own.iterator().next(), round.roundNumber(), tick,
                         Math.min(enemies, ClutchAttempt.MAX_ENEMIES), round.winnerSide() == side));
             }
-            alive = own.size();
+            aliveBefore = own.size();
         }
         return Optional.empty();
     }

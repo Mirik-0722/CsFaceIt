@@ -49,14 +49,25 @@ const LABELS = new Map<string, string>([
   ['c4', 'C4'],
 ])
 
+/** The name the demo gave the weapon, without the `weapon_` prefix and in lower case. */
+function demoName(weapon: string): string {
+  return weapon.toLowerCase().replace(/^weapon_/, '')
+}
+
+/** Whether the weapon is a knife of any model (`knife`, `knife_t`, `knife_karambit`, ...) or a bayonet. */
+export function isKnife(weapon: string): boolean {
+  const name = demoName(weapon)
+  return name.startsWith('knife') || name.startsWith('bayonet')
+}
+
 /**
- * The name of a weapon as players know it (`ak47` → `AK-47`). Every knife model is `Knife`; a weapon that is not in
- * the list keeps the name the demo gave it.
+ * The name of a weapon as players know it (`ak47` → `AK-47`). A weapon that is not in the list keeps the name the
+ * demo gave it. A knife is `Knife` here, but that is a plain word, not an item name: a text for the reader asks
+ * {@link isKnife} first and takes the word from the dictionary.
  */
 export function weaponLabel(weapon: string): string {
-  const name = weapon.toLowerCase().replace(/^weapon_/, '')
-  if (name.startsWith('knife') || name.startsWith('bayonet')) {
+  if (isKnife(weapon)) {
     return 'Knife'
   }
-  return LABELS.get(name) ?? weapon
+  return LABELS.get(demoName(weapon)) ?? weapon
 }

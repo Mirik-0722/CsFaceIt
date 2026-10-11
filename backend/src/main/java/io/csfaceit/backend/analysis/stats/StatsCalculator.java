@@ -20,8 +20,8 @@ import java.util.TreeSet;
 import org.springframework.stereotype.Component;
 
 /**
- * Computes the statistics of every player of a match from its facts. It is a pure function of the facts: nothing is
- * read or written, so the same facts always give the same numbers.
+ * Computes the statistics of every player of a match from its facts. It is a function of the facts and of the settings
+ * (the trade window): nothing is read or written, so the same facts and settings always give the same numbers.
  *
  * <ul>
  *   <li>A kill counts for the killer only if it is a kill of an enemy: the killer is a player, is not the victim, and
@@ -109,7 +109,7 @@ public class StatsCalculator {
                     killer.headshots++;
                 }
             }
-            if (round.enemies(kill.assisterId(), kill.victimId())) {
+            if (isEnemyAssist(round, kill)) {
                 tallies.get(kill.assisterId()).assists++;
             }
         }
@@ -118,6 +118,11 @@ public class StatsCalculator {
     private static boolean isEnemyKill(RoundFacts round, KillFact kill) {
         return kill.killerId() != null && kill.killerId().longValue() != kill.victimId()
                 && round.enemies(kill.killerId(), kill.victimId());
+    }
+
+    /** Whether the row has an assister who played the round on the other side than the victim, whoever killed him. */
+    private static boolean isEnemyAssist(RoundFacts round, KillFact kill) {
+        return round.enemies(kill.assisterId(), kill.victimId());
     }
 
     private static void countDamage(RoundFacts round, Map<Long, Tally> tallies) {
@@ -143,8 +148,8 @@ public class StatsCalculator {
         boolean opened = false;
         for (KillFact kill : round.kills()) {
             died.add(kill.victimId());
-            // An assist counts when the assister is an enemy of the victim, as in countKills, whoever killed him.
-            if (round.enemies(kill.assisterId(), kill.victimId())) {
+            // An assist counts as in countKills, whoever killed the victim.
+            if (isEnemyAssist(round, kill)) {
                 contributed.add(kill.assisterId());
             }
             if (!isEnemyKill(round, kill)) {

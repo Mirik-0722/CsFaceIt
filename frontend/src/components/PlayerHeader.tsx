@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { useT } from '@/i18n'
@@ -6,10 +7,22 @@ import type { PlayerResponse } from '@/api/types'
 
 type Size = 'default' | 'lg'
 
+/** The picture of the player; the initial in a circle when he has none, or when the picture does not load. */
 function Avatar({ player, size }: { player: PlayerResponse; size: Size }) {
   const box = size === 'lg' ? 'size-18' : 'size-14'
-  if (player.avatar) {
-    return <img src={player.avatar} alt="" className={cn(box, 'shrink-0 rounded-full object-cover')} />
+  // The address that failed, not a flag: another player's address (this component is reused for the next player)
+  // is tried afresh, and fails to the initial in its turn.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  if (player.avatar && player.avatar !== failedSrc) {
+    const src = player.avatar
+    return (
+      <img
+        src={src}
+        alt=""
+        onError={() => setFailedSrc(src)}
+        className={cn(box, 'shrink-0 rounded-full object-cover')}
+      />
+    )
   }
   return (
     <div

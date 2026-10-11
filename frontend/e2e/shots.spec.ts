@@ -51,7 +51,7 @@ interface Backend {
   stats: MatchStatsResponse | null
   /** The player's figures over the stored matches. */
   playerStats: PlayerAggregateStatsResponse
-  /** The highlights of the match. The player's own are also the profile's newest ten and the highlights page. */
+  /** The highlights of the match. The player's own are also the profile's newest six and the highlights page. */
   highlights: HighlightResponse[]
   /** `null`: the match has no demo (the backend answers 404 DEMO_NOT_FOUND). */
   demo: DemoResponse | null
@@ -291,8 +291,8 @@ function answersFor(backend: Backend): Map<string, Reply> {
     [`GET /api/v1/players/${PLAYER_ID}/history?offset=0&limit=20`, { body: backend.history }],
     [`GET /api/v1/players/${PLAYER_ID}/stats`, { body: backend.playerStats }],
     [
-      `GET /api/v1/players/${PLAYER_ID}/highlights?offset=0&limit=10`,
-      { body: { items: own.slice(0, 10), offset: 0, limit: 10 } },
+      `GET /api/v1/players/${PLAYER_ID}/highlights?offset=0&limit=6`,
+      { body: { items: own.slice(0, 6), offset: 0, limit: 6 } },
     ],
     [`GET /api/v1/players/${PLAYER_ID}/highlights?offset=0&limit=50`, { body: { items: own, offset: 0, limit: 50 } }],
     [

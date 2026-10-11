@@ -1,6 +1,6 @@
 import type { Messages } from '@/i18n'
 import type { HighlightKill, HighlightResponse, HighlightType } from '@/api/types'
-import { weaponLabel } from '@/lib/weapons'
+import { isKnife, weaponLabel } from '@/lib/weapons'
 
 /** The groups the match page filters by. */
 export type HighlightGroup = 'multi' | 'clutch' | 'special'
@@ -34,8 +34,9 @@ export function isHighlightType(value: string): value is HighlightType {
 
 /**
  * The tag of a highlight, written as it is shown (the tag does not change its case): `ACE`, `4K`, `3K`,
- * `1v3 CLUTCH`, `NO-SCOPE`, `WALLBANG`, `NINJA DEFUSE`. Game terms are the same in every language; the two kinds that
- * are plain words come from the dictionary.
+ * `1v3 CLUTCH`, `NO-SCOPE`, `WALLBANG`, `DEFUSE`. Game terms are the same in every language; the two kinds that are
+ * plain words come from the dictionary. `NINJA_DEFUSE` is the name of the type in the API; the rule behind it is only
+ * that the bomb was defused while an enemy was alive, so its tag says no more than `DEFUSE`.
  */
 export function highlightLabel(type: HighlightType, t: Messages): string {
   switch (type) {
@@ -50,7 +51,7 @@ export function highlightLabel(type: HighlightType, t: Messages): string {
     case 'WALLBANG':
       return 'WALLBANG'
     case 'NINJA_DEFUSE':
-      return 'NINJA DEFUSE'
+      return 'DEFUSE'
     case 'KNIFE_KILL':
       return t.highlight.knifeKill
     case 'SMOKE_KILL':
@@ -65,7 +66,8 @@ export function highlightLabel(type: HighlightType, t: Messages): string {
 function describeKills(kills: HighlightKill[], t: Messages): string {
   const counts = new Map<string, number>()
   for (const kill of kills) {
-    const weapon = weaponLabel(kill.weapon)
+    // Item names are the same in every language; the knife is a plain word and comes from the dictionary.
+    const weapon = isKnife(kill.weapon) ? t.highlight.knife : weaponLabel(kill.weapon)
     counts.set(weapon, (counts.get(weapon) ?? 0) + 1)
   }
   const weapons = [...counts].map(([weapon, count]) => (count > 1 ? `${weapon} ×${count}` : weapon)).join(', ')
@@ -73,12 +75,17 @@ function describeKills(kills: HighlightKill[], t: Messages): string {
   return headshots > 0 ? `${weapons} · ${t.highlight.headshots(headshots)}` : weapons
 }
 
-/** One line about what happened in the highlight, from its kills; a highlight without a kill says what it was. */
+/**
+ * One line about what happened in the highlight, from its kills. A defuse always starts with what it is (the bomb was
+ * defused with an enemy alive) and goes on with the weapons when its window holds kills; any other highlight without a
+ * kill says so.
+ */
 export function describeHighlight(highlight: HighlightResponse, t: Messages): string {
-  if (highlight.kills.length > 0) {
-    return describeKills(highlight.kills, t)
+  const kills = highlight.kills.length > 0 ? describeKills(highlight.kills, t) : null
+  if (highlight.type === 'NINJA_DEFUSE') {
+    return kills ? `${t.highlight.bombDefused} · ${kills}` : t.highlight.bombDefused
   }
-  return highlight.type === 'NINJA_DEFUSE' ? t.highlight.bombDefused : t.highlight.noKills
+  return kills ?? t.highlight.noKills
 }
 
 /** Seconds as `m:ss`. */

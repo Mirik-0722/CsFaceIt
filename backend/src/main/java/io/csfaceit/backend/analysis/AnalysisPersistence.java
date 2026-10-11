@@ -89,11 +89,15 @@ public class AnalysisPersistence {
      * <p>Nothing is written when the demo is no longer PARSED or ANALYZED, or its {@code updated_at} is not the one
      * the claim saw: the demo was uploaded or parsed again while it was analyzed, and the new upload announces itself.
      *
-     * <p>All rows of the match first lose what an earlier analysis put in them ({@code rounds_played}, {@code kast}
-     * and the entry, trade and clutch counts), so that a player this analysis does not mention does not look analyzed.
-     * Then every player of {@code values} gets his row (created when the match has none) with all of his statistics.
-     * {@code won} is written only into a row that has none: FACEIT's own result is the official one and replaces it
-     * whenever the match statistics are fetched (see {@code MatchPersistence}).
+     * <p>The rows an earlier analysis owns ({@code rounds_played} is set) of players that {@code values} does not
+     * mention are deleted first: the roster of a new parse differs, or another demo was uploaded to the match, and such
+     * a row would keep the kills, deaths, ADR and result of the old analysis for good, and the player's totals would
+     * count it. Rows only FACEIT's numbers fill ({@code rounds_played} is null) are not touched; FACEIT's writer
+     * recreates the row of a FACEIT player the next time the match statistics are fetched. Then all remaining rows of
+     * the match lose what an earlier analysis put in them ({@code rounds_played}, {@code kast} and the entry, trade and
+     * clutch counts), and every player of {@code values} gets his row (created when the match has none) with all of
+     * his statistics. {@code won} is written only into a row that has none: FACEIT's own result is the official one and
+     * replaces it whenever the match statistics are fetched (see {@code MatchPersistence}).
      *
      * <p>The highlights of the match are replaced as a whole: the ones an earlier analysis stored are deleted and
      * {@code candidates} are inserted in their place, in the same transaction and under the same lock, so an analysis
@@ -101,7 +105,8 @@ public class AnalysisPersistence {
      * a clip of its round: the clip starts {@code analysis.clip.pre-seconds} before its first tick and ends
      * {@code analysis.clip.post-seconds} after its last, as ticks of {@code facts.tickRate()}, but never outside the
      * round (it starts no earlier than the round's {@code start_tick} and ends no later than its {@code end_tick}). A
-     * candidate of a round that {@code facts} does not have, or whose event lies wholly outside its round, is dropped.
+     * candidate of a round that {@code facts} does not have, or whose event lies wholly outside its round, is dropped
+     * and logged at WARN.
      *
      * @param facts the facts {@code candidates} and {@code values} were computed from
      * @return false when nothing was written
@@ -113,12 +118,14 @@ public class AnalysisPersistence {
         if (demo == null || !isAnalyzable(demo.getStatus()) || !claim.updatedAt().equals(demo.getUpdatedAt())) {
             return false;
         }
+        // Bulk statements leave the persistence context as it is, so both run before any row of the match is loaded.
+        stats.deleteAnalyzedExcept(claim.matchRowId(), values.keySet());
         stats.clearAnalysis(claim.matchRowId());
         Match match = matches.getReferenceById(claim.matchRowId());
         for (Map.Entry<Long, PlayerMatchStatsValues> entry : values.entrySet()) {
             write(match, claim.matchRowId(), entry.getKey(), entry.getValue());
         }
-        replaceHighlights(match, claim.matchRowId(), candidates, facts);
+        replaceHighlights(match, claim, candidates, facts);
         if (demo.getStatus() == DemoStatus.PARSED) {
             demo.transitionTo(DemoStatus.ANALYZED);
             demos.saveAndFlush(demo);
@@ -126,8 +133,8 @@ public class AnalysisPersistence {
         return true;
     }
 
-    private void replaceHighlights(Match match, long matchRowId, List<HighlightCandidate> candidates,
-                                   MatchFacts facts) {
+    private void replaceHighlights(Match match, Claim claim, List<HighlightCandidate> candidates, MatchFacts facts) {
+        long matchRowId = claim.matchRowId();
         highlights.deleteByMatchId(matchRowId);
         Map<Integer, RoundFacts> rounds = facts.rounds().stream()
                 .collect(Collectors.toMap(RoundFacts::roundNumber, Function.identity()));
@@ -136,8 +143,8 @@ public class AnalysisPersistence {
         for (HighlightCandidate candidate : candidates) {
             RoundFacts round = rounds.get(candidate.roundNumber());
             if (round == null) {
-                log.debug("Dropping a {} highlight of match {}: round {} is not in its facts", candidate.type(),
-                        matchRowId, candidate.roundNumber());
+                log.warn("Dropping a {} highlight of demo {} of match {}: round {} is not in its facts",
+                        candidate.type(), claim.demoId(), claim.faceitMatchId(), candidate.roundNumber());
                 continue;
             }
             // In long, so that no setting can overflow. A window that is kept lies between the ticks of the round,
@@ -145,9 +152,9 @@ public class AnalysisPersistence {
             long tickStart = Math.max(round.startTick(), candidate.firstTick() - lead);
             long tickEnd = Math.min(round.endTick(), candidate.lastTick() + tail);
             if (tickStart > tickEnd) {
-                log.debug("Dropping a {} highlight of match {}: its ticks {}-{} are outside round {} ({}-{})",
-                        candidate.type(), matchRowId, candidate.firstTick(), candidate.lastTick(),
-                        candidate.roundNumber(), round.startTick(), round.endTick());
+                log.warn("Dropping a {} highlight of demo {} of match {}: its ticks {}-{} are outside round {} ({}-{})",
+                        candidate.type(), claim.demoId(), claim.faceitMatchId(), candidate.firstTick(),
+                        candidate.lastTick(), candidate.roundNumber(), round.startTick(), round.endTick());
                 continue;
             }
             highlights.save(new Highlight(match, players.getReferenceById(candidate.playerId()), candidate.type(),

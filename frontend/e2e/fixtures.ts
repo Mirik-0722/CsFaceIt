@@ -212,9 +212,9 @@ export const matchHighlightsFixture: HighlightResponse[] = [
   highlightFixture(9, 'KNIFE_KILL', S1MPLE, 22, 'T', [[57, 'knife_t']]),
 ]
 
-/** The profile's "newest highlights": the player's own, as one page of ten. */
+/** The profile's "newest highlights": the player's own, as one page of six. */
 export const playerHighlightsFixture: HighlightPageResponse = {
   items: matchHighlightsFixture.filter((highlight) => highlight.playerId === PLAYER_ID),
   offset: 0,
-  limit: 10,
+  limit: 6,
 }

@@ -25,7 +25,7 @@ function mockFetchRoutes(routes: Parameters<typeof mockRoutes>[0]) {
   const extra: Parameters<typeof mockRoutes>[0] = {}
   for (const id of ['p1', 'ghost', 'a%20b']) {
     extra[`/api/v1/players/${id}/stats`] = { body: { playerId: id, ...NO_STATS } }
-    extra[`/api/v1/players/${id}/highlights?offset=0&limit=10`] = { body: { items: [], offset: 0, limit: 10 } }
+    extra[`/api/v1/players/${id}/highlights?offset=0&limit=6`] = { body: { items: [], offset: 0, limit: 6 } }
   }
   return mockRoutes({ ...extra, ...routes })
 }

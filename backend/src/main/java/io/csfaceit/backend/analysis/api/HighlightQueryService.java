@@ -15,7 +15,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -33,10 +38,16 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Each list is read with two statements, whatever its length: one for the highlights with their match, player,
  * round and side, and one for the kills of all of them. Both run in one read-only transaction on one snapshot, so an
- * analysis that commits in between cannot leave a highlight without the kills it was found for.
+ * analysis that commits in between cannot leave a highlight without the kills it was found for. A highlight is read by
+ * its id with the same two statements, so the rule above applies to it as well.
+ *
+ * <p>A row whose type this version does not know (the database was rolled back from a later version) is skipped, with
+ * one WARN naming the type for each request that meets it; the rest of the list is served.
  */
 @Service
 public class HighlightQueryService {
+
+    private static final Logger log = LoggerFactory.getLogger(HighlightQueryService.class);
 
     /**
      * The highlights of analyzed demos. {@code round_players} is a left join because a demo parsed before the roster of
@@ -59,8 +70,8 @@ public class HighlightQueryService {
     private static final String MATCH_ORDER = " ORDER BY h.round_number, h.tick_start, h.id";
 
     /** The id comes last so that a page boundary falls in the same place on every request. */
-    private static final String PLAYER_ORDER = " ORDER BY m.started_at DESC NULLS LAST, m.id DESC, h.round_number,"
-            + " h.tick_start, h.id LIMIT :limit OFFSET :offset";
+    private static final String PLAYER_ORDER_AND_PAGE = " ORDER BY m.started_at DESC NULLS LAST, m.id DESC,"
+            + " h.round_number, h.tick_start, h.id LIMIT :limit OFFSET :offset";
 
     /**
      * The kills of the highlights, each highlight's own player's kills of an enemy inside {@code tick_start..tick_end}
@@ -160,17 +171,31 @@ public class HighlightQueryService {
      * @param type only this type of highlight, or {@code null} for every type
      * @param offset how many highlights to skip, 0 to 10000
      * @param limit the most highlights in the page, 1 to 100
+     * @throws IllegalArgumentException {@code offset} or {@code limit} is negative; the REST controller keeps both in
+     *         range, this guards the callers that are not the controller
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public HighlightPageResponse forPlayer(String faceitPlayerId, HighlightType type, int offset, int limit) {
         Objects.requireNonNull(faceitPlayerId, "faceitPlayerId");
+        if (offset < 0 || limit < 0) {
+            throw new IllegalArgumentException("offset and limit must not be negative: " + offset + ", " + limit);
+        }
         Map<String, Object> params = new HashMap<>();
         StringBuilder filter = new StringBuilder(" AND p.faceit_id = :playerId");
         params.put("playerId", faceitPlayerId);
         filterByType(filter, params, type);
         params.put("offset", offset);
         params.put("limit", limit);
-        return new HighlightPageResponse(withKills(select(filter + PLAYER_ORDER, params)), offset, limit);
+        return new HighlightPageResponse(withKills(select(filter + PLAYER_ORDER_AND_PAGE, params)), offset, limit);
+    }
+
+    /**
+     * One highlight by its id, with its kills, under the rule of the lists: empty when there is no such highlight or
+     * the demo of its match is not {@code ANALYZED}.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Optional<HighlightResponse> find(long highlightId) {
+        return withKills(select(" AND h.id = :highlightId", Map.of("highlightId", highlightId))).stream().findFirst();
     }
 
     private static void filterByType(StringBuilder filter, Map<String, Object> params, HighlightType type) {
@@ -180,12 +205,23 @@ public class HighlightQueryService {
         }
     }
 
+    /**
+     * The rows of {@code HIGHLIGHTS_SQL} narrowed by {@code filterAndOrder}. A row of an unknown type is left out
+     * (it still takes its place in a page's {@code LIMIT} and {@code OFFSET}), and the request logs one WARN for them.
+     */
     private List<Row> select(String filterAndOrder, Map<String, Object> params) {
-        return jdbc.sql(HIGHLIGHTS_SQL + filterAndOrder)
+        Set<String> unknownTypes = new TreeSet<>();
+        List<Row> rows = jdbc.sql(HIGHLIGHTS_SQL + filterAndOrder)
                 .param("analyzed", DemoStatus.ANALYZED.name())
                 .params(params)
-                .query(HighlightQueryService::row)
-                .list();
+                .query((rs, rowNumber) -> row(rs, unknownTypes))
+                .list().stream()
+                .filter(Objects::nonNull)
+                .toList();
+        if (!unknownTypes.isEmpty()) {
+            log.warn("Skipping the highlights of types this version does not know: {}", unknownTypes);
+        }
+        return rows;
     }
 
     /** One statement for the kills of every highlight of the list, none when the list is empty. */
@@ -202,18 +238,34 @@ public class HighlightQueryService {
         return rows.stream().map(row -> row.toResponse(kills.getOrDefault(row.id(), List.of()))).toList();
     }
 
-    private static Row row(ResultSet rs, int rowNumber) throws SQLException {
+    /** The current row as a {@link Row}, or {@code null} when its type is unknown (the name is added to the set). */
+    private static Row row(ResultSet rs, Set<String> unknownTypes) throws SQLException {
+        String typeName = rs.getString("type");
+        HighlightType type = knownType(typeName);
+        if (type == null) {
+            unknownTypes.add(typeName);
+            return null;
+        }
         int tickStart = rs.getInt("tick_start");
         int tickEnd = rs.getInt("tick_end");
         Integer tickRate = rs.getObject("tick_rate", Integer.class);
         Side side = Side.fromDatabase(rs.getString("side"));
         OffsetDateTime startedAt = rs.getObject("started_at", OffsetDateTime.class);
-        return new Row(rs.getLong("id"), HighlightType.valueOf(rs.getString("type")),
+        return new Row(rs.getLong("id"), type,
                 rs.getString("player_faceit_id"), rs.getString("nickname"), rs.getInt("round_number"),
                 side == null ? null : side.name(), tickStart, tickEnd, rs.getInt("round_start_tick"),
                 rs.getInt("round_end_tick"), durationSeconds(tickStart, tickEnd, tickRate),
                 rs.getString("faceit_match_id"), rs.getString("map_name"),
                 startedAt == null ? null : startedAt.toInstant());
+    }
+
+    private static HighlightType knownType(String name) {
+        for (HighlightType type : HighlightType.values()) {
+            if (type.name().equals(name)) {
+                return type;
+            }
+        }
+        return null;
     }
 
     private static KillRow killRow(ResultSet rs, int rowNumber) throws SQLException {

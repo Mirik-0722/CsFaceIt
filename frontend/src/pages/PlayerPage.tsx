@@ -10,8 +10,11 @@ import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
 
-/** How many of the newest highlights the profile shows; all of them are on the highlights page. */
-const LATEST_HIGHLIGHTS = 10
+/**
+ * How many of the newest highlights the profile shows; all of them are on the highlights page. Six fill one, two or
+ * three columns of the grid without leaving a card alone on the last row.
+ */
+const LATEST_HIGHLIGHTS = 6
 
 /** The player's figures over the stored matches. A failure stays inside the section: the rest of the page stands. */
 function PlayerStats({ playerId }: { playerId: string }) {
