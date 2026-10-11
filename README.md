@@ -32,6 +32,22 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
 - `docker-compose.fake.yml` and `dev/fake-faceit/` - an override that replaces FACEIT with a local WireMock fake, for
   running the stack without an API key.
 
+## Pages
+
+- `/` - search for a player by FACEIT nickname.
+- `/players/{playerId}` - the profile: the statistics over the stored matches as eight tiles (K/D, HS%, ADR, KAST,
+  entry and trade kills per match, clutch %, win rate), the ten newest highlights and the match history. A figure
+  without data behind it is a dash; the four that come from demos say so until one of the player's demos is analyzed.
+- `/players/{playerId}/highlights` - every highlight of the player, newest match first, with a filter by type that the
+  server answers.
+- `/matches/{matchId}` - the score, the demo panel, the highlights of the match with a filter by kind (multi-kill,
+  clutch, special) and a scoreboard per team.
+
+The demo panel shows the status of the match's demo to everyone. Behind "Manage" it has the three requests that need
+the admin key (`X-API-Key`): import from FACEIT, upload a file, analyze again. The key is typed once and kept in the
+memory of the page only - never in `localStorage`, `sessionStorage` or a cookie - so reloading the page forgets it,
+and a key the backend rejects is forgotten at once.
+
 ## Prerequisites
 
 | Tool | Needed for |

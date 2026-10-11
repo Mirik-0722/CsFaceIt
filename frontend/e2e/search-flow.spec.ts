@@ -2,9 +2,13 @@ import { expect, test as base, type Locator } from '@playwright/test'
 import {
   PLAYER_ID,
   WON_MATCH_ID,
+  demoFixture,
   historyFixture,
   matchFixture,
+  matchHighlightsFixture,
   playerFixture,
+  playerHighlightsFixture,
+  playerStatsFixture,
   statsFixture,
 } from './fixtures.ts'
 
@@ -16,8 +20,12 @@ const API_RESPONSES = new Map<string, unknown>([
   ['GET /api/v1/players?nickname=s1mple', playerFixture],
   [`GET /api/v1/players/${PLAYER_ID}`, playerFixture],
   [`GET /api/v1/players/${PLAYER_ID}/history?offset=0&limit=20`, historyFixture],
+  [`GET /api/v1/players/${PLAYER_ID}/stats`, playerStatsFixture],
+  [`GET /api/v1/players/${PLAYER_ID}/highlights?offset=0&limit=10`, playerHighlightsFixture],
   [`GET /api/v1/matches/${WON_MATCH_ID}`, matchFixture],
   [`GET /api/v1/matches/${WON_MATCH_ID}/stats`, statsFixture],
+  [`GET /api/v1/matches/${WON_MATCH_ID}/demo`, demoFixture],
+  [`GET /api/v1/matches/${WON_MATCH_ID}/highlights`, matchHighlightsFixture],
 ])
 
 const test = base.extend<{ api: { served: Set<string> } }>({

@@ -43,15 +43,11 @@ async function toApiError(res: Response): Promise<ApiError> {
     : new ApiError(res.status, 'UNKNOWN', `Request failed with status ${res.status}`)
 }
 
-/**
- * GETs `/api/v1{path}` and returns the parsed JSON body. Every failure is an {@link ApiError}: the code from the
- * backend's error body, `UNKNOWN` when the body is not that JSON, `NETWORK_ERROR` (status 0) when no response arrived.
- * `path` is built from raw segments (`/players/${id}`); each segment and every query value is URL-encoded here.
- */
-export async function apiGet<T>(path: string, params?: Record<string, string | number>): Promise<T> {
+/** Sends the request and returns the parsed JSON body; every failure is an {@link ApiError}. */
+async function request<T>(url: string, init: RequestInit): Promise<T> {
   let res: Response
   try {
-    res = await fetch(buildUrl(path, params), { headers: { Accept: 'application/json' } })
+    res = await fetch(url, init)
   } catch (error) {
     throw new ApiError(0, 'NETWORK_ERROR', error instanceof Error ? error.message : 'Network request failed')
   }
@@ -63,4 +59,33 @@ export async function apiGet<T>(path: string, params?: Record<string, string | n
   } catch {
     throw new ApiError(res.status, 'UNKNOWN', 'Response is not valid JSON')
   }
+}
+
+/**
+ * GETs `/api/v1{path}` and returns the parsed JSON body. Every failure is an {@link ApiError}: the code from the
+ * backend's error body, `UNKNOWN` when the body is not that JSON, `NETWORK_ERROR` (status 0) when no response arrived.
+ * `path` is built from raw segments (`/players/${id}`); each segment and every query value is URL-encoded here.
+ */
+export async function apiGet<T>(path: string, params?: Record<string, string | number>): Promise<T> {
+  return request<T>(buildUrl(path, params), { headers: { Accept: 'application/json' } })
+}
+
+interface PostOptions {
+  /** The admin key: every request that is not a GET needs it, in the `X-API-Key` header. */
+  apiKey: string
+  /** A `FormData` goes out as it is (the browser adds the multipart boundary); anything else as JSON. */
+  body?: FormData | object
+}
+
+/** POSTs to `/api/v1{path}` with the admin key and returns the parsed JSON body; it fails as {@link apiGet} does. */
+export async function apiPost<T>(path: string, { apiKey, body }: PostOptions): Promise<T> {
+  const headers: Record<string, string> = { Accept: 'application/json', 'X-API-Key': apiKey }
+  if (body instanceof FormData) {
+    return request<T>(buildUrl(path), { method: 'POST', headers, body })
+  }
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json'
+    return request<T>(buildUrl(path), { method: 'POST', headers, body: JSON.stringify(body) })
+  }
+  return request<T>(buildUrl(path), { method: 'POST', headers })
 }

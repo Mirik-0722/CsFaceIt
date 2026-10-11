@@ -1,8 +1,34 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { MatchHistoryResponse, MatchSummary, PlayerResponse } from '@/api/types'
-import { deferred, mockFetchRoutes, renderWithProviders, type MockReply } from '@/test/utils'
+import { deferred, mockFetchRoutes as mockRoutes, renderWithProviders, type MockReply } from '@/test/utils'
 import PlayerPage from './PlayerPage'
+
+// The profile also asks for the player's statistics and newest highlights. Every test gets the answers of a player
+// without a stored match, for each id a test uses, next to the routes it sets up itself.
+const NO_STATS = {
+  matches: 0,
+  analyzedMatches: 0,
+  winRate: null,
+  kd: 0,
+  hsPercent: 0,
+  adr: null,
+  kast: null,
+  entryKillsPerMatch: null,
+  tradeKillsPerMatch: null,
+  clutchPercent: null,
+  clutchAttempts: 0,
+  clutchWins: 0,
+}
+
+function mockFetchRoutes(routes: Parameters<typeof mockRoutes>[0]) {
+  const extra: Parameters<typeof mockRoutes>[0] = {}
+  for (const id of ['p1', 'ghost', 'a%20b']) {
+    extra[`/api/v1/players/${id}/stats`] = { body: { playerId: id, ...NO_STATS } }
+    extra[`/api/v1/players/${id}/highlights?offset=0&limit=10`] = { body: { items: [], offset: 0, limit: 10 } }
+  }
+  return mockRoutes({ ...extra, ...routes })
+}
 
 const PAGE_SIZE = 20
 

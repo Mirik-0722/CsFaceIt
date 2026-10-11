@@ -1,6 +1,9 @@
 import type { UseQueryResult } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { useMatch, useMatchStats } from '@/api/queries'
+import { useMatch, useMatchHighlights, useMatchStats } from '@/api/queries'
+import DemoPanel from '@/components/DemoPanel'
+import HighlightList from '@/components/HighlightList'
 import MapTile from '@/components/MapTile'
 import MatchScore from '@/components/MatchScore'
 import StatsTable from '@/components/StatsTable'
@@ -10,6 +13,7 @@ import { useLocale, useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/formatDate'
 import { hasLost } from '@/lib/hasLost'
+import { highlightGroup, type HighlightGroup } from '@/lib/highlightLabels'
 import { mapLabel } from '@/lib/mapTint'
 import type { ApiError } from '@/api/client'
 import type { MatchResponse, MatchStatsResponse, TeamStatsResponse } from '@/api/types'
@@ -48,6 +52,65 @@ function MatchHeader({ match, teams }: { match: MatchResponse; teams: TeamStatsR
         {teams && <MatchScore teams={teams} />}
       </CardContent>
     </Card>
+  )
+}
+
+type HighlightFilter = 'all' | HighlightGroup
+
+const HIGHLIGHT_FILTERS: HighlightFilter[] = ['all', 'multi', 'clutch', 'special']
+
+/**
+ * The highlights of the match with a filter by kind above them. The filter works on what is already loaded; each
+ * button carries the number of highlights it would show. A failure stays inside the section.
+ */
+function MatchHighlights({ matchId }: { matchId: string }) {
+  const t = useT()
+  const highlights = useMatchHighlights(matchId)
+  const [filter, setFilter] = useState<HighlightFilter>('all')
+  const items = highlights.data
+  const labels: Record<HighlightFilter, string> = {
+    all: t.highlight.groupAll,
+    multi: t.highlight.groupMulti,
+    clutch: t.highlight.groupClutch,
+    special: t.highlight.groupSpecial,
+  }
+  const matching = (kind: HighlightFilter) =>
+    (items ?? []).filter((highlight) => kind === 'all' || highlightGroup(highlight.type) === kind)
+  return (
+    <section className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-1">
+        <h2 className="heading-section">{t.highlight.title}</h2>
+        {items && items.length > 0 && (
+          // Toggle buttons that look like tabs (spec 3): 44px tall, a 2px light line under the chosen one.
+          <div role="group" aria-label={t.highlight.filterLabel} className="-mx-3 flex flex-wrap">
+            {HIGHLIGHT_FILTERS.map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                aria-pressed={filter === kind}
+                onClick={() => setFilter(kind)}
+                className="inline-flex min-h-11 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-semibold text-muted-foreground hover:text-foreground aria-pressed:border-foreground aria-pressed:text-foreground"
+              >
+                {labels[kind]}
+                <span className="font-mono text-xs font-normal text-subtle tabular-nums">{matching(kind).length}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div aria-live="polite" className="flex flex-col gap-2">
+        {highlights.isPending && (
+          <>
+            <p className="label-mono">{t.highlight.loading}</p>
+            <Skeleton className="h-40 w-full" />
+          </>
+        )}
+        {items && <HighlightList items={matching(filter)} showMatch={false} />}
+        {highlights.isError && !items && (
+          <p className="text-sm text-destructive">{errorMessage(highlights.error, t)}</p>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -107,6 +170,9 @@ function MatchDetails({ matchId }: { matchId: string }) {
         {matchFailed && <p className="text-sm text-destructive">{errorMessage(match.error, t)}</p>}
         {match.data && <MatchHeader match={match.data} teams={stats.data?.teams} />}
       </div>
+      {/* The demo and what was found in it belong to a match that exists: they wait for the header. */}
+      {match.data && <DemoPanel matchId={matchId} />}
+      {match.data && <MatchHighlights matchId={matchId} />}
       {!matchFailed && (
         // The tables follow the header, so a match that then turns out to be missing never flashes them.
         <div aria-live="polite" className="flex flex-col gap-6">

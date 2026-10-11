@@ -1,11 +1,70 @@
-import { useParams } from 'react-router-dom'
-import { usePlayer, usePlayerHistory } from '@/api/queries'
+import { Link, useParams } from 'react-router-dom'
+import { usePlayer, usePlayerHighlights, usePlayerHistory, usePlayerStats } from '@/api/queries'
+import HighlightList from '@/components/HighlightList'
 import MatchList from '@/components/MatchList'
 import PlayerHeader from '@/components/PlayerHeader'
-import { Button } from '@/components/ui/button'
+import StatsCards from '@/components/StatsCards'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
+import { cn } from '@/lib/utils'
+
+/** How many of the newest highlights the profile shows; all of them are on the highlights page. */
+const LATEST_HIGHLIGHTS = 10
+
+/** The player's figures over the stored matches. A failure stays inside the section: the rest of the page stands. */
+function PlayerStats({ playerId }: { playerId: string }) {
+  const t = useT()
+  const stats = usePlayerStats(playerId)
+  return (
+    <section className="flex flex-col gap-4 pt-3">
+      <h2 className="heading-section">{t.statsCards.title}</h2>
+      <div aria-live="polite" className="flex flex-col gap-2">
+        {stats.isPending && (
+          <>
+            <p className="label-mono">{t.statsCards.loading}</p>
+            <Skeleton className="h-44 w-full" />
+          </>
+        )}
+        {stats.data && <StatsCards stats={stats.data} />}
+        {stats.isError && !stats.data && <p className="text-sm text-destructive">{errorMessage(stats.error, t)}</p>}
+      </div>
+    </section>
+  )
+}
+
+/** The newest highlights of the player, with a link to all of them when there is at least one. */
+function LatestHighlights({ playerId }: { playerId: string }) {
+  const t = useT()
+  const highlights = usePlayerHighlights(playerId, null, LATEST_HIGHLIGHTS)
+  const items = highlights.data?.pages[0]?.items
+  return (
+    <section className="flex flex-col gap-4 pt-3">
+      <h2 className="heading-section">{t.highlight.title}</h2>
+      <div aria-live="polite" className="flex flex-col gap-2">
+        {highlights.isPending && (
+          <>
+            <p className="label-mono">{t.highlight.loading}</p>
+            <Skeleton className="h-40 w-full" />
+          </>
+        )}
+        {items && <HighlightList items={items} showMatch />}
+        {highlights.isError && !items && (
+          <p className="text-sm text-destructive">{errorMessage(highlights.error, t)}</p>
+        )}
+      </div>
+      {items && items.length > 0 && (
+        <Link
+          to={`/players/${encodeURIComponent(playerId)}/highlights`}
+          className={cn(buttonVariants({ variant: 'outline' }), 'self-center')}
+        >
+          {t.highlight.all}
+        </Link>
+      )}
+    </section>
+  )
+}
 
 function PlayerProfile({ playerId }: { playerId: string }) {
   const t = useT()
@@ -30,16 +89,21 @@ function PlayerProfile({ playerId }: { playerId: string }) {
         {playerFailed && <p className="text-sm text-destructive">{errorMessage(player.error, t)}</p>}
         {player.data && <PlayerHeader player={player.data} size="lg" />}
       </div>
+      {!playerFailed && <PlayerStats playerId={playerId} />}
+      {!playerFailed && <LatestHighlights playerId={playerId} />}
       {!playerFailed && (
         <section className="flex flex-col gap-4 pt-3">
-          <h2 className="text-[22px] leading-[1.3] font-semibold tracking-[-0.01em]">{t.player.history}</h2>
-          <div aria-live="polite" className="flex flex-col gap-3">
+          <h2 className="heading-section">{t.player.history}</h2>
+          <div aria-live="polite" className="flex flex-col gap-2">
             {history.isPending && (
               <>
                 <p className="label-mono">{t.player.loadingMatches}</p>
-                <Skeleton className="h-14 w-full" />
-                <Skeleton className="h-14 w-full" />
-                <Skeleton className="h-14 w-full" />
+                {/* 12px between the rows of the placeholder, 8px under its label as under every loading label. */}
+                <div className="flex flex-col gap-3">
+                  <Skeleton className="h-14 w-full" />
+                  <Skeleton className="h-14 w-full" />
+                  <Skeleton className="h-14 w-full" />
+                </div>
               </>
             )}
             {matches && <MatchList items={matches} />}
@@ -65,16 +129,14 @@ export default function PlayerPage() {
   const t = useT()
   const { playerId } = useParams()
   return (
-    <main className="container-page pt-9 pb-18">
-      {/* The nickname in the header is the page's big title, so the h1 is a small label above it. */}
-      <div className="flex max-w-[880px] flex-col gap-4">
-        <h1 className="label-mono">{t.player.title}</h1>
-        {playerId ? (
-          <PlayerProfile playerId={playerId} />
-        ) : (
-          <p className="text-sm text-destructive">{t.errors.playerNotFound}</p>
-        )}
-      </div>
+    // The nickname in the header is the page's big title, so the h1 is a small label above it.
+    <main className="container-page flex flex-col gap-4 pt-9 pb-18">
+      <h1 className="label-mono">{t.player.title}</h1>
+      {playerId ? (
+        <PlayerProfile playerId={playerId} />
+      ) : (
+        <p className="text-sm text-destructive">{t.errors.playerNotFound}</p>
+      )}
     </main>
   )
 }

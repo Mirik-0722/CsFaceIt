@@ -3,9 +3,14 @@
 // The values are chosen for Playwright's strict locators: `25` is in exactly one stats cell, and `de_mirage` and
 // `ELO 3500` appear once on their pages.
 import type {
+  DemoResponse,
+  HighlightPageResponse,
+  HighlightResponse,
+  HighlightType,
   MatchHistoryResponse,
   MatchResponse,
   MatchStatsResponse,
+  PlayerAggregateStatsResponse,
   PlayerResponse,
 } from '../src/api/types.ts'
 
@@ -114,4 +119,102 @@ export const statsFixture: MatchStatsResponse = {
       ],
     },
   ],
+}
+
+/** s1mple over twelve stored matches, five of them with an analyzed demo. */
+export const playerStatsFixture: PlayerAggregateStatsResponse = {
+  playerId: PLAYER_ID,
+  matches: 12,
+  analyzedMatches: 5,
+  winRate: 58.3,
+  kd: 1.31,
+  hsPercent: 47.3,
+  adr: 86.2,
+  kast: 73.4,
+  entryKillsPerMatch: 2.4,
+  tradeKillsPerMatch: 1.8,
+  clutchPercent: 12.5,
+  clutchAttempts: 16,
+  clutchWins: 2,
+}
+
+export const demoFixture: DemoResponse = {
+  demoId: 1,
+  matchId: WON_MATCH_ID,
+  status: 'ANALYZED',
+  error: null,
+  updatedAt: '2023-11-14T23:10:00Z',
+}
+
+const TICK_RATE = 64
+const ROUND_SECONDS = 100
+const S1MPLE = { playerId: PLAYER_ID, nickname: 's1mple' }
+const PLAYER_B1 = { playerId: '66666666-6666-6666-6666-666666666666', nickname: 'playerB1' }
+
+/** One kill of a highlight: the second of the round it happened in, the weapon as the demo names it, headshot or not. */
+type Kill = [second: number, weapon: string, headshot?: boolean]
+
+/**
+ * A highlight of the won match as the backend would build it: the round is 100 seconds long, the clip window opens
+ * three seconds before the first kill and closes two seconds after the last (a highlight without a kill is the ten
+ * seconds before the 80th second, a defuse).
+ */
+export function highlightFixture(
+  id: number,
+  type: HighlightType,
+  player: { playerId: string; nickname: string },
+  roundNumber: number,
+  side: string | null,
+  kills: Kill[],
+): HighlightResponse {
+  const roundStartTick = roundNumber * 9000
+  const roundEndTick = roundStartTick + ROUND_SECONDS * TICK_RATE
+  const ticks = kills.map(([second]) => roundStartTick + second * TICK_RATE)
+  const first = ticks.length > 0 ? Math.min(...ticks) : roundStartTick + 70 * TICK_RATE
+  const last = ticks.length > 0 ? Math.max(...ticks) : roundStartTick + 80 * TICK_RATE
+  // A highlight with kills gets the three seconds before and the two after; one without is the defuse itself.
+  const tickStart = Math.max(roundStartTick, ticks.length > 0 ? first - 3 * TICK_RATE : first)
+  const tickEnd = Math.min(roundEndTick, ticks.length > 0 ? last + 2 * TICK_RATE : last)
+  return {
+    id,
+    type,
+    playerId: player.playerId,
+    nickname: player.nickname,
+    roundNumber,
+    side,
+    tickStart,
+    tickEnd,
+    roundStartTick,
+    roundEndTick,
+    durationSeconds: Math.round((tickEnd - tickStart) / TICK_RATE),
+    kills: kills.map(([second, weapon, headshot = false], index) => ({
+      tick: roundStartTick + second * TICK_RATE,
+      weapon,
+      headshot,
+      victimNickname: `victim${index + 1}`,
+    })),
+    matchId: WON_MATCH_ID,
+    mapName: 'de_mirage',
+    startedAt: '2023-11-14T22:13:20Z',
+  }
+}
+
+/** The highlights of the won match, in round order: every group of the filter has some. */
+export const matchHighlightsFixture: HighlightResponse[] = [
+  highlightFixture(1, 'K3', S1MPLE, 3, 'CT', [[31, 'm4a1_silencer', true], [34, 'm4a1_silencer'], [41, 'usp_silencer', true]]),
+  highlightFixture(2, 'WALLBANG', PLAYER_B1, 5, 'T', [[52, 'ak47']]),
+  highlightFixture(3, 'CLUTCH_1V3', S1MPLE, 9, 'CT', [[71, 'awp'], [79, 'awp', true], [88, 'deagle', true]]),
+  highlightFixture(4, 'NINJA_DEFUSE', S1MPLE, 11, 'CT', []),
+  highlightFixture(5, 'ACE', S1MPLE, 14, 'T', [[22, 'ak47', true], [24, 'ak47'], [27, 'ak47', true], [33, 'ak47'], [36, 'ak47', true]]),
+  highlightFixture(6, 'NO_SCOPE', PLAYER_B1, 17, 'CT', [[48, 'awp']]),
+  highlightFixture(7, 'K4', PLAYER_B1, 19, 'CT', [[18, 'famas'], [21, 'famas', true], [29, 'famas'], [44, 'p250', true]]),
+  highlightFixture(8, 'SMOKE_KILL', S1MPLE, 20, 'T', [[63, 'galilar']]),
+  highlightFixture(9, 'KNIFE_KILL', S1MPLE, 22, 'T', [[57, 'knife_t']]),
+]
+
+/** The profile's "newest highlights": the player's own, as one page of ten. */
+export const playerHighlightsFixture: HighlightPageResponse = {
+  items: matchHighlightsFixture.filter((highlight) => highlight.playerId === PLAYER_ID),
+  offset: 0,
+  limit: 10,
 }

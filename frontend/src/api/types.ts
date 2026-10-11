@@ -1,4 +1,5 @@
-// Mirrors the backend DTO records one to one (io.csfaceit.backend.player.dto, match.dto and common.api).
+// Mirrors the backend DTO records one to one (io.csfaceit.backend.player.dto, match.dto, demo.dto, analysis.api.dto
+// and common.api).
 // java.time.Instant is serialized as an ISO-8601 string; a boxed or optional upstream value is `| null`.
 
 /** A player's public profile; `elo` and `level` are null when the player has never played CS2. */
@@ -87,6 +88,97 @@ export interface MatchStatsResponse {
   mapName: string | null
   rounds: number
   teams: TeamStatsResponse[]
+}
+
+/** Where a demo is in the import, parse and analysis pipeline. */
+export type DemoStatus = 'QUEUED' | 'STORED' | 'PARSED' | 'ANALYZED' | 'FAILED'
+
+/**
+ * The state of a match's demo. `matchId` is the FACEIT match id; `error` is set while the demo is FAILED, and while
+ * it is PARSED after an analysis that failed.
+ */
+export interface DemoResponse {
+  demoId: number
+  matchId: string
+  status: DemoStatus
+  error: string | null
+  updatedAt: string
+}
+
+export type HighlightType =
+  | 'ACE'
+  | 'K4'
+  | 'K3'
+  | 'CLUTCH_1V1'
+  | 'CLUTCH_1V2'
+  | 'CLUTCH_1V3'
+  | 'CLUTCH_1V4'
+  | 'CLUTCH_1V5'
+  | 'NO_SCOPE'
+  | 'KNIFE_KILL'
+  | 'WALLBANG'
+  | 'SMOKE_KILL'
+  | 'NINJA_DEFUSE'
+
+/** One kill inside a highlight's window; `weapon` is the raw name from the demo (`ak47`, `knife_t`). */
+export interface HighlightKill {
+  tick: number
+  weapon: string
+  headshot: boolean
+  victimNickname: string
+}
+
+/**
+ * One highlight of one player in one round. `playerId` is the FACEIT player id, or `steam:<SteamID>` for a player the
+ * backend knows only from the demo. `side` is the player's side in that round (`"CT"` or `"T"`), null when unknown.
+ * The clip window is `tickStart..tickEnd`, inside the round `roundStartTick..roundEndTick`; `kills` are the player's
+ * enemy kills in the window, in tick order. `mapName` and `startedAt` are the match's, null while it has none.
+ */
+export interface HighlightResponse {
+  id: number
+  type: HighlightType
+  playerId: string
+  nickname: string
+  roundNumber: number
+  side: string | null
+  tickStart: number
+  tickEnd: number
+  roundStartTick: number
+  roundEndTick: number
+  durationSeconds: number
+  kills: HighlightKill[]
+  matchId: string
+  mapName: string | null
+  startedAt: string | null
+}
+
+/** A page of a player's highlights, newest match first; `offset` and `limit` echo the request. */
+export interface HighlightPageResponse {
+  items: HighlightResponse[]
+  offset: number
+  limit: number
+}
+
+/**
+ * A player's statistics over the matches the backend has stored (`matches`), `analyzedMatches` of them with a demo
+ * analysis. Percentages are 0–100. A figure without data behind it is null: `winRate` without a known result, `adr`
+ * without a stored ADR, and `kast`, the two per-match figures and `clutchPercent` without an analyzed demo (or, for
+ * `clutchPercent`, without a clutch attempt).
+ */
+export interface PlayerAggregateStatsResponse {
+  playerId: string
+  matches: number
+  analyzedMatches: number
+  winRate: number | null
+  kd: number
+  hsPercent: number
+  adr: number | null
+  kast: number | null
+  entryKillsPerMatch: number | null
+  tradeKillsPerMatch: number | null
+  clutchPercent: number | null
+  clutchAttempts: number
+  clutchWins: number
 }
 
 /** The body of every error response: a stable machine-readable `code` and a human-readable `message`. */

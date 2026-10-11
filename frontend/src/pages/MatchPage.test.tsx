@@ -1,7 +1,18 @@
 import { act, screen, waitFor, within } from '@testing-library/react'
 import type { MatchResponse, MatchStatsResponse, PlayerStatsResponse, TeamStatsResponse } from '@/api/types'
-import { deferred, mockFetchRoutes, renderWithProviders, type MockReply } from '@/test/utils'
+import { deferred, mockFetchRoutes as mockRoutes, renderWithProviders, type MockReply } from '@/test/utils'
 import MatchPage from './MatchPage'
+
+// The page also asks for the match's demo and highlights. Every test gets the answers of a match without a demo, for
+// each id a test uses, next to the routes it sets up itself.
+function mockFetchRoutes(routes: Parameters<typeof mockRoutes>[0]) {
+  const extra: Parameters<typeof mockRoutes>[0] = {}
+  for (const id of ['m1', 'a%20b']) {
+    extra[`/api/v1/matches/${id}/demo`] = { body: { code: 'DEMO_NOT_FOUND', message: 'x' }, status: 404 }
+    extra[`/api/v1/matches/${id}/highlights`] = { body: [] }
+  }
+  return mockRoutes({ ...extra, ...routes })
+}
 
 const MATCH_URL = '/api/v1/matches/m1'
 const STATS_URL = '/api/v1/matches/m1/stats'

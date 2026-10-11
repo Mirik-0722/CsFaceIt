@@ -71,6 +71,8 @@ Sans — `Geist Variable` (`@fontsource-variable/geist`, loyihada bor); mono —
 | Mono raqam (jadval) | mono 13px |
 | Katta hisob | mono `clamp(44px, 5vw, 64px)` / 1 / 600 |
 
+Bir necha komponent ishlatadigan rollar `frontend/src/index.css` da `@utility` sinflari: `label-mono` (mono yorliq), `heading-page` (sahifa sarlavhasi), `heading-section` (bo'lim sarlavhasi), `number-mono` (mono raqam), `score-big` (katta hisob). Komponentda bu rollar qo'lda qayta yozilmaydi.
+
 ### 2.3 O'lcham va joylashuv
 
 - Konteyner: eng ko'pi 1280px, yon bo'shliq `clamp(16px, 4vw, 40px)`; sahifa tepasida 36px, pastida 72px; bo'limlar orasi 24–36px.
@@ -93,8 +95,8 @@ Sans — `Geist Variable` (`@fontsource-variable/geist`, loyihada bor); mono —
 | Natija belgisi | "G'alaba" `--positive`, "Mag'lubiyat" `--negative`, har doim so'z bilan | D |
 | `MapTile` | xarita tusidagi kvadrat, 36 yoki 44px, chegarasi `--line-strong` | D |
 | `MatchScore` | `team_A 13 : 9 team_B`: hisob "katta hisob" o'lchamida; g'olib `--foreground`; yutqazgan jamoaning hisobi `--subtle`, nomi `--muted-foreground` | D |
-| `StatTile` | mono yorliq, mono 26px/600 qiymat, foizli ko'rsatkichda 3px chiziq, 12px izoh; to'rt ustun (kamida 260px) | 3-reja T6 (`StatsCards`) |
-| Highlight kartasi | teg (ACE to'ldirilgan, qolganlari kontur), `14-RAUND · T` (tomon o'z rangida), davomiylik; o'yinchi 17px/600 va qisqa tavsif; `KillTimeline`; pastda amal yoki holat | 3-reja T6 (amalsiz), 5-reja T6 (amal bilan) |
+| `StatTile` | mono yorliq, mono 26px/600 qiymat, foizli ko'rsatkichda 3px chiziq (yo'li `--line-strong`, to'lgan qismi `--foreground`), 12px izoh; to'rt ustun, `lg` dan past ekranda ikki ustun; kataklar orasida 1px `--border` chiziq, atrofida shu chegara; ma'lumotsiz ko'rsatkich — `--subtle` rangli "—", sababi izohda ("Demo tahlili kerak") | 3-reja T6 (`StatsCards`) |
+| Highlight kartasi | teg (ACE to'ldirilgan, qolganlari kontur; teg matni yozilganidek ko'rsatiladi: `4K`, `1v3 CLUTCH`, `NO-SCOPE`), `14-RAUND · T` (tomon o'z rangida; tomoni noma'lum bo'lsa tomonsiz), davomiylik `m:ss`; o'yinchi 17px/600 (profili bo'lsa havola) va qisqa tavsif (`AK-47 ×5 · 3 headshot`); `KillTimeline`; bir necha matchni qamragan ro'yxatda pastda matchga havola qatori (xarita, sana, strelka); pastda amal yoki holat. Kartalar to'ri: bir, `sm` dan ikki, `xl` dan uch ustun | 3-reja T6 (amalsiz), 5-reja T6 (amal bilan) |
 | `KillTimeline` | 2px yo'l (`--line-strong`); kill belgilari 2×16px `--rec`; klip oynasi — ikki yonida 2px och chegara va 8% och fon. Ikki rejim: raund ichidagi oyna (highlight kartasi) va klipning o'zi (pleyer ostidagi chiziq, 0:00 dan oxirigacha; belgi bosilsa video shu joyga o'tadi) | 3-reja T6, 5-reja T6 |
 | `ViewfinderFrame` | 16:9 kadr, fon — xarita sahnasi; to'rt burchakda 2px och qavs (katta kadrda 18px, kartada 12px); joylar: yuqori-chap yorliq (`MIRAGE · R14`), yuqori-o'ng (kill feed yoki REC), markaz (o'ynatish tugmasi, foiz yoki holat), pastki-chap davomiylik, pastki-o'ng sifat | 5-reja T6 |
 | `KillFeedRow` | mono 12px: killer (tomon rangida), qurol (`--muted-foreground`), headshot belgisi, qurbon (tomon rangida); 1px `--rec` chegara, fon 80% qora | 5-reja T6 |
@@ -102,7 +104,8 @@ Sans — `Geist Variable` (`@fontsource-variable/geist`, loyihada bor); mono —
 | `RecorderStatus` | nuqta (`--positive` yoki kulrang) va "Yozuvchi onlayn · navbatda N" | 5-reja T6 (`RecorderBanner`) |
 | Klip kartasi | `ViewfinderFrame`, sarlavha 15px/600, meta 13px, holat qatori va amal | 5-reja T6 |
 | `RoundStrip` | har raundga ikki katak (yuqori — birinchi jamoa yutgan, pastki — ikkinchi), tomon rangida; 12-raunddan keyin oraliq; highlight bor raund ostida `--rec` nuqta | 9-reja |
-| Tablar | 44px, faol tab ostida 2px och chiziq | kerak bo'lgan rejada |
+| Tablar | 44px, faol tab ostida 2px och chiziq. Ro'yxatni filtrlaydigan tugmalar ham shu ko'rinishda (`aria-pressed` bilan), yonida mono 12px `--subtle` son | kerak bo'lgan rejada; 3-reja T6 (match highlight'lari filtri) |
+| `DemoPanel` | bir qatorli panel: mono yorliq `DEMO`, holat tegi (tahlil qilingan — `positive`; xato yoki tahlili yiqilgan — `negative`; oraliq holatlar — `outline`; demo yo'q — `secondary`), o'ngda `ghost` tugma "Boshqarish". Xato sababi panel ichida alohida qatorda, mono 12px `--negative`. "Boshqarish" ochilganda: admin kaliti maydoni (kalit xotirada bo'lmasa), fayl tanlash va "Yuklash", "FACEIT'dan olish", "Qayta tahlil qilish" (`outline` tugmalar), ostida natija matni | 3-reja T6; 6-rejada admin roli ortiga o'tadi |
 
 ## 4. Ekranlar
 
@@ -115,6 +118,7 @@ Sans — `Geist Variable` (`@fontsource-variable/geist`, loyihada bor); mono —
 | 5 · Kliplar | `/clips` | yozuvchi holati, holat tablari, klip kartalari | 5-reja T6 |
 | 6, 7 · Klip sahifasi | `/clips/:clipId` | pleyer va ostida kill belgili chiziq, amallar (yuklab olish, havola; Telegram — 7-reja), kill'lar ro'yxati, klip haqida | 5-reja T6; ommaviy ko'rinish va OG teglari — 11-reja |
 | 8 · O'yinchi | `/players/:playerId` | sarlavha, KPI kataklari, xaritalar, highlight turlari, kliplar | D (sarlavha, match tarixi); 3-reja T6 (KPI, highlight); 5-reja T6 (kliplar); 9-reja (xaritalar) |
+| (maketda yo'q) O'yinchi highlight'lari | `/players/:playerId/highlights` | o'yinchi kartasi (profilga havola), tur bo'yicha filtr (`<select>`, 44px), highlight kartalari, "Yana ko'rsatish" | 3-reja T6 |
 
 Maketdagi ma'lumotlar namunaviy. Coin narxlari `[N]` — narx 8-rejada belgilanadi. Statistikada faqat 3-reja hisoblaydigan ko'rsatkichlar bor (K/D, HS%, ADR, KAST, entry, trade, clutch, g'alaba ulushi); rating ustuni 9-rejagacha yo'q.
 
@@ -148,7 +152,7 @@ Kirish, highlight va kliplar hali yo'q, shuning uchun D-reja faqat ishlab turgan
 ## 8. Rejalarga ta'siri
 
 - **3-reja T5:** highlight kartasi uchun `HighlightResponse` ga maydonlar qo'shildi: `side`, `roundStartTick`, `roundEndTick`, `durationSeconds`, `kills` (tick, qurol, headshot, qurbon).
-- **3-reja T6:** `StatsCards` — `StatTile` ko'rinishida; `HighlightList` — highlight kartalari (rangli badge'lar o'rniga 3-bo'limdagi teglar); matnlar lug'atdan (ikki tilda); 2.2 dagi shrift rollaridan hozir komponentlarda inline yozilganlari (sahifa sarlavhasi, bo'lim sarlavhasi, mono raqam, katta hisob) `label-mono` yonidagi `@utility` sinflariga ko'tariladi.
+- **3-reja T6:** `StatsCards` — `StatTile` ko'rinishida; `HighlightList` — highlight kartalari (rangli badge'lar o'rniga 3-bo'limdagi teglar); matnlar lug'atdan (ikki tilda); 2.2 dagi shrift rollaridan hozir komponentlarda inline yozilganlari (sahifa sarlavhasi, bo'lim sarlavhasi, mono raqam, katta hisob) `label-mono` yonidagi `@utility` sinflariga ko'tariladi. Shu vazifada qo'shilgani (2026-10-12): o'yinchi sahifasi konteynerning to'liq kengligida — sarlavha, "Statistika", "Highlight'lar" (so'nggi 10 ta va hammasiga havola), "Matchlar tarixi"; match sahifasida hisob panelidan keyin `DemoPanel`, highlight'lar (filtr bilan), so'ng scoreboard'lar.
 - **5-reja T1:** klip sahifasi uchun `ClipResponse` ga `kills` (video vaqt chizig'idagi o'rni bilan) va `expiresAt` qo'shildi.
 - **5-reja T6:** tayyor klip dialogda emas, o'z sahifasida ochiladi (`/clips/:clipId`) — havolasini ulashish mumkin bo'lishi uchun; sifat tanlovi alohida buyurtma dialogida; holatlar `StatusChip` bilan. Pleyer brauzerning o'z boshqaruvi bilan qoladi (to'liq ekran va telefon uchun), kill belgilari uning ostidagi `KillTimeline` da. Maketdagi kadr ustidagi kill feed — videoning o'zidagi tasvir, interfeys qatlami emas.
 - **Keyinga qolgani:** "Kliplar" sahifasidagi holat tablari va "Mening" filtri — 6-reja (klip egaligi bilan); kompilyatsiya panelidagi ko'p segmentli chiziq va taxminiy davomiylik — 6-reja (oldindan hisoblash endpointi bilan); Telegram belgisi — 7-reja; narx va balans — 8-reja; raundlar chizig'i, xaritalar jadvali — 9-reja; buyurtma dialogida FPS pog'onasi (60–600), motion blur, ovoz, raqib ko'zidan ko'rsatish va skin tanlovi, har biri narxi bilan — 10-reja (narxlar 8-rejada).

@@ -9,7 +9,7 @@ const COLUMN_COUNT = 7
 // A number column is as wide as its figures plus 8px each side on a phone, so that all six fit in 360px; from `sm` up
 // it is at least 68px wide with 16px each side.
 const NUMBER_HEAD = 'px-2 text-right sm:min-w-17 sm:px-4'
-const NUMBER_CELL = 'px-2 text-right font-mono text-[13px] tabular-nums sm:px-4'
+const NUMBER_CELL = 'number-mono px-2 text-right sm:px-4'
 // The player column stays in place while the numbers scroll under it, on a screen too narrow for all of them (or with
 // a very long nickname), so every number keeps its name. It takes the row's background, hover included.
 const STICKY = 'sticky left-0 bg-inherit'

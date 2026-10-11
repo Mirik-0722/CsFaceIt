@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import AppLayout from './components/AppLayout'
 import MatchPage from './pages/MatchPage'
 import NotFoundPage from './pages/NotFoundPage'
+import PlayerHighlightsPage from './pages/PlayerHighlightsPage'
 import PlayerPage from './pages/PlayerPage'
 import SearchPage from './pages/SearchPage'
 
@@ -17,6 +18,7 @@ export default function App() {
           <Route element={<AppLayout />}>
             <Route path="/" element={<SearchPage />} />
             <Route path="/players/:playerId" element={<PlayerPage />} />
+            <Route path="/players/:playerId/highlights" element={<PlayerHighlightsPage />} />
             <Route path="/matches/:matchId" element={<MatchPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>

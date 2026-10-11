@@ -1,9 +1,22 @@
-import { type InfiniteData, type QueryKey, useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { ApiError, apiGet } from './client'
+import {
+  type InfiniteData,
+  type QueryClient,
+  type QueryKey,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
+import { ApiError, apiGet, apiPost } from './client'
 import type {
+  DemoResponse,
+  HighlightPageResponse,
+  HighlightResponse,
+  HighlightType,
   MatchHistoryResponse,
   MatchResponse,
   MatchStatsResponse,
+  PlayerAggregateStatsResponse,
   PlayerResponse,
 } from './types'
 
@@ -69,6 +82,132 @@ export function useMatchStats(matchId: string) {
   return useQuery<MatchStatsResponse, ApiError>({
     queryKey: ['match-stats', matchId],
     queryFn: () => apiGet<MatchStatsResponse>(`/matches/${matchId}/stats`),
+    retry: retryUnlessClientError,
+  })
+}
+
+/** How often the demo is asked for again while the backend is still working on it. */
+const DEMO_POLL_MS = 3000
+
+/** True while the pipeline will move the demo on by itself: queued, stored, or parsed with its analysis to come. */
+function isInProgress(demo: DemoResponse | null | undefined): boolean {
+  if (!demo) {
+    return false
+  }
+  return demo.status === 'QUEUED' || demo.status === 'STORED' || (demo.status === 'PARSED' && !demo.error)
+}
+
+/**
+ * The demo of a match, or `null` when the match has none (the backend's 404 `DEMO_NOT_FOUND` is a state, not an
+ * error). While the pipeline is working on the demo it is asked for again every three seconds; `watching` does the
+ * same for a demo that looks settled, after a request whose effect shows only later (a repeated analysis).
+ */
+export function useDemo(matchId: string, watching = false) {
+  return useQuery<DemoResponse | null, ApiError>({
+    queryKey: ['demo', matchId],
+    queryFn: async () => {
+      try {
+        return await apiGet<DemoResponse>(`/matches/${matchId}/demo`)
+      } catch (error) {
+        if (error instanceof ApiError && error.code === 'DEMO_NOT_FOUND') {
+          return null
+        }
+        throw error
+      }
+    },
+    refetchInterval: (query) => (watching || isInProgress(query.state.data) ? DEMO_POLL_MS : false),
+    retry: retryUnlessClientError,
+  })
+}
+
+/** Everything that is computed from a demo: asked for again when the demo of a match has changed. */
+export function invalidateDemoResults(queryClient: QueryClient, matchId: string) {
+  void queryClient.invalidateQueries({ queryKey: ['match-highlights', matchId] })
+  void queryClient.invalidateQueries({ queryKey: ['player-highlights'] })
+  void queryClient.invalidateQueries({ queryKey: ['player-stats'] })
+}
+
+/** A demo request that needs the admin key; its answer is the demo as it is now, which replaces the cached one. */
+function useDemoAction<Variables extends { apiKey: string }>(
+  matchId: string,
+  send: (variables: Variables) => Promise<DemoResponse>,
+) {
+  const queryClient = useQueryClient()
+  return useMutation<DemoResponse, ApiError, Variables>({
+    mutationFn: send,
+    onSuccess: (demo) => {
+      queryClient.setQueryData<DemoResponse | null>(['demo', matchId], demo)
+      invalidateDemoResults(queryClient, matchId)
+    },
+  })
+}
+
+/** Has the backend download the demo of the match from FACEIT. */
+export function useImportDemo(matchId: string) {
+  return useDemoAction(matchId, ({ apiKey }: { apiKey: string }) =>
+    apiPost<DemoResponse>(`/matches/${matchId}/demo/import`, { apiKey }),
+  )
+}
+
+/** Uploads a demo file for the match; the part is named `file`, as the backend expects. */
+export function useUploadDemo(matchId: string) {
+  return useDemoAction(matchId, ({ apiKey, file }: { apiKey: string; file: File }) => {
+    const body = new FormData()
+    body.append('file', file)
+    return apiPost<DemoResponse>(`/matches/${matchId}/demo/upload`, { apiKey, body })
+  })
+}
+
+/** Has the parsed demo of the match analyzed again. The analysis runs in the background. */
+export function useAnalyzeDemo(matchId: string) {
+  return useDemoAction(matchId, ({ apiKey }: { apiKey: string }) =>
+    apiPost<DemoResponse>(`/matches/${matchId}/demo/analyze`, { apiKey }),
+  )
+}
+
+/** Every highlight of a match, in round order; an empty list when the match has no analyzed demo. */
+export function useMatchHighlights(matchId: string) {
+  return useQuery<HighlightResponse[], ApiError>({
+    queryKey: ['match-highlights', matchId],
+    queryFn: () => apiGet<HighlightResponse[]>(`/matches/${matchId}/highlights`),
+    retry: retryUnlessClientError,
+  })
+}
+
+/** How many highlights the backend returns per page of a player's highlights. */
+const HIGHLIGHTS_PAGE_SIZE = 50
+
+/**
+ * A player's highlights, newest match first, one page of `limit` at a time, as {@link usePlayerHistory} pages the
+ * history. `type` narrows the list to one kind on the server; `null` is every kind.
+ */
+export function usePlayerHighlights(playerId: string, type: HighlightType | null, limit = HIGHLIGHTS_PAGE_SIZE) {
+  return useInfiniteQuery<
+    HighlightPageResponse,
+    ApiError,
+    InfiniteData<HighlightPageResponse, number>,
+    QueryKey,
+    number
+  >({
+    queryKey: ['player-highlights', playerId, type, limit],
+    queryFn: ({ pageParam }) =>
+      apiGet<HighlightPageResponse>(`/players/${playerId}/highlights`, {
+        ...(type ? { type } : {}),
+        offset: pageParam,
+        limit,
+      }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+      lastPage.items.length < limit ? undefined : lastPageParam + limit,
+    retry: retryUnlessClientError,
+  })
+}
+
+/** A player's statistics over the matches the backend has stored. */
+export function usePlayerStats(playerId: string) {
+  return useQuery<PlayerAggregateStatsResponse, ApiError>({
+    queryKey: ['player-stats', playerId],
+    queryFn: () => apiGet<PlayerAggregateStatsResponse>(`/players/${playerId}/stats`),
     retry: retryUnlessClientError,
   })
 }

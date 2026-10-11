@@ -16,6 +16,18 @@ export function errorMessage(error: Error, t: Messages): string {
     if (error.code === 'FACEIT_UNAVAILABLE') {
       return t.errors.faceitUnavailable
     }
+    if (error.code === 'UNAUTHORIZED') {
+      return t.demo.wrongKey
+    }
+    if (error.code === 'DEMO_URL_UNAVAILABLE') {
+      return t.demo.urlUnavailable
+    }
+    if (error.code === 'DEMO_NOT_PARSED') {
+      return t.demo.notParsed
+    }
+    if (error.code === 'PAYLOAD_TOO_LARGE') {
+      return t.demo.tooLarge
+    }
   }
   return t.errors.generic
 }

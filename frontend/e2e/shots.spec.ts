@@ -1,17 +1,24 @@
 import { test, type Page } from '@playwright/test'
 import type {
+  DemoResponse,
+  HighlightResponse,
   MatchHistoryResponse,
   MatchResponse,
   MatchStatsResponse,
   MatchSummary,
+  PlayerAggregateStatsResponse,
   PlayerResponse,
 } from '../src/api/types.ts'
 import {
   PLAYER_ID,
   WON_MATCH_ID,
+  demoFixture,
+  highlightFixture,
   historyFixture,
   matchFixture,
+  matchHighlightsFixture,
   playerFixture,
+  playerStatsFixture,
   statsFixture,
 } from './fixtures.ts'
 
@@ -42,6 +49,12 @@ interface Backend {
   match: MatchResponse
   /** `null`: FACEIT has no stats for the match yet (the backend answers 404 MATCH_NOT_FOUND). */
   stats: MatchStatsResponse | null
+  /** The player's figures over the stored matches. */
+  playerStats: PlayerAggregateStatsResponse
+  /** The highlights of the match. The player's own are also the profile's newest ten and the highlights page. */
+  highlights: HighlightResponse[]
+  /** `null`: the match has no demo (the backend answers 404 DEMO_NOT_FOUND). */
+  demo: DemoResponse | null
 }
 
 interface ShotPage {
@@ -88,8 +101,9 @@ const LANGUAGE_KEY = 'csfaceit.lang'
 const PAGES = [
   { name: 'home', path: '/', tabs: 4 }, // the nickname field
   { name: 'result', path: '/', open: searchFor, tabs: 6 }, // the link around the player card (after field and button)
-  { name: 'player', path: `/players/${PLAYER_ID}`, tabs: 4 }, // the first match of the history
-  { name: 'match', path: `/matches/${WON_MATCH_ID}`, tabs: 4 }, // the first player of the first team
+  { name: 'player', path: `/players/${PLAYER_ID}`, tabs: 4 }, // the player of the first highlight card
+  { name: 'highlights', path: `/players/${PLAYER_ID}/highlights`, tabs: 5 }, // the type filter (after the player card)
+  { name: 'match', path: `/matches/${WON_MATCH_ID}`, tabs: 5 }, // the first filter button (after "Manage")
   { name: 'notfound', path: '/there-is-no-such-page', tabs: 4 }, // the link back to the search
 ] as const satisfies readonly ShotPage[]
 
@@ -107,7 +121,49 @@ const DEFAULT_BACKEND: Backend = {
   history: historyFixture,
   match: matchFixture,
   stats: statsFixture,
+  playerStats: playerStatsFixture,
+  highlights: matchHighlightsFixture,
+  demo: demoFixture,
 }
+
+/** A player without a stored match: every figure is a dash. */
+const NO_PLAYER_STATS: PlayerAggregateStatsResponse = {
+  playerId: PLAYER_ID,
+  matches: 0,
+  analyzedMatches: 0,
+  winRate: null,
+  kd: 0,
+  hsPercent: 0,
+  adr: null,
+  kast: null,
+  entryKillsPerMatch: null,
+  tradeKillsPerMatch: null,
+  clutchPercent: null,
+  clutchAttempts: 0,
+  clutchWins: 0,
+}
+
+const OWNER = { playerId: PLAYER_ID, nickname: playerFixture.nickname }
+
+// What real highlights hold that the default ones do not.
+const EDGE_HIGHLIGHTS: HighlightResponse[] = [
+  // A player the backend knows only from the demo (no profile to link to) whose side is unknown; a grenade kill.
+  highlightFixture(21, 'K3', { playerId: 'steam:76561198000000001', nickname: 'demo_only_player' }, 2, null, [
+    [20, 'mp9'],
+    [26, 'mp9', true],
+    [61, 'hegrenade'],
+  ]),
+  // A clutch won without a kill in its window, in a match without a map or a start time.
+  { ...highlightFixture(22, 'CLUTCH_1V1', OWNER, 6, 'T', []), mapName: null, startedAt: null },
+  // A weapon the list of names does not have keeps its raw name.
+  highlightFixture(23, 'WALLBANG', OWNER, 8, 'CT', [[40, 'weapon_of_a_later_update']]),
+  // Kills in the first and the last second of the round: the window is cut at the ends of the track.
+  highlightFixture(24, 'K3', OWNER, 12, 'CT', [
+    [1, 'ak47'],
+    [50, 'ak47'],
+    [99, 'ak47', true],
+  ]),
+]
 
 // A 32-character nickname and team names longer than 32 characters (one with spaces, one without).
 const LONG_BACKEND: Partial<Backend> = {
@@ -128,6 +184,9 @@ const LONG_BACKEND: Partial<Backend> = {
       ),
     })),
   },
+  highlights: matchHighlightsFixture.map((highlight) =>
+    highlight.playerId === PLAYER_ID ? { ...highlight, nickname: LONG_NICKNAME } : highlight,
+  ),
 }
 
 /**
@@ -160,38 +219,49 @@ const SCENARIOS: Scenario[] = [
   { name: 'default', viewports: [SMALL_PHONE] },
   {
     name: 'long',
-    pages: ['result', 'player', 'match'],
+    pages: ['result', 'player', 'highlights', 'match'],
     backend: LONG_BACKEND,
   },
   {
-    // A player without CS2 data and without a single match.
+    // A player without CS2 data, without a single match, a stored figure or a highlight.
     name: 'empty',
-    pages: ['result', 'player'],
+    pages: ['result', 'player', 'highlights'],
     backend: {
       player: { ...playerFixture, avatar: null, country: null, elo: null, level: null },
       history: { items: [], offset: 0, limit: 20 },
+      playerStats: NO_PLAYER_STATS,
+      highlights: [],
     },
   },
   {
-    // A match that is still being played: FACEIT has published neither the map nor the times nor a winner, no stats.
+    // A match that is still being played: FACEIT has published neither the map nor the times nor a winner, no stats;
+    // there is no demo and so no highlight.
     name: 'live',
     pages: ['match'],
     backend: {
       match: { ...matchFixture, mapName: null, startedAt: null, finishedAt: null, winner: null, status: 'ONGOING' },
       stats: null,
+      demo: null,
+      highlights: [],
     },
   },
   {
     // What real data holds that the default does not: a history of 20 rows (with "Load more", an UNKNOWN result and a
-    // row without a score) and a match whose second team has an empty roster.
+    // row without a score), a match whose second team has an empty roster, stored matches without an analyzed demo,
+    // a demo whose analysis failed, and the highlights of EDGE_HIGHLIGHTS.
     name: 'edge',
-    pages: ['player', 'match'],
+    pages: ['player', 'highlights', 'match'],
     backend: {
       history: edgeHistory(),
       match: { ...matchFixture, teams: [matchFixture.teams[0], { ...matchFixture.teams[1], players: [] }] },
       stats: { ...statsFixture, teams: [statsFixture.teams[0], { ...statsFixture.teams[1], players: [] }] },
+      playerStats: { ...NO_PLAYER_STATS, matches: 7, winRate: 42.9, kd: 0.94, hsPercent: 38.5, adr: 71.3 },
+      highlights: EDGE_HIGHLIGHTS,
+      demo: { ...demoFixture, status: 'PARSED', error: 'Analysis failed: round 7 has no kill rows to order (IllegalStateException)' },
     },
   },
+  // The demo panel opened: the admin key field and the three requests it guards.
+  { name: 'manage', pages: ['match'], before: openDemoControls },
   // The first scoreboard scrolled to its right end, on a phone: the player column and the team header stay in place.
   // The default scoreboard fits in 390px, so this one does not move; the one with the 32-character nickname still
   // overflows and shows the columns at work.
@@ -216,10 +286,24 @@ interface Reply {
 
 /** Every API call the pages make, keyed by method, path and query as the app sends them. */
 function answersFor(backend: Backend): Map<string, Reply> {
+  const own = backend.highlights.filter((highlight) => highlight.playerId === PLAYER_ID)
   return new Map<string, Reply>([
     [`GET /api/v1/players?nickname=${backend.nickname}`, { body: backend.player }],
     [`GET /api/v1/players/${PLAYER_ID}`, { body: backend.player }],
     [`GET /api/v1/players/${PLAYER_ID}/history?offset=0&limit=20`, { body: backend.history }],
+    [`GET /api/v1/players/${PLAYER_ID}/stats`, { body: backend.playerStats }],
+    [
+      `GET /api/v1/players/${PLAYER_ID}/highlights?offset=0&limit=10`,
+      { body: { items: own.slice(0, 10), offset: 0, limit: 10 } },
+    ],
+    [`GET /api/v1/players/${PLAYER_ID}/highlights?offset=0&limit=50`, { body: { items: own, offset: 0, limit: 50 } }],
+    [
+      `GET /api/v1/matches/${WON_MATCH_ID}/demo`,
+      backend.demo
+        ? { body: backend.demo }
+        : { status: 404, body: { code: 'DEMO_NOT_FOUND', message: 'Demo not found' } },
+    ],
+    [`GET /api/v1/matches/${WON_MATCH_ID}/highlights`, { body: backend.highlights }],
     [`GET /api/v1/matches/${WON_MATCH_ID}`, { body: backend.match }],
     [
       `GET /api/v1/matches/${WON_MATCH_ID}/stats`,
@@ -271,6 +355,11 @@ async function pressTab(page: Page, { tabs }: ShotPage) {
   for (let press = 0; press < tabs; press++) {
     await page.keyboard.press('Tab')
   }
+}
+
+/** Opens the controls of the demo panel: the one button on the page that says it has something to expand. */
+async function openDemoControls(page: Page) {
+  await page.locator('button[aria-expanded="false"]').first().click()
 }
 
 /** Scrolls the first scoreboard's box to its right end; a table that fits in its box does not move. */
