@@ -23,22 +23,22 @@ function PlayerProfile({ playerId }: { playerId: string }) {
       <div aria-live="polite">
         {player.isPending && (
           <>
-            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-26 w-full" />
             <span className="sr-only">{t.player.loading}</span>
           </>
         )}
         {playerFailed && <p className="text-sm text-destructive">{errorMessage(player.error, t)}</p>}
-        {player.data && <PlayerHeader player={player.data} />}
+        {player.data && <PlayerHeader player={player.data} size="lg" />}
       </div>
       {!playerFailed && (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-lg font-medium">{t.player.history}</h2>
+        <section className="flex flex-col gap-4 pt-3">
+          <h2 className="text-[22px] leading-[1.3] font-semibold tracking-[-0.01em]">{t.player.history}</h2>
           <div aria-live="polite" className="flex flex-col gap-3">
             {history.isPending && (
               <>
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
                 <span className="sr-only">{t.player.loadingMatches}</span>
               </>
             )}
@@ -65,13 +65,16 @@ export default function PlayerPage() {
   const t = useT()
   const { playerId } = useParams()
   return (
-    <main className="mx-auto flex max-w-2xl flex-col gap-6 p-4">
-      <h1 className="text-2xl font-semibold">{t.player.title}</h1>
-      {playerId ? (
-        <PlayerProfile playerId={playerId} />
-      ) : (
-        <p className="text-sm text-destructive">{t.errors.playerNotFound}</p>
-      )}
+    <main className="container-page pt-9 pb-18">
+      {/* The nickname in the header is the page's big title, so the h1 is a small label above it. */}
+      <div className="flex max-w-[880px] flex-col gap-4">
+        <h1 className="label-mono">{t.player.title}</h1>
+        {playerId ? (
+          <PlayerProfile playerId={playerId} />
+        ) : (
+          <p className="text-sm text-destructive">{t.errors.playerNotFound}</p>
+        )}
+      </div>
     </main>
   )
 }

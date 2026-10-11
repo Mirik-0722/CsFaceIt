@@ -39,7 +39,7 @@ describe('MatchList', () => {
     expect(screen.getByText('05 Jan 2026')).toHaveAttribute('datetime', '2026-01-05T23:30:00Z')
   })
 
-  it('colours WIN green and LOSS red', () => {
+  it('colours WIN positive and LOSS negative', () => {
     renderList([match({ matchId: 'm1', result: 'WIN' }), match({ matchId: 'm2', result: 'LOSS' })])
     expect(screen.getByText('WIN').className).toContain('positive')
     expect(screen.getByText('LOSS').className).toContain('negative')

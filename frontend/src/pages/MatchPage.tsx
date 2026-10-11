@@ -1,32 +1,46 @@
 import type { UseQueryResult } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import { useMatch, useMatchStats } from '@/api/queries'
+import MapTile from '@/components/MapTile'
+import MatchScore from '@/components/MatchScore'
 import StatsTable from '@/components/StatsTable'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/formatDate'
+import { mapLabel } from '@/lib/mapTint'
 import type { ApiError } from '@/api/client'
-import type { MatchResponse, MatchStatsResponse } from '@/api/types'
+import type { MatchResponse, MatchStatsResponse, TeamStatsResponse } from '@/api/types'
 
-/** The map, the start date and the status of a match; each is left out while FACEIT has not published it. */
-function MatchHeader({ match }: { match: MatchResponse }) {
+/**
+ * The map, the start date and the status of a match, each left out while FACEIT has not published it, and the score
+ * of the two teams once the stats have arrived.
+ */
+function MatchHeader({ match, teams }: { match: MatchResponse; teams: TeamStatsResponse[] | undefined }) {
   const t = useT()
   const locale = useLocale()
   return (
     <Card>
-      <CardContent className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <CardTitle className="truncate text-lg">{match.mapName ?? t.match.unknownMap}</CardTitle>
-          {match.startedAt && (
-            <CardDescription>
-              <time dateTime={match.startedAt}>{formatDate(match.startedAt, locale)}</time>
-            </CardDescription>
-          )}
+      <CardContent className="flex flex-col gap-6">
+        <div className="flex items-center gap-4">
+          <MapTile mapName={match.mapName} />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <CardTitle className="truncate text-[26px] leading-[1.2] tracking-[-0.02em]">
+              {mapLabel(match.mapName) ?? t.match.unknownMap}
+            </CardTitle>
+            {(match.mapName || match.startedAt) && (
+              // The raw map name and the date are separate elements: each is one fact of its own.
+              <div className="flex flex-wrap gap-x-3 font-mono text-xs text-subtle">
+                {match.mapName && <span>{match.mapName}</span>}
+                {match.startedAt && <time dateTime={match.startedAt}>{formatDate(match.startedAt, locale)}</time>}
+              </div>
+            )}
+          </div>
+          {match.status && <Badge variant="secondary">{match.status}</Badge>}
         </div>
-        {match.status && <Badge variant="secondary">{match.status}</Badge>}
+        {teams && <MatchScore teams={teams} />}
       </CardContent>
     </Card>
   )
@@ -36,8 +50,8 @@ function StatsSkeleton() {
   const t = useT()
   return (
     <>
-      <Skeleton className="h-40 w-full" />
-      <Skeleton className="h-40 w-full" />
+      <Skeleton className="h-64 w-full" />
+      <Skeleton className="h-64 w-full" />
       <span className="sr-only">{t.match.loadingStats}</span>
     </>
   )
@@ -76,12 +90,12 @@ function MatchDetails({ matchId }: { matchId: string }) {
       <div aria-live="polite">
         {match.isPending && (
           <>
-            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-24 w-full" />
             <span className="sr-only">{t.match.loading}</span>
           </>
         )}
         {matchFailed && <p className="text-sm text-destructive">{errorMessage(match.error, t)}</p>}
-        {match.data && <MatchHeader match={match.data} />}
+        {match.data && <MatchHeader match={match.data} teams={stats.data?.teams} />}
       </div>
       {!matchFailed && (
         // The tables follow the header, so a match that then turns out to be missing never flashes them.
@@ -97,8 +111,9 @@ export default function MatchPage() {
   const t = useT()
   const { matchId } = useParams()
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-4">
-      <h1 className="text-2xl font-semibold">{t.match.title}</h1>
+    // The map name in the header is the page's big title, so the h1 is a small label above it.
+    <main className="container-page flex flex-col gap-4 pt-9 pb-18">
+      <h1 className="label-mono">{t.match.title}</h1>
       {matchId ? (
         <MatchDetails matchId={matchId} />
       ) : (

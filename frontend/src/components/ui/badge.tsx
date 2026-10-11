@@ -3,7 +3,7 @@ import { useRender } from "@base-ui/react/use-render"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 
-const NEGATIVE = "border-negative/40 text-negative [a]:hover:bg-negative/10"
+const NEGATIVE = "border-negative text-negative [a]:hover:bg-negative/10"
 
 // A tag (spec 3): 22px, mono 11px/600, upper case by CSS so the text in the DOM stays as it was written. Only the
 // `default` tag is filled; the rest are outlines. Result and side are never carried by colour alone: the text says it.
@@ -15,7 +15,7 @@ const badgeVariants = cva(
         default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
         outline: "border-ring text-foreground [a]:hover:bg-secondary",
         secondary: "border-border text-muted-foreground [a]:hover:bg-secondary",
-        positive: "border-positive/40 text-positive [a]:hover:bg-positive/10",
+        positive: "border-positive text-positive [a]:hover:bg-positive/10",
         negative: NEGATIVE,
         destructive: NEGATIVE,
       },

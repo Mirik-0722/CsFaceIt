@@ -2,10 +2,12 @@ import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useT } from '@/i18n'
-import { WIN_BADGE_CLASS } from '@/lib/badgeStyles'
+import { cn } from '@/lib/utils'
 import type { TeamStatsResponse } from '@/api/types'
 
 const COLUMN_COUNT = 7
+const NUMBER_HEAD = 'min-w-17 px-4 text-right'
+const NUMBER_CELL = 'px-4 text-right font-mono text-[13px] tabular-nums'
 
 /**
  * One team's scoreboard: the team name, its score and a Winner badge in the table header, then a row per player,
@@ -15,56 +17,69 @@ export default function StatsTable({ team }: { team: TeamStatsResponse }) {
   const t = useT()
   const players = [...team.players].sort((a, b) => b.kills - a.kills)
   return (
-    // The shadcn Table puts the caption below the table (`caption-bottom`, inherited); the team header goes on top.
-    <Table className="caption-top">
-      <TableCaption className="mt-0 mb-2 text-left text-foreground">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-medium">{team.name ?? t.stats.team}</h2>
-          {team.win && <Badge className={WIN_BADGE_CLASS}>{t.stats.winner}</Badge>}
-          <span className="ml-auto font-mono text-lg tabular-nums">
-            <span className="sr-only">{t.stats.score}</span> {team.score}
-          </span>
-        </div>
-      </TableCaption>
-      <TableHeader>
-        <TableRow>
-          <TableHead>{t.stats.player}</TableHead>
-          <TableHead className="text-right">{t.stats.kills}</TableHead>
-          <TableHead className="text-right">{t.stats.deaths}</TableHead>
-          <TableHead className="text-right">{t.stats.assists}</TableHead>
-          <TableHead className="text-right">{t.stats.headshots}</TableHead>
-          <TableHead className="text-right">{t.stats.kdRatio}</TableHead>
-          <TableHead className="text-right">{t.stats.adr}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {players.length === 0 ? (
+    <div className="@container border border-border bg-card">
+      {/* The shadcn Table puts the caption below the table (`caption-bottom`, inherited); the team header goes on
+          top. The minimum width makes a narrow screen scroll the table inside its box instead of squeezing it. */}
+      <Table className="min-w-[34rem] caption-top">
+        <TableCaption className="mt-0 text-left text-foreground">
+          {/* As wide as the box, not as the table, and stuck to its left edge: the team name, the Winner badge and
+              the score stay in view while the columns scroll under them. */}
+          <div className="sticky left-0 flex w-[100cqw] items-center gap-3 px-4 py-3">
+            <h2 className="min-w-0 truncate text-base font-semibold">{team.name ?? t.stats.team}</h2>
+            {team.win && <Badge variant="positive">{t.stats.winner}</Badge>}
+            <span
+              className={cn(
+                'ml-auto font-mono text-[22px] leading-none font-semibold tabular-nums',
+                !team.win && 'text-muted-foreground',
+              )}
+            >
+              <span className="sr-only">{t.stats.score}</span> {team.score}
+            </span>
+          </div>
+        </TableCaption>
+        <TableHeader>
           <TableRow>
-            <TableCell colSpan={COLUMN_COUNT} className="text-center text-muted-foreground">
-              {t.stats.empty}
-            </TableCell>
+            <TableHead className="w-full px-4">{t.stats.player}</TableHead>
+            <TableHead className={NUMBER_HEAD}>{t.stats.kills}</TableHead>
+            <TableHead className={NUMBER_HEAD}>{t.stats.deaths}</TableHead>
+            <TableHead className={NUMBER_HEAD}>{t.stats.assists}</TableHead>
+            <TableHead className={NUMBER_HEAD}>{t.stats.headshots}</TableHead>
+            <TableHead className={NUMBER_HEAD}>{t.stats.kdRatio}</TableHead>
+            <TableHead className={NUMBER_HEAD}>{t.stats.adr}</TableHead>
           </TableRow>
-        ) : (
-          players.map((player) => (
-            <TableRow key={player.playerId}>
-              <TableCell>
-                <Link
-                  to={`/players/${encodeURIComponent(player.playerId)}`}
-                  className="font-medium underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
-                >
-                  {player.nickname}
-                </Link>
+        </TableHeader>
+        <TableBody>
+          {players.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={COLUMN_COUNT} className="px-4 text-center text-muted-foreground">
+                {t.stats.empty}
               </TableCell>
-              <TableCell className="text-right tabular-nums">{player.kills}</TableCell>
-              <TableCell className="text-right tabular-nums">{player.deaths}</TableCell>
-              <TableCell className="text-right tabular-nums">{player.assists}</TableCell>
-              <TableCell className="text-right tabular-nums">{player.headshots}</TableCell>
-              <TableCell className="text-right tabular-nums">{player.kdRatio.toFixed(2)}</TableCell>
-              <TableCell className="text-right tabular-nums">{player.adr.toFixed(1)}</TableCell>
             </TableRow>
-          ))
-        )}
-      </TableBody>
-    </Table>
+          ) : (
+            players.map((player) => (
+              <TableRow key={player.playerId}>
+                <TableCell className="px-4 py-0">
+                  <Link
+                    to={`/players/${encodeURIComponent(player.playerId)}`}
+                    className="inline-flex min-h-11 max-w-44 items-center font-medium underline-offset-4 hover:underline sm:max-w-none"
+                  >
+                    {/* On a narrow screen a long nickname is cut, so that it does not push every number out of view. */}
+                    <span className="truncate">{player.nickname}</span>
+                  </Link>
+                </TableCell>
+                <TableCell className={cn(NUMBER_CELL, 'font-semibold')}>{player.kills}</TableCell>
+                <TableCell className={cn(NUMBER_CELL, 'text-muted-foreground')}>{player.deaths}</TableCell>
+                <TableCell className={cn(NUMBER_CELL, 'text-muted-foreground')}>{player.assists}</TableCell>
+                <TableCell className={cn(NUMBER_CELL, 'text-muted-foreground')}>{player.headshots}</TableCell>
+                <TableCell className={cn(NUMBER_CELL, player.kdRatio < 1 && 'text-muted-foreground')}>
+                  {player.kdRatio.toFixed(2)}
+                </TableCell>
+                <TableCell className={NUMBER_CELL}>{player.adr.toFixed(1)}</TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </div>
   )
 }

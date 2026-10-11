@@ -22,7 +22,10 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
   persistence (Flyway migrations), the demo import worker and the RabbitMQ listeners, Actuator and Prometheus metrics.
 - `parser/` - the Rust worker that parses stored demos ([`parser/README.md`](parser/README.md)).
 - `frontend/` - React + TypeScript single-page app built with Vite. In production Nginx serves it and proxies `/api/`
-  to the backend.
+  to the backend. Its look follows the "A · REC" design: colours, type, components and screens are specified in
+  [`docs/superpowers/specs/2026-10-11-web-ui-design.md`](docs/superpowers/specs/2026-10-11-web-ui-design.md), which
+  also links the mockups. The interface is in Uzbek (the default) and English: the copy lives in `frontend/src/i18n`,
+  and the choice made with the `UZ` / `EN` buttons is kept in the browser under the `csfaceit.lang` key.
 - `docker-compose.yml` - PostgreSQL 17, Redis 8, RabbitMQ 4, MinIO, the backend, the parser and the frontend; with
   `--profile observability` also Prometheus and Grafana (`ops/` holds their configuration).
 - `docker-compose.fake.yml` and `dev/fake-faceit/` - an override that replaces FACEIT with a local WireMock fake, for
@@ -153,6 +156,10 @@ cd frontend && npm test -- --run
 # Frontend: end-to-end search-to-match flow (Playwright, API mocked in the browser).
 # Install the browser once; the Vite dev server is started by the test run itself.
 cd frontend && npx playwright install chromium && npm run e2e
+
+# Frontend: screenshots of every page (several data scenarios, 1440 and 390 px wide, both languages)
+# into frontend/shots/, to compare the interface with the design spec.
+cd frontend && SHOTS=1 npx playwright test e2e/shots.spec.ts
 ```
 
 ## API
