@@ -50,9 +50,9 @@ public class HighlightQueryService {
     private static final Logger log = LoggerFactory.getLogger(HighlightQueryService.class);
 
     /**
-     * The highlights of analyzed demos. {@code round_players} is a left join because a demo parsed before the roster of
-     * a round was recorded has no rows there (its side is then null); {@code rounds} is an inner join because the
-     * analysis stores a highlight only for a round it has the facts of.
+     * The highlights of analyzed demos. {@code round_players} is a left join because a player can be missing from the
+     * recorded roster of a round (his side is then null; a demo without any roster is not analyzed at all);
+     * {@code rounds} is an inner join because the analysis stores a highlight only for a round it has the facts of.
      */
     private static final String HIGHLIGHTS_SQL = """
             SELECT h.id, h.type, p.faceit_id AS player_faceit_id, p.nickname, h.round_number, rp.side,

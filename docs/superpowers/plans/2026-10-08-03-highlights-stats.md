@@ -236,7 +236,7 @@ Reja bajarilayotganda chiqarilgan qarorlar. Yuqoridagi vazifa matnlari tahrirlan
   - `HighlightQueryService.find(long highlightId)` qo'shildi — 5-reja bitta highlight'ni `ANALYZED` qoidasini chetlab o'tmasdan o'qishi uchun.
   - Bir xil (tur, o'yinchi, round, tick) nomzodlar bir marta saqlanadi (bir o'q bilan ikki kill bitta lahza).
   - O'yinchi sahifasida so'nggi 6 ta highlight (brifdagi 10 o'rniga): 10 ta karta uch ustunli to'rda bittasini yolg'iz qoldiradi.
-  - Demo panelida "FACEIT'dan olish" faqat demo yo'q yoki `FAILED` bo'lganda ko'rinadi (boshqa holatda backend so'rovni e'tiborsiz qoldiradi); tahlil tugmasi `PARSED` da "Tahlil qilish", `ANALYZED` da "Qayta tahlil qilish".
+  - Demo panelida "FACEIT'dan olish" `PARSED` va `ANALYZED` demoda ko'rinmaydi (backend so'rovni e'tiborsiz qoldiradi); `QUEUED`/`STORED` da qoladi — o'n daqiqa qimirlamagan demoni qayta jonlantirishning yo'li shu; tahlil tugmasi `PARSED` da "Tahlil qilish", `ANALYZED` da "Qayta tahlil qilish".
   - Compose'da parser backend sog'lom bo'lgandan keyin ishga tushadi (Flyway migratsiyasi parserning birinchi xabaridan oldin tugashi uchun).
 - **Vazifalar tartibi:** Task 6 backend'ning 4–5-vazifalari bilan parallel, alohida worktree'da, Task 5 brifidagi DTO'larga qarab yozildi va Task 5 tugagach haqiqiy stack'da tekshirildi.
 

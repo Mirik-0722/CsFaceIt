@@ -71,9 +71,10 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
   const busy = importDemo.isPending || uploadDemo.isPending || analyzeDemo.isPending
   const disabled = busy || apiKey.length === 0
   const status = demo.data?.status
-  // The backend ignores an import request for a demo that is queued, stored, parsed or analyzed, so the button is
-  // offered only where the request starts something: the match has no demo, or its import failed.
-  const canImport = demo.data === null || status === 'FAILED'
+  // The backend ignores an import request for a parsed or analyzed demo, so the button is not offered there. For a
+  // queued or stored demo the request does something once the demo has stood still for ten minutes (it is queued or
+  // announced again): the way to revive a demo whose message was lost, so the button stays for those two.
+  const canImport = demo.data === null || status === 'FAILED' || status === 'QUEUED' || status === 'STORED'
   const canAnalyze = status === 'PARSED' || status === 'ANALYZED'
 
   // What is computed from the demo is asked for again when the demo changes: its status, or the time it was written.

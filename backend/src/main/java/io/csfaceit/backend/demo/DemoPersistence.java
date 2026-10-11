@@ -230,7 +230,8 @@ public class DemoPersistence {
     }
 
     /**
-     * Records that the analysis of the demo failed for good (its {@code demo.parsed} message was dead-lettered). The
+     * Records that the analysis of the demo failed for good (its {@code demo.parsed} message was dead-lettered) or
+     * cannot be done at all (its facts have no round roster, which the analysis itself reports). The
      * demo is not FAILED: its facts are intact and the analysis can be started again, so a PARSED demo stays PARSED and
      * only gets {@code error}. A demo in any other status is left as it is, an ANALYZED one included: it keeps the
      * results of its earlier analysis, and a demo that was uploaded again is on its way to a new parse. The check and

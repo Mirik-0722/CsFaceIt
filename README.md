@@ -44,8 +44,8 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
   clutch, special) and a scoreboard per team.
 
 The demo panel shows the status of the match's demo to everyone. Behind "Manage" it has the requests that need the
-admin key (`X-API-Key`): import from FACEIT (offered only for a match without a demo or with a failed one, because the
-backend ignores it for any other), upload a file, and analyze (offered for a `PARSED` demo, as "Re-analyze" for an
+admin key (`X-API-Key`): import from FACEIT (not offered for a parsed or analyzed demo, for which the backend
+ignores it; for a queued or stored one it revives a demo that has stood still for ten minutes), upload a file, and analyze (offered for a `PARSED` demo, as "Re-analyze" for an
 `ANALYZED` one). The key is typed once and kept in the memory of the page only - never in `localStorage`,
 `sessionStorage` or a cookie - so reloading the page forgets it, and a key the backend rejects is forgotten at once.
 
@@ -150,8 +150,10 @@ docker compose up -d postgres redis
 #    To try the demo pipeline as well, start the broker, the object store and the parser too, and set
 #    STORAGE_TYPE=minio in your .env: the parser reads demos from MinIO only, so with the default STORAGE_TYPE=local
 #    it finds no file and marks the demo FAILED ("the stored file is missing"); a demo stays STORED only while no
-#    parser runs. (The first build of the parser image takes several minutes.)
-#    docker compose up -d --build postgres redis rabbitmq minio parser
+#    parser runs. (The first build of the parser image takes several minutes.) `--no-deps` matters: in the full stack
+#    the parser waits for the backend container, and without the flag naming the parser would build and start that
+#    container too - a second backend beside the one you run in step 2, taking part of the queue's messages.
+#    docker compose up -d --build --no-deps postgres redis rabbitmq minio parser
 
 # 2. Backend on http://localhost:8080 (the shell must export the variables from .env)
 set -a && source .env && set +a
@@ -474,12 +476,12 @@ All four are read: `analysis.trade-window-seconds` by `trade_kills` and the T of
 `analysis.clip.post-seconds` by the clip of every highlight, and `analysis.ninja.defuse-seconds` by `NINJA_DEFUSE`.
 Seconds become ticks with the tick rate of the demo (64 when the demo does not say).
 
-**Changing `analysis.clip.pre-seconds` or `analysis.clip.post-seconds` changes the identity of a highlight.** They decide
-its `tick_start` and `tick_end`, and a highlight is told apart from the others by its match, player, type, round and
-`tick_start` (its `id` changes with every analysis, so it is no handle; whatever is made from a highlight, a clip, finds
-it again by these five). Once clips exist, changing either setting and analyzing again gives the highlights other
-`tick_start` values, and the clips made before no longer find theirs: change them before clips are made, or make the
-clips again.
+**Changing `analysis.clip.pre-seconds` changes the identity of a highlight.** The two clip settings decide its
+`tick_start` (`pre-seconds`) and `tick_end` (`post-seconds`), and a highlight is told apart from the others by its match,
+player, type, round and `tick_start` (its `id` changes with every analysis, so it is no handle; whatever is made from a
+highlight, a clip, finds it again by these five). Once clips exist, changing `pre-seconds` and analyzing again gives the
+highlights other `tick_start` values, and the clips made before no longer find theirs: change it before clips are made,
+or make the clips again. `post-seconds` only moves where a clip ends.
 
 **When the analysis fails.** The backend tries the `demo.parsed` message three times (an exception in the analysis
 itself, say, from facts it cannot handle; every failed attempt is logged at `ERROR` with the exception and its stack
@@ -544,7 +546,7 @@ A highlight, here a `K3` (the player's id is shortened):
 | `type` | One of the types in the table of highlight types in [Analysis](#analysis). |
 | `playerId`, `nickname` | The player the highlight belongs to: his FACEIT id (`steam:<SteamID>` for a player known only from the demo) and nickname. |
 | `roundNumber` | The round of the demo, counted from 1. |
-| `side` | `"CT"` or `"T"`: the side the player played that round on, from his `round_players` row. `null` when there is no such row, as for a demo parsed before the roster of a round was recorded. |
+| `side` | `"CT"` or `"T"`: the side the player played that round on, from his `round_players` row. `null` when there is no such row: a player missing from the recorded roster of that round (a demo without any roster is not analyzed, so it has no highlights). |
 | `tickStart`, `tickEnd` | The clip, in ticks of the demo; both lie inside the round. |
 | `roundStartTick`, `roundEndTick` | The `start_tick` and `end_tick` of the round. |
 | `durationSeconds` | The length of the clip, `tickEnd - tickStart` over the tick rate of the demo (64 when it does not say), rounded to the nearest whole second. |
@@ -577,8 +579,8 @@ from analyzed matches. A percentage is 0 to 100 with one decimal. A figure with 
 `winRate` while no result of the player is known, `adr` without a stored ADR above zero, `kast` and the two per-match
 figures without an analyzed match and `clutchPercent` without a clutch. `kd` and `hsPercent` are the exception: they are
 numbers, `0.0` for a player without a stored row (and `hsPercent` for one without a kill), so a consumer that has to tell
-"no data" from "zero" tests `matches > 0`. A player the database does not know has `matches: 0`, `kd` and `hsPercent`
-`0.0` and all the other figures `null`.
+"no data" from "zero" tests `matches > 0`. A player the database does not know has `matches`, `analyzedMatches`,
+`clutchAttempts` and `clutchWins` at `0`, `kd` and `hsPercent` at `0.0`, and the other figures `null`.
 
 ### Retention
 
