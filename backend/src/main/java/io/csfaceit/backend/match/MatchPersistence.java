@@ -58,6 +58,10 @@ public class MatchPersistence {
     /**
      * Writes one {@code player_match_stats} row per player of an already stored match, creating the players that
      * are not stored yet. The elo and level of a known player stay as they are; kast and rating are not set.
+     *
+     * <p>FACEIT's numbers do not replace those of a row the analysis of a demo has filled in ({@code rounds_played} is
+     * set): kills, deaths, assists, headshots and adr then stay as they are, so that every figure of the row comes from
+     * the same facts. Whether the player's team won the match is always FACEIT's answer, which is the official one.
      */
     @Transactional
     public void storeStats(String matchId, MatchStatsResponse stats) {
@@ -65,20 +69,23 @@ public class MatchPersistence {
                 .orElseThrow(() -> new IllegalStateException("Match " + matchId + " is not stored"));
         for (TeamStatsResponse team : stats.teams()) {
             for (PlayerStatsResponse playerStats : team.players()) {
-                storePlayerStats(match, playerStats);
+                storePlayerStats(match, playerStats, team.win());
             }
         }
     }
 
-    private void storePlayerStats(Match match, PlayerStatsResponse stats) {
+    private void storePlayerStats(Match match, PlayerStatsResponse stats, boolean won) {
         Player player = players.ensurePlayer(stats.playerId(), stats.nickname());
         PlayerMatchStats row = playerMatchStats.findByPlayerIdAndMatchId(player.getId(), match.getId())
                 .orElseGet(() -> new PlayerMatchStats(player, match));
-        row.setKills(stats.kills());
-        row.setDeaths(stats.deaths());
-        row.setAssists(stats.assists());
-        row.setHeadshots(stats.headshots());
-        row.setAdr(BigDecimal.valueOf(stats.adr()).setScale(2, RoundingMode.HALF_UP));
+        if (row.getRoundsPlayed() == null) {
+            row.setKills(stats.kills());
+            row.setDeaths(stats.deaths());
+            row.setAssists(stats.assists());
+            row.setHeadshots(stats.headshots());
+            row.setAdr(BigDecimal.valueOf(stats.adr()).setScale(2, RoundingMode.HALF_UP));
+        }
+        row.setWon(won);
         playerMatchStats.save(row);
     }
 }

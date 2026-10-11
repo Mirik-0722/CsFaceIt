@@ -11,6 +11,7 @@ import io.csfaceit.backend.match.MatchService;
 import io.csfaceit.backend.messaging.DemoImportWorker;
 import io.csfaceit.backend.messaging.DemoMessages;
 import io.csfaceit.backend.messaging.DemoMessages.DemoImportRequested;
+import io.csfaceit.backend.messaging.DemoMessages.DemoParsed;
 import io.csfaceit.backend.messaging.DemoMetrics;
 import io.csfaceit.backend.messaging.DemoStoredPublisher;
 import io.csfaceit.backend.storage.StorageService;
@@ -28,7 +29,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /**
- * Starts and reports the import of a match's demo, and takes a demo that is uploaded by hand. Like
+ * Starts and reports the import of a match's demo, takes a demo that is uploaded by hand and asks for the analysis
+ * of a parsed demo to be done again. Like
  * {@link MatchService} it opens no transaction itself: FACEIT and the storage are called with none open, the database
  * writes are the transactions of {@link DemoPersistence}, and the RabbitMQ message goes out only after they have
  * committed. Before a demo can be queued for parsing, the SteamIDs of the match's roster are stored
@@ -39,6 +41,7 @@ public class DemoService {
 
     private static final String DEMO_NOT_FOUND = "DEMO_NOT_FOUND";
     private static final String DEMO_URL_UNAVAILABLE = "DEMO_URL_UNAVAILABLE";
+    private static final String DEMO_NOT_PARSED = "DEMO_NOT_PARSED";
 
     private static final Logger log = LoggerFactory.getLogger(DemoService.class);
 
@@ -135,6 +138,30 @@ public class DemoService {
                 () -> persistence.restore(matchRowId, storageKey));
         log.info("Stored the uploaded demo {} of match {} as {}", demo.getId(), faceitMatchId, storageKey);
         storedPublisher.publish(demo.getId(), faceitMatchId, storageKey);
+        return toResponse(faceitMatchId, demo);
+    }
+
+    /**
+     * Asks for the analysis of the match's parsed demo to be done again, by announcing the demo on {@code demo.parsed}
+     * as the parser does when it has parsed it. The facts the parser wrote are in the database, so neither the demo
+     * file nor FACEIT is needed, and nothing is written here: the listener analyzes the demo, and the answer is the
+     * demo as it is now, so a PARSED demo (the analysis failed, or has not been done yet) is still PARSED in it.
+     * Repeating the request is harmless, the analysis is idempotent.
+     *
+     * @throws NotFoundException {@code DEMO_NOT_FOUND}: the match has no demo
+     * @throws ConflictException {@code DEMO_NOT_PARSED}: the demo is not PARSED or ANALYZED, so there are no facts to
+     *         analyze (yet, or any more)
+     */
+    public DemoResponse requestAnalysis(String faceitMatchId) {
+        Demo demo = demos.findByMatchFaceitMatchId(faceitMatchId)
+                .orElseThrow(() -> new NotFoundException(DEMO_NOT_FOUND, "Demo not found for match: " + faceitMatchId));
+        if (demo.getStatus() != DemoStatus.PARSED && demo.getStatus() != DemoStatus.ANALYZED) {
+            throw new ConflictException(DEMO_NOT_PARSED,
+                    "The demo of match " + faceitMatchId + " is " + demo.getStatus() + ", not parsed");
+        }
+        amqp.convertAndSend(DemoMessages.EXCHANGE, DemoMessages.Q_PARSED, new DemoParsed(demo.getId(), faceitMatchId));
+        log.info("Announced demo {} of match {} on {} to have it analyzed again", demo.getId(), faceitMatchId,
+                DemoMessages.Q_PARSED);
         return toResponse(faceitMatchId, demo);
     }
 

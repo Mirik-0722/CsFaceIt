@@ -62,6 +62,18 @@ public class DemoController {
         }
     }
 
+    /**
+     * Has the parsed demo of the match analyzed again, from the facts that are in the database. Needs the
+     * {@code X-API-Key} header like every POST. The answer is 202 with the demo as it is now; the analysis runs in the
+     * background, so poll {@code GET .../demo} for the result.
+     */
+    @PostMapping("/{matchId}/demo/analyze")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public DemoResponse requestAnalysis(
+            @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId) {
+        return service.requestAnalysis(matchId);
+    }
+
     @GetMapping("/{matchId}/demo")
     public DemoResponse get(
             @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId) {

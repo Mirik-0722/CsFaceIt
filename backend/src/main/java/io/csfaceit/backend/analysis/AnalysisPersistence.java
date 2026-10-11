@@ -1,0 +1,126 @@
+package io.csfaceit.backend.analysis;
+
+import io.csfaceit.backend.analysis.stats.PlayerMatchStatsValues;
+import io.csfaceit.backend.demo.Demo;
+import io.csfaceit.backend.demo.DemoRepository;
+import io.csfaceit.backend.demo.DemoStatus;
+import io.csfaceit.backend.match.Match;
+import io.csfaceit.backend.match.MatchRepository;
+import io.csfaceit.backend.match.PlayerMatchStats;
+import io.csfaceit.backend.match.PlayerMatchStatsRepository;
+import io.csfaceit.backend.player.PlayerRepository;
+import java.time.Instant;
+import java.util.Map;
+import java.util.Optional;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * The database side of {@link AnalysisService}. It is a bean of its own so that the transaction proxy applies: the
+ * service loads and computes with no transaction open and calls in here twice, once to take over the demo and once to
+ * store the result.
+ *
+ * <p>The status of a demo is changed only under its row lock, here as everywhere. The result is stored only if the
+ * demo is still where the analysis found it: a demo that was uploaded again or parsed again meanwhile has a different
+ * {@code updated_at} (the parser and a manual upload both refresh it), and the old result must not be written over
+ * its new facts.
+ */
+@Component
+public class AnalysisPersistence {
+
+    /** The ticks per second of a demo whose parser could not tell; the parser itself falls back on the same value. */
+    static final int DEFAULT_TICK_RATE = 64;
+
+    /** The demo an analysis has taken over, as it was when it was read: {@code updatedAt} is its version. */
+    public record Claim(long demoId, long matchRowId, String faceitMatchId, int tickRate, Instant updatedAt) {
+    }
+
+    private final DemoRepository demos;
+    private final MatchRepository matches;
+    private final PlayerRepository players;
+    private final PlayerMatchStatsRepository stats;
+
+    public AnalysisPersistence(DemoRepository demos, MatchRepository matches, PlayerRepository players,
+                               PlayerMatchStatsRepository stats) {
+        this.demos = demos;
+        this.matches = matches;
+        this.players = players;
+        this.stats = stats;
+    }
+
+    /**
+     * Reads the demo that is to be analyzed. Nothing is locked or written.
+     *
+     * @return empty when there is no such demo or it is neither PARSED (analyze it) nor ANALYZED (analyze it again);
+     *         any other status means the facts are not there yet, or not there any more
+     */
+    @Transactional(readOnly = true)
+    public Optional<Claim> claim(long demoId) {
+        return demos.findById(demoId)
+                .filter(demo -> isAnalyzable(demo.getStatus()))
+                .map(demo -> new Claim(demoId, demo.getMatch().getId(), demo.getMatch().getFaceitMatchId(),
+                        tickRateOf(demo), demo.getUpdatedAt()));
+    }
+
+    /**
+     * Writes the statistics of the match and moves a PARSED demo to ANALYZED (which clears an error left by an
+     * analysis that failed), in one transaction under the row lock of the demo.
+     *
+     * <p>Nothing is written when the demo is no longer PARSED or ANALYZED, or its {@code updated_at} is not the one
+     * the claim saw: the demo was uploaded or parsed again while it was analyzed, and the new upload announces itself.
+     *
+     * <p>All rows of the match first lose what an earlier analysis put in them ({@code rounds_played}, {@code kast}
+     * and the entry, trade and clutch counts), so that a player this analysis does not mention does not look analyzed.
+     * Then every player of {@code values} gets his row (created when the match has none) with all of his statistics.
+     * {@code won} is written only into a row that has none: FACEIT's own result is the official one and replaces it
+     * whenever the match statistics are fetched (see {@code MatchPersistence}).
+     *
+     * @return false when nothing was written
+     */
+    @Transactional
+    public boolean store(Claim claim, Map<Long, PlayerMatchStatsValues> values) {
+        Demo demo = demos.findByIdForUpdate(claim.demoId()).orElse(null);
+        if (demo == null || !isAnalyzable(demo.getStatus()) || !claim.updatedAt().equals(demo.getUpdatedAt())) {
+            return false;
+        }
+        stats.clearAnalysis(claim.matchRowId());
+        Match match = matches.getReferenceById(claim.matchRowId());
+        for (Map.Entry<Long, PlayerMatchStatsValues> entry : values.entrySet()) {
+            write(match, claim.matchRowId(), entry.getKey(), entry.getValue());
+        }
+        if (demo.getStatus() == DemoStatus.PARSED) {
+            demo.transitionTo(DemoStatus.ANALYZED);
+            demos.saveAndFlush(demo);
+        }
+        return true;
+    }
+
+    private void write(Match match, long matchRowId, long playerId, PlayerMatchStatsValues values) {
+        PlayerMatchStats row = stats.findByPlayerIdAndMatchId(playerId, matchRowId)
+                .orElseGet(() -> new PlayerMatchStats(players.getReferenceById(playerId), match));
+        row.setKills(values.kills());
+        row.setDeaths(values.deaths());
+        row.setAssists(values.assists());
+        row.setHeadshots(values.headshots());
+        row.setAdr(values.adr());
+        row.setRoundsPlayed(values.roundsPlayed());
+        row.setKast(values.kast());
+        row.setEntryKills(values.entryKills());
+        row.setTradeKills(values.tradeKills());
+        row.setClutchAttempts(values.clutchAttempts());
+        row.setClutchWins(values.clutchWins());
+        if (row.getWon() == null) {
+            row.setWon(values.won());
+        }
+        stats.save(row);
+    }
+
+    private static boolean isAnalyzable(DemoStatus status) {
+        return status == DemoStatus.PARSED || status == DemoStatus.ANALYZED;
+    }
+
+    private static int tickRateOf(Demo demo) {
+        Integer tickRate = demo.getTickRate();
+        return tickRate != null && tickRate > 0 ? tickRate : DEFAULT_TICK_RATE;
+    }
+}

@@ -4,7 +4,7 @@ A web app for looking up Counter-Strike 2 players on [FACEIT](https://www.faceit
 see the profile and the recent match history, and open a match to read the per-team stats tables (kills, deaths,
 assists, headshots, K/D, K/R, ADR). Behind that sits a demo pipeline: the demo (`.dem`) of a match is downloaded or
 uploaded, stored, and parsed by a Rust worker into rounds, the players of every round, kills, damages and position
-heat bins, which later sub-projects turn into highlights and statistics.
+heat bins, from which the backend computes the statistics of every player of the match.
 
 ```
 Browser --> Nginx (frontend container) --/api/--> Spring Boot backend --> FACEIT Data API v4
@@ -19,7 +19,8 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
 ```
 
 - `backend/` - Spring Boot 3.5 (Java 21): REST API, FACEIT client with retries and timeouts, Redis cache, PostgreSQL
-  persistence (Flyway migrations), the demo import worker and the RabbitMQ listeners, Actuator and Prometheus metrics.
+  persistence (Flyway migrations), the demo import worker, the analysis of parsed demos and the RabbitMQ listeners,
+  Actuator and Prometheus metrics.
 - `parser/` - the Rust worker that parses stored demos ([`parser/README.md`](parser/README.md)).
 - `frontend/` - React + TypeScript single-page app built with Vite. In production Nginx serves it and proxies `/api/`
   to the backend. Its look follows the "A · REC" design: colours, type, components and screens are specified in
@@ -166,7 +167,7 @@ cd frontend && SHOTS=1 npx playwright test e2e/shots.spec.ts
 
 Base URL: <http://localhost:3000> with Docker Compose, <http://localhost:8080> in dev mode. Everything returns JSON,
 and errors have the shape `{"code": "...", "message": "..."}`. The player and match endpoints below are `GET` and open;
-the three [demo endpoints](#demo-pipeline) are described in their own section, and the two that change something
+the four [demo endpoints](#demo-pipeline) are described in their own section, and the three that change something
 (`POST`) need the `X-API-Key` header.
 
 | Endpoint | Description |
@@ -192,7 +193,7 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 400 | `VALIDATION_ERROR` | A nickname, id or paging parameter is malformed; for the upload also a bad file name, an empty or corrupt file, or a multipart body that is malformed or was cut off. |
 | 401 | `UNAUTHORIZED` | A protected request is missing a valid `X-API-Key` header. |
 | 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND`, `DEMO_NOT_FOUND` | FACEIT does not know the player or match, or the match has no demo record yet. |
-| 409 | `DEMO_URL_UNAVAILABLE` | A demo import was requested but FACEIT has no demo for the match (yet). |
+| 409 | `DEMO_URL_UNAVAILABLE`, `DEMO_NOT_PARSED` | A demo import was requested but FACEIT has no demo for the match (yet); or an analysis was requested but the demo is not `PARSED` or `ANALYZED`. |
 | 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip file expands beyond it). |
 | 502 | `FACEIT_UNAVAILABLE` | FACEIT failed or timed out after retries, or refused the request (for example a rejected `FACEIT_API_KEY`, which is not retried), and no cached copy exists. |
 
@@ -214,7 +215,7 @@ POST .../demo/import  (or .../demo/upload with a file)
   -> backend import worker: download from FACEIT, compress to zstd, store in MinIO  -> STORED -> demo.parse
   -> Rust parser: read from MinIO, parse, write rounds / round_players / kills / damages / heat_bins
      -> PARSED -> demo.parsed
-  -> backend listener: logs and counts the message (the analysis of a later sub-project moves PARSED to ANALYZED)
+  -> backend listener: analyze the facts into the statistics of every player -> ANALYZED  (see "Analysis")
 ```
 
 The status of a demo is one of:
@@ -223,12 +224,13 @@ The status of a demo is one of:
 | --- | --- |
 | `QUEUED` | The import is requested and waits for (or is in) the download. |
 | `STORED` | The file is in storage (always as `demos/<matchId>.dem.zst`) and waits for the parser. |
-| `PARSED` | The parser has written the facts of the demo to the database. |
-| `ANALYZED` | Reserved for the analysis of a later sub-project; nothing sets it yet. |
+| `PARSED` | The parser has written the facts of the demo to the database; the analysis is next. It is also the status of a demo whose analysis failed, then `error` says so (see [Analysis](#analysis)). |
+| `ANALYZED` | The facts have been analyzed and the statistics of the players are stored. |
 | `FAILED` | Something went wrong; `error` says what, in one sentence. Importing or uploading again starts over. |
 
 The allowed moves are `QUEUED` -> `STORED` -> `PARSED` -> `ANALYZED`, any status -> `FAILED`, `FAILED` -> `QUEUED`
 (import again), and, for a manual upload, any status -> `STORED` (a `PARSED` or `ANALYZED` demo is then parsed again).
+An analysis that fails is not a move: the demo stays `PARSED` or `ANALYZED` (see [Analysis](#analysis)).
 A message that arrives late or twice never undoes progress: delivery is at least once, so every worker checks the
 status first. A message that fails in a backend listener (`demo.import`, `demo.parsed`) is tried three times, one
 second apart and then two, and then sent to the dead-letter queue `demo.dlq`.
@@ -236,13 +238,15 @@ The parser does not retry a demo it cannot parse: it records `FAILED` itself and
 first failure, which dead-letters it too (a storage or database outage is waited out instead: the message goes back to
 the queue and nothing is dead-lettered).
 The backend marks a dead-lettered demo `FAILED` only if it is still in the status that queue's work starts from
-(`QUEUED` for `demo.import`, `STORED` for `demo.parse`, `PARSED` for `demo.parsed`), so a stale or made-up dead letter
-never undoes progress; a demo the parser has already marked `FAILED` is left as it is, and counted.
+(`QUEUED` for `demo.import`, `STORED` for `demo.parse`), so a stale or made-up dead letter never undoes progress; a
+demo the parser has already marked `FAILED` is left as it is, and counted. A dead letter from `demo.parsed` is an
+analysis that failed three times: it never marks the demo `FAILED`, because the parsed facts are intact (see
+[Analysis](#analysis)).
 
 ### Endpoints
 
-All three are under `/api/v1/matches/{matchId}`, where `matchId` is the FACEIT match id (letters, digits and `-`, at
-most 64 characters). The two `POST` endpoints need the admin key in the `X-API-Key` header (`APP_API_KEY`; in the
+All four are under `/api/v1/matches/{matchId}`, where `matchId` is the FACEIT match id (letters, digits and `-`, at
+most 64 characters). The three `POST` endpoints need the admin key in the `X-API-Key` header (`APP_API_KEY`; in the
 [fake-FACEIT mode](#running-without-a-faceit-key) it is `dev-admin-key`). The examples use the Compose address and the
 fake main match.
 
@@ -277,6 +281,17 @@ and the SteamIDs of its roster are loaded before anything else, because the pars
 so an upload for a match FACEIT does not know is a `404 MATCH_NOT_FOUND`. The upload replaces only the download of the
 demo file. Through Nginx an upload may be up to 1 GB (see `DEMO_UPLOAD_MAX_SIZE`).
 
+Have a parsed demo analyzed again (see [Analysis](#analysis)). The answer is `202` with the demo as it is now, before the
+analysis has run: it needs neither FACEIT nor the demo file, only the parsed facts, so it also works after the retention
+job has removed the file. `404 DEMO_NOT_FOUND` when the match has no demo, `409 DEMO_NOT_PARSED` when the demo is not
+`PARSED` or `ANALYZED`. Repeating the request is safe:
+
+```bash
+curl -X POST -H 'X-API-Key: dev-admin-key' \
+  http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/demo/analyze
+# {"demoId":1,"matchId":"...","status":"PARSED","error":null,"updatedAt":"..."}   (read GET .../demo for the result)
+```
+
 ### Try it without a FACEIT key
 
 With the [fake FACEIT](dev/fake-faceit/README.md) the main match's demo URL serves a 1 KiB placeholder that is not a real
@@ -303,6 +318,64 @@ stack the parser never writes to a database that lacks them (when you upgrade a 
 first). A demo parsed before `V3` stays without them: import or upload it again, and the new parse replaces the old
 one.
 
+### Analysis
+
+When the parser announces a demo on `demo.parsed`, the backend analyzes it: it reads the facts of the match from the
+database, computes the statistics of every player who played a round, writes them to `player_match_stats` (one row per
+player and match) and moves the demo to `ANALYZED`. The analysis needs neither the demo file nor FACEIT, only the facts,
+and it is idempotent: the same facts give the same rows, so it can be repeated at any time with
+`POST .../demo/analyze` (see [Endpoints](#endpoints)) and a `demo.parsed` that arrives twice does no harm. A demo that
+was uploaded or parsed again while it was being analyzed is not overwritten with the old result: the new upload
+announces itself.
+
+Who played a round, and on which side, is the roster of the round: its `round_players` rows, plus the players that the
+kill events of the round name with their side and the roster does not list. Where the two disagree the roster wins. A
+player who is not in the roster did not play the round, and a round counts for a player only if he is in it. (A demo
+parsed before `V3` has no roster rows, so only the players its kill events name are found: import or upload such a
+demo again before relying on its numbers.) Two players of one round on different sides are enemies; players on the same
+side are teammates.
+
+What is computed for each player of the match:
+
+| Column of `player_match_stats` | Meaning |
+| --- | --- |
+| `kills`, `headshots` | Kills of an enemy, and the headshots among them. A kill counts only if the killer is a player other than the victim who played the round on the other side than the victim: a team kill, a kill of oneself and a death by the world or the bomb are not kills. |
+| `deaths` | Every kill row the player is the victim of, whoever caused the death. |
+| `assists` | The kill rows the player is named as the assister of, whose victim was his enemy. |
+| `rounds_played` | The number of rounds the player is in the roster of. A row whose `rounds_played` is set was analyzed from the current facts of the demo. Without it the row holds FACEIT's numbers, or the numbers of an earlier analysis that did not mention the player (a new parse can have a different roster). |
+| `adr` | The damage the player did to enemies per round played, with two decimals. Within a round every player starts with 100 health and the hits are taken in the order they happened. A hit takes no more than the health its victim had left, whoever dealt it (an AWP headshot of over 400 is 100 at most, and damage a teammate or the world did earlier is health the victim no longer has), and only what was taken from an enemy is the attacker's damage. |
+| `won` | Whether the player's team won the match. The team that wins the last round of the demo has won the match, so this is the side of the player in the last round compared with the winner of that round; it stays empty for a player who is not in the roster of the last round and when the round has no known winner. It is written only into a row that has no result yet: FACEIT's own result, stored whenever `GET /api/v1/matches/{matchId}/stats` is called, is the official one and replaces it. |
+
+`kast`, `entry_kills`, `trade_kills`, `clutch_attempts` and `clutch_wins` are cleared by every analysis and stay empty
+(`NULL`, not 0) until the steps of the analysis that compute them are added. Calling `GET /api/v1/matches/{matchId}/stats`
+does not disturb an analyzed row: FACEIT's kills, deaths, assists, headshots and ADR are written only into a row that was
+not analyzed from a demo, so every number of an analyzed row comes from the same facts. The demo's players are not
+necessarily FACEIT's: a SteamID that no roster knows is stored as a placeholder player `steam:<SteamID>`, so a match
+can have both analyzed rows (placeholders) and FACEIT rows.
+
+The thresholds of the analysis are the `analysis` block of `backend/src/main/resources/application.yml`. They are
+validated when the backend starts (all must be positive) and are meant to be changed there, not in `.env`; Spring's
+relaxed binding does accept environment variables such as `ANALYSIS_TRADE_WINDOW_SECONDS` on the backend container.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `analysis.clip.pre-seconds` | 3 | How many seconds a highlight clip starts before the first tick of its highlight. |
+| `analysis.clip.post-seconds` | 2 | How many seconds it ends after the last tick. |
+| `analysis.trade-window-seconds` | 5 | How soon after a teammate's death the killer has to be killed for that kill to be a trade. |
+| `analysis.ninja.defuse-seconds` | 10 | How long a defuse takes in the rules of the ninja defuse highlight. |
+
+The statistics of this step do not depend on these values; the rules that use them are added to the analysis step by
+step, and the settings are bound and validated from now on.
+
+**When the analysis fails.** The backend tries the `demo.parsed` message three times (the database being unavailable,
+say) and then gives up. The demo is not marked `FAILED`, because the facts the parser wrote are intact and a re-upload
+would be wasted work (and impossible once the retention job has removed the file). A `PARSED` demo stays `PARSED` and its
+`error` becomes `Analyzing the demo failed after 3 attempts. The parsed data is kept; start the analysis again.`. Start
+the analysis again with `POST .../demo/analyze`: a successful analysis moves the demo to `ANALYZED` and clears the error,
+and uploading the file again clears it too. An `ANALYZED` demo whose repeated analysis fails is not changed at all: it
+keeps the statistics of the earlier analysis, and the failure shows only as an `ERROR` line in the backend log. In both
+cases `demo_pipeline_failed_total{stage="analyze"}` counts the failed analysis.
+
 ### Retention
 
 A job removes the stored demo files that are older than `DEMO_RETENTION_DAYS` (default 30) once a day at 04:00 server
@@ -317,8 +390,9 @@ The backend exports Micrometer metrics at `/actuator/prometheus`, among them the
 | Metric (Prometheus name) | Meaning |
 | --- | --- |
 | `demo_pipeline_stage_duration_seconds_count`, `_sum`, `_max` (`stage="import"`) | How long an import took, from taking over the message to the announcement on `demo.parse`, failed imports included. |
-| `demo_pipeline_failed_total` (`stage` = `import`, `parse` or `analyze`) | Demos that went to `FAILED`, each counted once, in the stage it failed in. `import`: a rejected download, a dead letter from `demo.import`, and a demo whose `demo.import` or `demo.parse` message could not be published because the broker was unavailable. `parse`: the parser's own failures (it records `FAILED` and rejects the message; the backend counts the rejection when it reads the dead letter) and a dead letter from `demo.parse` for a demo that was still `STORED`. `analyze`: a dead letter from `demo.parsed`. A demo set to `FAILED` by hand in the database is not counted. |
-| `demo_pipeline_parsed_total` | `demo.parsed` messages received for a `PARSED` demo (also counted: a message whose demo could not be looked up because the database was unavailable at that moment, which is logged as a warning and acknowledged). |
+| `demo_pipeline_stage_duration_seconds_count`, `_sum`, `_max` (`stage="analyze"`) | How long one handling of a `demo.parsed` message took, the analysis of the demo from reading its facts to storing the statistics; an attempt that failed and a message that found nothing to analyze are included. |
+| `demo_pipeline_failed_total` (`stage` = `import`, `parse` or `analyze`) | Failures, each counted once, in the stage it failed in. `import`: a rejected download, a dead letter from `demo.import`, and a demo whose `demo.import` or `demo.parse` message could not be published because the broker was unavailable. `parse`: the parser's own failures (it records `FAILED` and rejects the message; the backend counts the rejection when it reads the dead letter) and a dead letter from `demo.parse` for a demo that was still `STORED`. These demos went to `FAILED`. `analyze`: an analysis that failed three times (a dead letter from `demo.parsed`) for a demo that is `PARSED` or `ANALYZED`; the demo does not go to `FAILED` (see [Analysis](#analysis)). A demo set to `FAILED` by hand in the database is not counted. |
+| `demo_pipeline_parsed_total` | `demo.parsed` messages handled by the backend, each time the listener handles one: a message whose analysis fails is tried three times and counts three times. It also counts messages for a demo that is not there or is no longer `PARSED`, which the analysis skips. |
 
 The meters live in the backend's memory and start from 0 after a restart; `rate()` and `increase()` in Prometheus
 allow for that.

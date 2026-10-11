@@ -18,11 +18,18 @@ import org.springframework.stereotype.Component;
  * Turns a dead-lettered message into a FAILED demo, but only a demo that is where the message left it. Messages of all
  * three queues end up in {@code demo.dlq} and all of them carry a {@code demoId}, so the body is read as plain JSON and
  * no message type is assumed. What the message may do depends on the queue it was dead-lettered from: one from
- * {@code demo.import} fails a QUEUED demo, one from {@code demo.parse} a STORED demo and one from {@code demo.parsed}
- * a PARSED demo, and no other. A demo that has moved on since (parsed, uploaded again, failed with a more specific
- * error of its own) is not undone by a message that is late, repeated or made up. A message whose origin cannot be
- * told is logged at WARN and changes nothing. The check and the update happen in one transaction under the row lock
- * ({@link DemoPersistence#failIfStatus}).
+ * {@code demo.import} fails a QUEUED demo and one from {@code demo.parse} a STORED demo, and no other. A demo that has
+ * moved on since (parsed, uploaded again, failed with a more specific error of its own) is not undone by a message
+ * that is late, repeated or made up. A message whose origin cannot be told is logged at WARN and changes nothing. The
+ * check and the update happen in one transaction under the row lock ({@link DemoPersistence#failIfStatus}).
+ *
+ * <p>A message from {@code demo.parsed} is an analysis that failed three times, and it never fails the demo: the
+ * parser's facts are intact, so a PARSED demo stays PARSED and gets the sentence {@link #ANALYSIS_FAILED} as its
+ * error, from which an analysis that is started again (or a new upload) frees it
+ * ({@link DemoPersistence#noteAnalysisFailure}). An ANALYZED demo whose repeated analysis failed keeps the statistics
+ * of the earlier one and is not touched; the failure is only logged at ERROR. In both cases it is counted in
+ * {@code demo.pipeline.failed} as stage {@code analyze}. A demo in any other status has moved on, and the message
+ * changes and counts nothing.
  *
  * <p>One failure reaches this queue after the demo is already FAILED: the Rust parser records a failed parse itself
  * and then rejects the {@code demo.parse} message without requeue, so the broker dead-letters it. Such a demo is FAILED
@@ -60,16 +67,21 @@ public class DemoDlqListener {
     /** The {@code x-death} reason of a message that its consumer rejected without requeue. */
     private static final String REASON_REJECTED = "rejected";
 
-    /** The status a demo must have for a dead letter from the queue to fail it: where the queue's work starts. */
+    /**
+     * The status a demo must have for a dead letter from the queue to fail it: where the queue's work starts. Not
+     * {@code demo.parsed}: its dead letters never fail a demo (see {@link #onAnalysisDeadLetter}).
+     */
     private static final Map<String, DemoStatus> EXPECTED_STATUS = Map.of(
             DemoMessages.Q_IMPORT, DemoStatus.QUEUED,
-            DemoMessages.Q_PARSE, DemoStatus.STORED,
-            DemoMessages.Q_PARSED, DemoStatus.PARSED);
+            DemoMessages.Q_PARSE, DemoStatus.STORED);
 
     private static final Map<String, String> ERROR_BY_QUEUE = Map.of(
             DemoMessages.Q_IMPORT, "Importing the demo failed after " + RabbitConfig.MAX_ATTEMPTS + " attempts",
-            DemoMessages.Q_PARSE, "Parsing the demo failed after " + RabbitConfig.MAX_ATTEMPTS + " attempts",
-            DemoMessages.Q_PARSED, "Analyzing the demo failed after " + RabbitConfig.MAX_ATTEMPTS + " attempts");
+            DemoMessages.Q_PARSE, "Parsing the demo failed after " + RabbitConfig.MAX_ATTEMPTS + " attempts");
+
+    /** What {@code demos.error} says of a PARSED demo whose analysis failed for good. */
+    static final String ANALYSIS_FAILED = "Analyzing the demo failed after " + RabbitConfig.MAX_ATTEMPTS
+            + " attempts. The parsed data is kept; start the analysis again.";
 
     private final DemoPersistence persistence;
     private final ObjectMapper mapper;
@@ -89,13 +101,17 @@ public class DemoDlqListener {
             log.warn("Dropping a dead-lettered message from {} that has no readable demoId", queue);
             return;
         }
+        String cause = header(message, RepublishMessageRecoverer.X_EXCEPTION_MESSAGE);
+        if (DemoMessages.Q_PARSED.equals(queue)) {
+            onAnalysisDeadLetter(demoId, cause);
+            return;
+        }
         DemoStatus expected = queue == null ? null : EXPECTED_STATUS.get(queue);
         if (expected == null) {
             log.warn("Leaving demo {} untouched: a dead-lettered message names it, but the queue it came from ({}) "
                     + "cannot be told", demoId, queue);
             return;
         }
-        String cause = header(message, RepublishMessageRecoverer.X_EXCEPTION_MESSAGE);
         if (persistence.failIfStatus(demoId, expected, ERROR_BY_QUEUE.get(queue))) {
             // The demo is FAILED and committed. Nothing that can throw may follow: a retry of this message would find
             // the demo FAILED and could count it a second time in the branch below.
@@ -108,6 +124,30 @@ public class DemoDlqListener {
         } else {
             log.info("Dead-lettered message from {} for demo {}: the demo is unknown or no longer {}, left as it is",
                     queue, demoId, expected);
+        }
+    }
+
+    /**
+     * A {@code demo.parsed} message that could not be processed: the analysis of the demo failed three times. The demo
+     * is not FAILED, its facts are fine. A PARSED demo gets {@link #ANALYSIS_FAILED} as its error and stays PARSED. An
+     * ANALYZED demo (an analysis that was started again failed) keeps the results of its earlier analysis, so only the
+     * log and the counter tell. Either is one failed analysis in {@code demo.pipeline.failed}, stage {@code analyze}.
+     * For any other demo, or none, the message is late or made up and nothing happens.
+     */
+    private void onAnalysisDeadLetter(long demoId, String cause) {
+        if (persistence.noteAnalysisFailure(demoId, ANALYSIS_FAILED)) {
+            // The error is committed. Nothing that can throw may follow: a retry of this message would note the
+            // error again and count the failure a second time.
+            metrics.failed(DemoMetrics.STAGE_ANALYZE);
+            log.warn("The analysis of demo {} failed for good ({}); the demo stays PARSED with the error noted, and "
+                    + "the analysis can be started again", demoId, cause);
+        } else if (persistence.findStatus(demoId).filter(status -> status == DemoStatus.ANALYZED).isPresent()) {
+            metrics.failed(DemoMetrics.STAGE_ANALYZE);
+            log.error("Analyzing demo {} again failed for good ({}); the demo stays ANALYZED with the results of the "
+                    + "earlier analysis", demoId, cause);
+        } else {
+            log.info("Dead-lettered message from {} for demo {}: the demo is unknown or neither PARSED nor ANALYZED, "
+                    + "left as it is", DemoMessages.Q_PARSED, demoId);
         }
     }
 

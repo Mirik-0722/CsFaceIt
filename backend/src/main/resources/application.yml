@@ -75,3 +75,17 @@ demo:
   # normally left alone.
   retention-days: ${DEMO_RETENTION_DAYS:30}
   retention-cron: ${DEMO_RETENTION_CRON:0 0 4 * * *}
+# The thresholds of the analysis of a parsed demo (analysis/AnalysisProperties). All of them are positive numbers of
+# seconds, checked when the backend starts. They are plain values, not ${VARIABLE:default} placeholders and not part of
+# .env: a change here is a change of the rules (an environment variable such as ANALYSIS_TRADE_WINDOW_SECONDS still
+# overrides one, by Spring's relaxed binding).
+analysis:
+  # A highlight clip starts this long before the first tick of the highlight and ends this long after the last one.
+  clip:
+    pre-seconds: 3
+    post-seconds: 2
+  # A kill is a trade when the killer's teammate was killed this recently (and the kill is of the teammate's killer).
+  trade-window-seconds: 5
+  # How long a defuse takes in the rules of the ninja defuse highlight.
+  ninja:
+    defuse-seconds: 10

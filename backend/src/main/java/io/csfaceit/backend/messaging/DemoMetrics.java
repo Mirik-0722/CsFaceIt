@@ -30,7 +30,10 @@ public class DemoMetrics {
      */
     public static final String STAGE_PARSE = "parse";
 
-    /** Working on a parsed demo (the analysis of a later sub-project). */
+    /**
+     * Analyzing a parsed demo (the backend's analysis of the facts the parser wrote). A demo does not go to FAILED in
+     * this stage: an analysis that fails for good is counted here, but the demo keeps its facts and its status.
+     */
     public static final String STAGE_ANALYZE = "analyze";
 
     private static final String STAGE_TAG = "stage";
@@ -42,6 +45,7 @@ public class DemoMetrics {
 
     private final MeterRegistry registry;
     private final Timer importDuration;
+    private final Timer analyzeDuration;
     private final Counter parsed;
 
     public DemoMetrics(MeterRegistry registry) {
@@ -49,6 +53,10 @@ public class DemoMetrics {
         this.importDuration = Timer.builder("demo.pipeline.stage.duration")
                 .description("How long a stage of the demo pipeline took for one demo")
                 .tag(STAGE_TAG, STAGE_IMPORT)
+                .register(registry);
+        this.analyzeDuration = Timer.builder("demo.pipeline.stage.duration")
+                .description("How long a stage of the demo pipeline took for one demo")
+                .tag(STAGE_TAG, STAGE_ANALYZE)
                 .register(registry);
         this.parsed = Counter.builder("demo.pipeline.parsed")
                 .description("Demos announced as parsed on demo.parsed")
@@ -68,7 +76,20 @@ public class DemoMetrics {
         sample.stop(importDuration);
     }
 
-    /** Counts a demo that went to FAILED in {@code stage}; every such transition is counted once. */
+    /** Starts timing an analysis; hand the result to {@link #analyzeFinished}. */
+    public Timer.Sample startAnalyze() {
+        return Timer.start(registry);
+    }
+
+    /** Records the duration of an analysis, whether it succeeded or not. */
+    public void analyzeFinished(Timer.Sample sample) {
+        sample.stop(analyzeDuration);
+    }
+
+    /**
+     * Counts a demo that went to FAILED in {@code stage}; every such transition is counted once. The one stage where
+     * a failure does not end in FAILED is {@link #STAGE_ANALYZE}: there it counts an analysis that failed for good.
+     */
     public void failed(String stage) {
         failedCounter(stage).increment();
     }
@@ -81,7 +102,7 @@ public class DemoMetrics {
         return STAGE_BY_QUEUE.get(queue);
     }
 
-    /** Counts a demo that was announced as parsed and is waiting for the analysis. */
+    /** Counts a {@code demo.parsed} message received, each time the listener handles it. */
     public void parsed() {
         parsed.increment();
     }

@@ -52,6 +52,29 @@ public class PlayerMatchStats {
     @Column(name = "rating", precision = 5, scale = 2)
     private BigDecimal rating;
 
+    /**
+     * What the analysis of a demo adds to a row (see {@code analysis.AnalysisPersistence}). {@code roundsPlayed} is
+     * {@code null} for a row that was not analyzed from a demo, and then the numbers above are FACEIT's own.
+     */
+    @Column(name = "rounds_played")
+    private Integer roundsPlayed;
+
+    @Column(name = "entry_kills")
+    private Integer entryKills;
+
+    @Column(name = "trade_kills")
+    private Integer tradeKills;
+
+    @Column(name = "clutch_attempts")
+    private Integer clutchAttempts;
+
+    @Column(name = "clutch_wins")
+    private Integer clutchWins;
+
+    /** Whether the player's team won the match; {@code null} while neither FACEIT nor a demo has said. */
+    @Column(name = "won")
+    private Boolean won;
+
     protected PlayerMatchStats() {
     }
 
@@ -126,5 +149,53 @@ public class PlayerMatchStats {
 
     public void setRating(BigDecimal rating) {
         this.rating = rating;
+    }
+
+    public Integer getRoundsPlayed() {
+        return roundsPlayed;
+    }
+
+    public void setRoundsPlayed(Integer roundsPlayed) {
+        this.roundsPlayed = roundsPlayed;
+    }
+
+    public Integer getEntryKills() {
+        return entryKills;
+    }
+
+    public void setEntryKills(Integer entryKills) {
+        this.entryKills = entryKills;
+    }
+
+    public Integer getTradeKills() {
+        return tradeKills;
+    }
+
+    public void setTradeKills(Integer tradeKills) {
+        this.tradeKills = tradeKills;
+    }
+
+    public Integer getClutchAttempts() {
+        return clutchAttempts;
+    }
+
+    public void setClutchAttempts(Integer clutchAttempts) {
+        this.clutchAttempts = clutchAttempts;
+    }
+
+    public Integer getClutchWins() {
+        return clutchWins;
+    }
+
+    public void setClutchWins(Integer clutchWins) {
+        this.clutchWins = clutchWins;
+    }
+
+    public Boolean getWon() {
+        return won;
+    }
+
+    public void setWon(Boolean won) {
+        this.won = won;
     }
 }
