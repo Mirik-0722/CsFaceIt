@@ -137,7 +137,7 @@ Har quyi loyiha o'z rejasi bilan bajariladi va o'zi ishlaydigan natija beradi. 1
 | 7 | Telegram: yetkazish va bot | Hisobni bog'lash, klip tayyor → xabar + MP4, buyruqlar | 5, 6 |
 | 8 | Coin va to'lovlar | Hisob-kitob daftari, narxlar, band qilish/qaytarish, kunlik coin, karta orqali to'ldirish | 6 |
 | 9 | Match tahlilini chuqurlashtirish | Kengaytirilgan ko'rsatkichlar, match varaqlari, heatmap, 2D replay, rekordlar | 3 |
-| 10 | Klip variantlari va brending | Mijoz tanlaydigan sifat va FPS (60–600; csdemo.uz da 60 va 120), motion blur va slow-mo, watermark va o'yinchi kartasi, X-ray, enemy POV, vertikal 9:16, montaj, to'liq round | 5 |
+| 10 | Klip variantlari va brending | Har biri mijoz tanlaydigan pullik variant: sifat va FPS (60–600; csdemo.uz da 60 va 120), motion blur va slow-mo, ovoz, raqib ko'zidan ko'rsatish (ketma-ket yoki yonma-yon), skin; yana watermark va o'yinchi kartasi, X-ray, vertikal 9:16, montaj, to'liq round | 5 |
 | 11 | Ijtimoiy qism | Ommaviy klip sahifasi, Reels, like/izoh, profil, tanlov | 6, 10 |
 | 12 | Admin konsoli va ekspluatatsiya | Job va host boshqaruvi, analitika, prod deploy, monitoring | 5–8 |
 | 13+ | Keyin | Steam matchmaking sinxroni, 3D replay, skin/fun mode, turnirlar, mobil ilova, ko'p tillilik, AI ranking | — |
