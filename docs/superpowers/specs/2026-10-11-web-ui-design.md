@@ -149,7 +149,7 @@ Kirish, highlight va kliplar hali yo'q, shuning uchun D-reja faqat ishlab turgan
 - **3-reja T6:** `StatsCards` — `StatTile` ko'rinishida; `HighlightList` — highlight kartalari (rangli badge'lar o'rniga 3-bo'limdagi teglar); matnlar lug'atdan (ikki tilda).
 - **5-reja T1:** klip sahifasi uchun `ClipResponse` ga `kills` (video vaqt chizig'idagi o'rni bilan) va `expiresAt` qo'shildi.
 - **5-reja T6:** tayyor klip dialogda emas, o'z sahifasida ochiladi (`/clips/:clipId`) — havolasini ulashish mumkin bo'lishi uchun; sifat tanlovi alohida buyurtma dialogida; holatlar `StatusChip` bilan. Pleyer brauzerning o'z boshqaruvi bilan qoladi (to'liq ekran va telefon uchun), kill belgilari uning ostidagi `KillTimeline` da. Maketdagi kadr ustidagi kill feed — videoning o'zidagi tasvir, interfeys qatlami emas.
-- **Keyinga qolgani:** "Kliplar" sahifasidagi holat tablari va "Mening" filtri — 6-reja (klip egaligi bilan); kompilyatsiya panelidagi ko'p segmentli chiziq va taxminiy davomiylik — 6-reja (oldindan hisoblash endpointi bilan); Telegram belgisi — 7-reja; narx va balans — 8-reja; raundlar chizig'i, xaritalar jadvali — 9-reja.
+- **Keyinga qolgani:** "Kliplar" sahifasidagi holat tablari va "Mening" filtri — 6-reja (klip egaligi bilan); kompilyatsiya panelidagi ko'p segmentli chiziq va taxminiy davomiylik — 6-reja (oldindan hisoblash endpointi bilan); Telegram belgisi — 7-reja; narx va balans — 8-reja; raundlar chizig'i, xaritalar jadvali — 9-reja; buyurtma dialogida FPS pog'onasi (60–600) va motion blur tanlovi, har biri narxi bilan — 10-reja (narxlar 8-rejada).
 - **6-rejadan boshlab:** har yangi ekran shu hujjatning 3–4-bo'limlariga ko'ra quriladi; yangi komponent kerak bo'lsa, avval shu hujjatga qo'shiladi.
 
 ## 9. Ochiq masalalar
