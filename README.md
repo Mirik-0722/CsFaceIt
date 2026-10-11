@@ -315,7 +315,7 @@ the exact definitions. For each match it writes:
 `round_players` and `rounds.decided_tick` come with the migration `V3__analysis.sql`. The backend applies its
 migrations before it connects to RabbitMQ and declares `demo.parse`, and the parser waits for that queue, so on a new
 stack the parser never writes to a database that lacks them (when you upgrade a running stack, bring the backend up
-first). A demo parsed before `V3` stays without them: import or upload it again, and the new parse replaces the old
+first). A demo parsed before `V3` stays without them: upload the demo file again, and the new parse replaces the old
 one.
 
 ### Analysis
@@ -331,9 +331,9 @@ announces itself.
 Who played a round, and on which side, is the roster of the round: its `round_players` rows, plus the players that the
 kill events of the round name with their side and the roster does not list. Where the two disagree the roster wins. A
 player who is not in the roster did not play the round, and a round counts for a player only if he is in it. (A demo
-parsed before `V3` has no roster rows, so only the players its kill events name are found: import or upload such a
-demo again before relying on its numbers.) Two players of one round on different sides are enemies; players on the same
-side are teammates.
+parsed before `V3` has no roster rows, so only the players its kill events name are found: upload the demo file again
+before relying on its numbers.) Two players of one round on different sides are enemies; players on the same side are
+teammates.
 
 What is computed for each player of the match:
 

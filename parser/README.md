@@ -126,8 +126,8 @@ message holds up the ones behind it for as long as it fails.
 - **Players** are found by `players.steam_id`. For a SteamID nobody has, a player `steam:<SteamID>` is created with
   the name from the demo.
 - **Demos parsed before `V3__analysis.sql`** keep the facts they have: their rounds have no `decided_tick` and the
-  match has no `round_players`, because the worker does not add facts to a stored parse. Import or upload such a demo
-  again; the new parse replaces the old one.
+  match has no `round_players`, because the worker does not add facts to a stored parse. Upload the demo file again;
+  the new parse replaces the old one.
 
 ## Building
 
