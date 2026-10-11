@@ -37,7 +37,8 @@ function failureText(action: Action, error: ApiError, t: Messages): string {
 /**
  * The demo of a match: its status and the reason of a failure, for everyone; behind "Manage", the three requests that
  * need the admin key — import from FACEIT, upload a file, analyze again. The key is asked for once and kept in memory
- * until the page is reloaded; a key the backend rejects is forgotten.
+ * until the page is reloaded; a key the backend rejects is forgotten. The panel belongs to one match: render it with
+ * the match id as its `key`, so that nothing it remembers follows the visitor to another match.
  */
 export default function DemoPanel({ matchId }: { matchId: string }) {
   const t = useT()
@@ -51,7 +52,9 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
   const [open, setOpen] = useState(false)
   const [typedKey, setTypedKey] = useState('')
   const [file, setFile] = useState<File | null>(null)
-  const [watching, setWatching] = useState(false)
+  // Until when the demo is watched after a repeated analysis; a second request moves the time on.
+  const [watchUntil, setWatchUntil] = useState<number | null>(null)
+  const watching = watchUntil !== null
   const [keyRejected, setKeyRejected] = useState(false)
   const [failure, setFailure] = useState<{ action: Action; error: ApiError } | null>(null)
   const [accepted, setAccepted] = useState(false)
@@ -89,12 +92,12 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
   }, [watching, answeredAt, queryClient, matchId])
 
   useEffect(() => {
-    if (!watching) {
+    if (watchUntil === null) {
       return
     }
-    const timer = setTimeout(() => setWatching(false), WATCH_MS)
+    const timer = setTimeout(() => setWatchUntil(null), Math.max(0, watchUntil - Date.now()))
     return () => clearTimeout(timer)
-  }, [watching])
+  }, [watchUntil])
 
   /** What every action does around its own request. */
   function callbacks(action: Action) {
@@ -108,7 +111,7 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
         setTypedKey('')
         setAccepted(true)
         if (action === 'analyze') {
-          setWatching(true)
+          setWatchUntil(Date.now() + WATCH_MS)
         }
         if (action === 'upload') {
           setFile(null)
@@ -119,7 +122,9 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
       },
       onError: (error: ApiError) => {
         if (error.status === 401) {
+          // A rejected key is forgotten everywhere: the stored one and the one still in the field.
           setAdminKey(null)
+          setTypedKey('')
           setKeyRejected(true)
         } else {
           setFailure({ action, error })
@@ -129,13 +134,14 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
   }
 
   return (
-    <section aria-labelledby={titleId} className="border border-border bg-card">
+    <section aria-labelledby={titleId} aria-busy={busy} className="border border-border bg-card">
       <div className="flex min-h-14 items-center gap-x-4 py-1.5 pr-2 pl-4">
         <h2 id={titleId} className="label-mono">
           {t.demo.title}
         </h2>
         <div aria-live="polite" className="flex min-w-0 flex-1 items-center">
-          {demo.isPending && <span className="text-[13px] text-muted-foreground">{t.demo.loading}</span>}
+          {/* One row has no room for a skeleton: the loading text alone, as a mono label (spec 7). */}
+          {demo.isPending && <span className="label-mono">{t.demo.loading}</span>}
           {demo.isError && demo.data === undefined && (
             <span className="text-[13px] text-destructive">{errorMessage(demo.error, t)}</span>
           )}
@@ -225,7 +231,11 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
               </Button>
             )}
           </div>
-          <div id={messagesId} aria-live="polite" className="text-sm empty:hidden">
+          {/* Always in the page, so that its first message is announced; while empty it takes back the gap above. */}
+          <div id={messagesId} aria-live="polite" className="text-sm empty:-mt-4">
+            {busy && (
+              <p className="text-muted-foreground">{uploadDemo.isPending ? t.demo.uploading : t.demo.sending}</p>
+            )}
             {keyRejected && <p className="text-destructive">{t.demo.wrongKey}</p>}
             {failure && <p className="text-destructive">{failureText(failure.action, failure.error, t)}</p>}
             {accepted && <p className="text-muted-foreground">{t.demo.accepted}</p>}

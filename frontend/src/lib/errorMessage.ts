@@ -16,9 +16,6 @@ export function errorMessage(error: Error, t: Messages): string {
     if (error.code === 'FACEIT_UNAVAILABLE') {
       return t.errors.faceitUnavailable
     }
-    if (error.code === 'UNAUTHORIZED') {
-      return t.demo.wrongKey
-    }
     if (error.code === 'DEMO_URL_UNAVAILABLE') {
       return t.demo.urlUnavailable
     }

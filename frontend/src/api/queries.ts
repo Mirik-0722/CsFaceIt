@@ -89,12 +89,21 @@ export function useMatchStats(matchId: string) {
 /** How often the demo is asked for again while the backend is still working on it. */
 const DEMO_POLL_MS = 3000
 
-/** True while the pipeline will move the demo on by itself: queued, stored, or parsed with its analysis to come. */
+/** A demo that has not changed for this long is taken to be one that nothing is working on. */
+const DEMO_STALLED_MS = 30 * 60 * 1000
+
+/**
+ * True while the pipeline will move the demo on by itself: queued, stored, or parsed with its analysis to come. A
+ * demo that has stood in such a state for half an hour is not being worked on (one parsed before analyses existed
+ * stays PARSED for good), so it does not count: asking about it every three seconds would never end.
+ */
 function isInProgress(demo: DemoResponse | null | undefined): boolean {
   if (!demo) {
     return false
   }
-  return demo.status === 'QUEUED' || demo.status === 'STORED' || (demo.status === 'PARSED' && !demo.error)
+  const moving = demo.status === 'QUEUED' || demo.status === 'STORED' || (demo.status === 'PARSED' && !demo.error)
+  // An unreadable time compares false, which keeps the demo in progress.
+  return moving && !(Date.now() - Date.parse(demo.updatedAt) > DEMO_STALLED_MS)
 }
 
 /**
@@ -135,6 +144,8 @@ function useDemoAction<Variables extends { apiKey: string }>(
   const queryClient = useQueryClient()
   return useMutation<DemoResponse, ApiError, Variables>({
     mutationFn: send,
+    // The variables hold the admin key: the cache drops a finished request at once instead of after five minutes.
+    gcTime: 0,
     onSuccess: (demo) => {
       queryClient.setQueryData<DemoResponse | null>(['demo', matchId], demo)
       invalidateDemoResults(queryClient, matchId)

@@ -191,7 +191,9 @@ export default function MatchPage() {
     <main className="container-page flex flex-col gap-4 pt-9 pb-18">
       <h1 className="label-mono">{t.match.title}</h1>
       {matchId ? (
-        <MatchDetails matchId={matchId} />
+        // Keyed by the match: what the panel and the filter remember (a chosen file, a typed key, a message, the
+        // chosen kind) must not follow the visitor to another match when only the id in the URL changes.
+        <MatchDetails key={matchId} matchId={matchId} />
       ) : (
         <p className="text-sm text-destructive">{t.errors.matchNotFound}</p>
       )}

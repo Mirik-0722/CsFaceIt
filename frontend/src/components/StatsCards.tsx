@@ -12,8 +12,9 @@ function decimal(value: number | null, digits: number): string | null {
 
 /**
  * A player's figures over the stored matches, eight tiles in four columns (two on a phone). A figure without data is
- * a dash: all of them for a player without a stored match, and the four that come from demos (KAST, entry, trade,
- * clutch) until one of the player's demos is analyzed, which the tile's note says.
+ * a dash: all of them for a player without a stored match (the line under the tiles gives the count), and the four
+ * that come from demos (KAST, entry, trade, clutch) until one of the player's demos is analyzed, which the tile's
+ * note says.
  */
 export default function StatsCards({ stats }: { stats: PlayerAggregateStatsResponse }) {
   const t = useT()
@@ -40,7 +41,9 @@ export default function StatsCards({ stats }: { stats: PlayerAggregateStatsRespo
           percent={stats.clutchPercent}
           note={
             demoNote ??
-            (stats.clutchAttempts > 0 ? t.statsCards.clutchRecord(stats.clutchWins, stats.clutchAttempts) : undefined)
+            (stats.clutchAttempts > 0
+              ? t.statsCards.clutchRecord(stats.clutchWins, stats.clutchAttempts)
+              : t.statsCards.noClutch)
           }
         />
         <StatTile label={t.statsCards.winRate} value={percent(stats.winRate)} percent={stats.winRate} />

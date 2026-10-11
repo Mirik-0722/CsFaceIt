@@ -29,7 +29,7 @@ export function highlightGroup(type: HighlightType): HighlightGroup {
 }
 
 export function isHighlightType(value: string): value is HighlightType {
-  return value in GROUP_OF
+  return HIGHLIGHT_TYPES.some((type) => type === value)
 }
 
 /**

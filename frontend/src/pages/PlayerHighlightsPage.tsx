@@ -42,6 +42,8 @@ function PlayerHighlights({ playerId }: { playerId: string }) {
       </div>
       {!playerFailed && (
         <section className="flex flex-col gap-4 pt-3">
+          {/* The cards are h3, as on the other pages; this is the h2 they belong to, for navigation by headings. */}
+          <h2 className="sr-only">{t.highlight.title}</h2>
           {/* The filter is answered by the server: a kind that is rare would hide among the pages otherwise. */}
           <div className="flex flex-col gap-1.5 self-start">
             <label htmlFor={typeId} className="label-mono">
@@ -51,7 +53,7 @@ function PlayerHighlights({ playerId }: { playerId: string }) {
               id={typeId}
               value={type ?? ''}
               onChange={(event) => setType(isHighlightType(event.target.value) ? event.target.value : null)}
-              className="h-11 min-w-48 rounded-lg border border-border bg-card px-3 text-sm text-foreground"
+              className="h-11 min-w-48 rounded-lg border border-border bg-card px-3 text-base text-foreground"
             >
               <option value="">{t.highlight.anyType}</option>
               {HIGHLIGHT_TYPES.map((option) => (
@@ -96,7 +98,8 @@ export default function PlayerHighlightsPage() {
     <main className="container-page flex flex-col gap-4 pt-9 pb-18">
       <h1 className="label-mono">{t.highlight.playerTitle}</h1>
       {playerId ? (
-        <PlayerHighlights playerId={playerId} />
+        // Keyed by the player: the chosen type does not follow the visitor to another player's highlights.
+        <PlayerHighlights key={playerId} playerId={playerId} />
       ) : (
         <p className="text-sm text-destructive">{t.errors.playerNotFound}</p>
       )}

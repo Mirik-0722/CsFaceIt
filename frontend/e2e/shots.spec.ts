@@ -263,9 +263,7 @@ const SCENARIOS: Scenario[] = [
   // The demo panel opened: the admin key field and the three requests it guards.
   { name: 'manage', pages: ['match'], before: openDemoControls },
   // The first scoreboard scrolled to its right end, on a phone: the player column and the team header stay in place.
-  // The default scoreboard fits in 390px, so this one does not move; the one with the 32-character nickname still
-  // overflows and shows the columns at work.
-  { name: 'scrolled', pages: ['match'], viewports: [PHONE], before: scrollScoreboard },
+  // The default scoreboard fits in 390px and has nothing to scroll; the one with the 32-character nickname overflows.
   { name: 'scrolled-long', pages: ['match'], viewports: [PHONE], backend: LONG_BACKEND, before: scrollScoreboard },
   // Where the focus ring is on each page's content: the element that the page's `tabs` presses of Tab reach.
   { name: 'focus', before: pressTab },

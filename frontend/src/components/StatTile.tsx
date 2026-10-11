@@ -1,3 +1,4 @@
+import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 interface StatTileProps {
@@ -14,6 +15,7 @@ interface StatTileProps {
  * term and its description, to be placed in a `<dl>`.
  */
 export default function StatTile({ label, value, percent, note }: StatTileProps) {
+  const t = useT()
   return (
     <div className="flex min-w-0 flex-col gap-2.5 bg-card p-4">
       <dt className="label-mono">{label}</dt>
@@ -24,7 +26,12 @@ export default function StatTile({ label, value, percent, note }: StatTileProps)
             value === null && 'text-subtle',
           )}
         >
-          {value ?? '—'}
+          {value ?? (
+            <>
+              <span aria-hidden="true">—</span>
+              <span className="sr-only">{t.statsCards.noData}</span>
+            </>
+          )}
         </span>
         {percent !== undefined && (
           <span aria-hidden="true" className="block h-[3px] bg-line-strong">

@@ -17,12 +17,15 @@ function PlayerName({ highlight }: { highlight: HighlightResponse }) {
     return <span className="block truncate">{highlight.nickname}</span>
   }
   return (
-    // 44px tall for the finger; the negative margin keeps the line where a plain 24px line would be.
+    // 44px tall for the finger; the negative margin keeps the line where a plain 24px line would be. That box reaches
+    // into the rows above and below, so the focus ring is drawn around the name itself, not around the box.
     <Link
       to={`/players/${encodeURIComponent(highlight.playerId)}`}
-      className="-my-2.5 inline-flex min-h-11 max-w-full items-center underline-offset-4 hover:underline"
+      className="group/name -my-2.5 inline-flex min-h-11 max-w-full items-center underline-offset-4 outline-none hover:underline"
     >
-      <span className="truncate">{highlight.nickname}</span>
+      <span className="truncate group-focus-visible/name:outline-2 group-focus-visible/name:outline-offset-2">
+        {highlight.nickname}
+      </span>
     </Link>
   )
 }
