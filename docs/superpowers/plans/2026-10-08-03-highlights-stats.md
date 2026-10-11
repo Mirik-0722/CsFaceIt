@@ -214,6 +214,23 @@ frontend/src/pages/PlayerHighlightsPage.tsx, frontend/src/lib/adminKey.ts
 
 ---
 
+## Bajarish paytidagi qarorlar (2026-10-12)
+
+Reja bajarilayotganda chiqarilgan qarorlar. Yuqoridagi vazifa matnlari tahrirlanmagan; farq chiqqan joyda shu bo'lim ustun.
+
+- **KAST dagi "S" (Task 3):** o'yinchi shu roundning hech bir kill qatorida qurbon bo'lmagan. Round hal bo'lgandan keyingi o'lim (bomba portlashi, quvib o'ldirish) ham "S" ni yo'qotadi — `deaths` ustuni va o'yin scoreboard'i ham shu o'limni sanaydi. Haqiqiy demoda bu bitta raqamni o'zgartiradi (62.50, "round hal bo'lganda tirik" deb o'qilsa 66.67 bo'lardi).
+- **Assist (Task 2–3):** jamoadoshni o'ldirish, o'z-o'zini o'ldirish yoki dunyo o'limida assister sifatida ko'rsatilgan raqib assistni oladi; KAST dagi "A" ham shunday.
+- **Clutch urinishi (Task 3):** eng kam davomiylik sharti yo'q — tomon bir kishiga tushgan va raqib tirik bo'lgan har lahza urinish. Haqiqiy demoda 24 roundda 26 urinish, 2 tasi yutilgan; `clutchPercent` shunga yarasha past chiqadi.
+- **Tahlil xatosini yozish (Task 2 matnidagi `Demo.noteError(String)` o'rniga, Task 4):** `DemoRepository.noteError(id, error)` — `updated_at` ni o'zgartirmaydigan bitta `UPDATE`. Aks holda xato yozilishi qator versiyasini siljitib, endigina boshlangan tahlilni `STALE` deb tashlab yuborardi.
+- **Xato logi (Task 4):** tahlil yiqilsa, istisno har urinishda bir marta, stack trace bilan loglanadi (butunlay yiqilgan xabar uchun uchtagacha).
+- **`won` (Task 4):** FACEIT statistikasidan faqat aynan bitta jamoa g'olib deb ko'rsatilganda yoziladi; aks holda qiymat o'zgarmaydi.
+- **Highlight'lar faqat demo `ANALYZED` bo'lganda beriladi (Task 5):** ikkala highlight endpointi demosi boshqa holatdagi (yoki demosi yo'q) match uchun hech narsa qaytarmaydi. Highlight'lar faqat tahlil bilan almashtiriladi, shuning uchun fayl qayta yuklanganda yoki qayta parse yiqilganda eski to'plam o'qilib turardi; 5-reja kliplarni saqlangan fayldan shu ticklar bo'yicha kesadi, demak ko'rinib turgan highlight o'sha faylniki bo'lishi shart. Yig'ma statistika endpointiga bu qoida tegmaydi.
+- **O'qish tomoni `JdbcClient` SQL (Task 5):** `HighlightRepository` ga o'qish so'rovlari qo'shilmadi — JPQL proyeksiyasi `rounds` va `round_players` ga yetolmaydi.
+- **Frontend (Task 6):** demo panelidagi uchta amal "Boshqarish" tugmasi ortida (holat hammaga ko'rinadi); qayta tahlildan keyin sahifa 30 soniya demo holatini kuzatadi (`ANALYZED` demoda holat o'zgarmaydi); statistika kataklari telefonda ikki ustun; match sahifasi demo va highlight'larni match yuklangandan keyin so'raydi; highlight tegi matni yozilganidek ko'rsatiladi (`1v3 CLUTCH`).
+- **Vazifalar tartibi:** Task 6 backend'ning 4–5-vazifalari bilan parallel, alohida worktree'da, Task 5 brifidagi DTO'larga qarab yozildi va Task 5 tugagach haqiqiy stack'da tekshirildi.
+
+---
+
 ## O'z-o'zini tekshirish
 
 - **Spec 4:** parser faqat fakt chiqaradi — `round_players` va `decided_tick` o'lchov; qoidalar backend'da va `POST …/demo/analyze` bilan xom faktlardan qayta hisoblanadi.
