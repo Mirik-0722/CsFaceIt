@@ -345,13 +345,33 @@ What is computed for each player of the match:
 | `rounds_played` | The number of rounds the player is in the roster of. A row whose `rounds_played` is set was analyzed from the current facts of the demo. Without it the row holds FACEIT's numbers, or the numbers of an earlier analysis that did not mention the player (a new parse can have a different roster). |
 | `adr` | The damage the player did to enemies per round played, with two decimals. Within a round every player starts with 100 health and the hits are taken in the order they happened. A hit takes no more than the health its victim had left, whoever dealt it (an AWP headshot of over 400 is 100 at most, and damage a teammate or the world did earlier is health the victim no longer has), and only what was taken from an enemy is the attacker's damage. |
 | `won` | Whether the player's team won the match. The team that wins the last round of the demo has won the match, so this is the side of the player in the last round compared with the winner of that round; it stays empty for a player who is not in the roster of the last round and when the round has no known winner. It is written only into a row that has no result yet: FACEIT's own result, stored whenever `GET /api/v1/matches/{matchId}/stats` is called, is the official one and replaces it. |
+| `kast` | The share of the rounds the player played in which he had a kill, gave an assist, survived or had his death traded (K, A, S, T), in percent with two decimals, from 0 to 100. A round counts once however many of the four apply. A kill and an assist are those of `kills` and `assists` (an assist counts when the assister is an enemy of the victim, whoever killed him, even if the row is a team kill, a kill of oneself or a death by the world). *Survived* means that no kill row of the round has the player as its victim, whoever caused the death and whenever it happened. *Traded* means that a teammate killed the player's killer in time (see `trade_kills`). |
+| `entry_kills` | The number of rounds in which the player made the first kill of an enemy, the first by `(tick, id)`. A round has at most one entry kill, and none when nobody killed an enemy in it: a team kill, a kill of oneself or a death by the world does not open a round. |
+| `trade_kills` | The kills of an enemy that traded the death of a teammate: the victim had killed a teammate of the killer (never the killer himself) in the same round at most `analysis.trade-window-seconds` seconds, as ticks of the demo, before the kill or on its tick. A kill counts once however many teammates its victim had killed in that time, and each of those teammates has his death traded. |
+| `clutch_attempts`, `clutch_wins` | The rounds in which the player was the last of his side alive against at least one living enemy (a clutch), and the ones of them his side won, also when he died after the clutch began. A player has at most one clutch in a round; the rules for when a clutch begins are below. |
 
-`kast`, `entry_kills`, `trade_kills`, `clutch_attempts` and `clutch_wins` are cleared by every analysis and stay empty
-(`NULL`, not 0) until the steps of the analysis that compute them are added. Calling `GET /api/v1/matches/{matchId}/stats`
-does not disturb an analyzed row: FACEIT's kills, deaths, assists, headshots and ADR are written only into a row that was
-not analyzed from a demo, so every number of an analyzed row comes from the same facts. The demo's players are not
-necessarily FACEIT's: a SteamID that no roster knows is stored as a placeholder player `steam:<SteamID>`, so a match
-can have both analyzed rows (placeholders) and FACEIT rows.
+**The round timeline.** Everybody in the roster of a round is alive when it starts. The deaths are the rows of `kills`,
+whoever caused them (an enemy, a teammate, the player himself, the world or the bomb), in the order of `(tick, id)`; a
+player is dead from his first death on, and the deaths of one tick happen together. A player who is not in the roster is
+never alive. The round is decided at `rounds.decided_tick` (at `end_tick` for a round parsed without it). A death on that
+very tick belongs to the round, since it is the kill that ends a round won by killing the last enemy, but a death after
+it, such as a player killed in the seconds after the bomb has exploded, is not part of the fight: it creates no clutch.
+It still is a death for `deaths` and for the S of KAST.
+
+A clutch begins at the tick at which a side goes from several players alive to exactly one, while at least one enemy is
+alive, if that tick is not after the tick the round was decided. There is none for a side that falls from several
+players to none on one tick, for a side that was a single player from the start, when no enemy is left at that moment,
+and when the player is left alone only after the round was decided. When both sides are down to one player each of them
+has a clutch. The enemies of a clutch are the ones alive at its beginning, at most five. A round without a known winner
+is won by nobody.
+
+Each analysis first clears `rounds_played`, `kast` and the entry, trade and clutch counts of every row of the match and
+then writes all of them for every player who played a round (a count of 0 is written as 0), so a row that has them was
+analyzed from the current facts and a row this analysis did not write holds `NULL` there. Calling
+`GET /api/v1/matches/{matchId}/stats` does not disturb an analyzed row: FACEIT's kills, deaths, assists, headshots and
+ADR are written only into a row that was not analyzed from a demo, so every number of an analyzed row comes from the
+same facts. The demo's players are not necessarily FACEIT's: a SteamID that no roster knows is stored as a placeholder
+player `steam:<SteamID>`, so a match can have both analyzed rows (placeholders) and FACEIT rows.
 
 The thresholds of the analysis are the `analysis` block of `backend/src/main/resources/application.yml`. They are
 validated when the backend starts (all must be positive) and are meant to be changed there, not in `.env`; Spring's
@@ -364,8 +384,9 @@ relaxed binding does accept environment variables such as `ANALYSIS_TRADE_WINDOW
 | `analysis.trade-window-seconds` | 5 | How soon after a teammate's death the killer has to be killed for that kill to be a trade. |
 | `analysis.ninja.defuse-seconds` | 10 | How long a defuse takes in the rules of the ninja defuse highlight. |
 
-The statistics of this step do not depend on these values; the rules that use them are added to the analysis step by
-step, and the settings are bound and validated from now on.
+Of these settings only `analysis.trade-window-seconds` is read so far (by `trade_kills` and the T of KAST, as seconds
+times the tick rate of the demo, 64 when the demo does not say). The others are bound and validated, and the highlight
+rules that use them are added to the analysis step by step.
 
 **When the analysis fails.** The backend tries the `demo.parsed` message three times (the database being unavailable,
 say) and then gives up. The demo is not marked `FAILED`, because the facts the parser wrote are intact and a re-upload
