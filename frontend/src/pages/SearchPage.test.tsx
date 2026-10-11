@@ -181,6 +181,7 @@ describe('SearchPage', () => {
     renderWithProviders(<SearchPage />)
     await search('s1mple')
     expect(await screen.findByText('No CS2 data')).toBeInTheDocument()
-    expect(screen.queryByText(/ELO/)).not.toBeInTheDocument()
+    // Anchored: the page's own subtitle also contains the word.
+    expect(screen.queryByText(/^ELO/)).not.toBeInTheDocument()
   })
 })

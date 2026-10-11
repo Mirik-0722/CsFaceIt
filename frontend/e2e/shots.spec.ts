@@ -42,6 +42,12 @@ interface ShotPage {
   name: string
   /** Where the page starts. */
   path: string
+  /**
+   * Presses of Tab, from the top of the page, that put the focus on an element of the page's own content (the `focus`
+   * scenario photographs it). The top bar takes the first three stops (the logo, UZ and EN), so the content starts
+   * at the fourth: count again when a page gains or loses a focusable element before the one that is photographed.
+   */
+  tabs: number
   /** Takes the page from `path` to the state that is photographed, when opening the URL is not enough. */
   open?: (page: Page, backend: Backend) => Promise<void>
 }
@@ -55,7 +61,7 @@ interface Scenario {
   /** The languages it photographs in: Uzbek only when left out. */
   languages?: Language[]
   /** The last thing done to the page before the picture. */
-  before?: (page: Page) => Promise<void>
+  before?: (page: Page, shotPage: ShotPage) => Promise<void>
 }
 
 const VIEWPORTS = [
@@ -67,12 +73,13 @@ const VIEWPORTS = [
 // needs a DOM to load and this file runs in Node.
 const LANGUAGE_KEY = 'csfaceit.lang'
 
+// `tabs` is explained on ShotPage; the comment on each row names the element the `focus` scenario lands on.
 const PAGES = [
-  { name: 'home', path: '/' },
-  { name: 'result', path: '/', open: searchFor },
-  { name: 'player', path: `/players/${PLAYER_ID}` },
-  { name: 'match', path: `/matches/${WON_MATCH_ID}` },
-  { name: 'notfound', path: '/there-is-no-such-page' },
+  { name: 'home', path: '/', tabs: 4 }, // the nickname field
+  { name: 'result', path: '/', open: searchFor, tabs: 6 }, // the link around the player card (after field and button)
+  { name: 'player', path: `/players/${PLAYER_ID}`, tabs: 4 }, // the first match of the history
+  { name: 'match', path: `/matches/${WON_MATCH_ID}`, tabs: 4 }, // the first player of the first team
+  { name: 'notfound', path: '/there-is-no-such-page', tabs: 4 }, // the link back to the search
 ] as const satisfies readonly ShotPage[]
 
 type PageName = (typeof PAGES)[number]['name']
@@ -135,8 +142,8 @@ const SCENARIOS: Scenario[] = [
       stats: null,
     },
   },
-  // Where the focus ring is after three presses of Tab, from the top of each page.
-  { name: 'focus', before: tabThreeTimes },
+  // Where the focus ring is on each page's content: the element that the page's `tabs` presses of Tab reach.
+  { name: 'focus', before: pressTab },
 ]
 
 /** The `uz`/`en` choice as the app reads it: a context that starts with the key set in `localStorage`. */
@@ -201,11 +208,12 @@ async function searchFor(page: Page, backend: Backend) {
   await page.locator('a[href^="/players/"]').waitFor()
 }
 
-async function tabThreeTimes(page: Page) {
+/** Presses Tab as often as the page's `tabs` say, from the top of the page. */
+async function pressTab(page: Page, { tabs }: ShotPage) {
   // A click in the top-left corner (nothing to click there) makes Tab start from the top of the page, whatever the
   // page did before: the search leaves the focus in its form.
   await page.mouse.click(1, 1)
-  for (let press = 0; press < 3; press++) {
+  for (let press = 0; press < tabs; press++) {
     await page.keyboard.press('Tab')
   }
 }
@@ -233,7 +241,7 @@ function defineShots() {
                 await shotPage.open(page, backend)
                 await settle(page)
               }
-              await scenario.before?.(page)
+              await scenario.before?.(page, shotPage)
               await page.screenshot({ path: `shots/${name}.png`, fullPage: true, animations: 'disabled' })
             })
           }

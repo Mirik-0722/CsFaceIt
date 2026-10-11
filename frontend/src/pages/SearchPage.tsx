@@ -37,11 +37,18 @@ export default function SearchPage() {
   }
 
   return (
-    <main className="mx-auto flex max-w-2xl flex-col gap-6 p-4">
-      <h1 className="text-2xl font-semibold">{t.home.title}</h1>
-      <form onSubmit={handleSubmit} className="flex gap-2">
+    <main className="container-page pt-18 pb-18">
+      {/* The hero of spec 6: a mono label, the headline, one sentence, then the search itself. */}
+      <p className="label-mono">{t.home.eyebrow}</p>
+      <h1 className="mt-4 text-[clamp(40px,5vw,72px)] leading-[1.02] font-semibold tracking-[-0.035em] text-balance">
+        {t.home.title}
+      </h1>
+      <p className="mt-5 max-w-[30em] text-lg text-pretty text-muted-foreground">{t.home.subtitle}</p>
+      {/* The field and the button share a row from 640px up and stack below that. */}
+      <form onSubmit={handleSubmit} className="mt-9 flex max-w-[560px] flex-col gap-3 sm:flex-row">
         <Input
           name="nickname"
+          className="h-13"
           aria-label={t.home.nicknameLabel}
           placeholder={t.home.placeholder}
           autoComplete="off"
@@ -50,9 +57,11 @@ export default function SearchPage() {
           aria-invalid={invalidNickname ? true : undefined}
           aria-describedby={invalidNickname ? 'nickname-error' : undefined}
         />
-        <Button type="submit">{t.home.submit}</Button>
+        <Button type="submit" size="lg" className="w-full sm:w-auto">
+          {t.home.submit}
+        </Button>
       </form>
-      <div aria-live="polite" className="flex flex-col gap-2">
+      <div aria-live="polite" className="mt-6 flex max-w-[560px] flex-col gap-2">
         {invalidNickname && (
           <p id="nickname-error" className="text-sm text-destructive">
             {t.home.invalidNickname}
@@ -66,10 +75,7 @@ export default function SearchPage() {
         )}
         {search.isError && <p className="text-sm text-destructive">{errorMessage(search.error, t)}</p>}
         {search.data && (
-          <Link
-            to={`/players/${encodeURIComponent(search.data.playerId)}`}
-            className="block rounded-xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-          >
+          <Link to={`/players/${encodeURIComponent(search.data.playerId)}`} className="block">
             <PlayerHeader player={search.data} />
           </Link>
         )}
