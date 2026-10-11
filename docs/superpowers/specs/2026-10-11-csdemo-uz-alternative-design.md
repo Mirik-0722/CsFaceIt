@@ -180,6 +180,8 @@ Frontend ──► Backend (clip API) ──► PostgreSQL: clips
 - **Bitta recorder — tor joy.** Bir klip daqiqalar oladi; navbat uzunligi va kutish vaqti o'lchanadi, ikkinchi host qo'shish protokolda ko'zda tutilgan.
 - **FACEIT demo yuklash.** Downloads API ruxsati yo'q; ariza hozir yuborilishi kerak (30 kungacha kutiladi). Ungacha qo'lda upload.
 - **Fayl hajmi va trafik.** 1080p klip o'nlab megabayt; Telegram bot orqali 50 MB dan katta fayl yuborilmaydi (7-rejada hisobga olinadi).
+- **Valve video siyosati.** Rasmiy matnga ko'ra Valve kontentidan videolarda foydalanish notijorat bo'lishi kerak: tomoshabindan videoni ko'rish yoki olish uchun pul olinmaydi, video sotilmaydi (<https://store.steampowered.com/video_policy>). Pullik klip xizmati bunga qanday mos kelishi to'lovlar (8-reja) oldidan aniqlanadi — yuridik savol, qaror foydalanuvchida.
+- **Skin tanlash.** csdemo.uz buni pullik variant sifatida beradi ("Loadouts": agent, qurol, pichoq, qo'lqop; faqat o'yinchining o'z qurollariga). Bizda 10-rejaning oxirgi vazifasi, texnik sinovdan keyin: tayyor vosita topilmadi, o'yin klientini o'zgartiradigan o'z modulimiz kerak bo'ladi (faqat oflayn, alohida hisobda; yangilanishlarda sinadi).
 
 ## 12. Foydalanuvchi hal qiladigan savollar
 
