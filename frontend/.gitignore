@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Screenshots written by e2e/shots.spec.ts (SHOTS=1 npx playwright test e2e/shots.spec.ts)
+shots
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

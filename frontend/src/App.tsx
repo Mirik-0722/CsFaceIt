@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
+import { useT } from './i18n'
 import MatchPage from './pages/MatchPage'
 import NotFoundPage from './pages/NotFoundPage'
 import PlayerPage from './pages/PlayerPage'
@@ -8,6 +9,7 @@ import SearchPage from './pages/SearchPage'
 const queryClient = new QueryClient()
 
 export default function App() {
+  const t = useT()
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
@@ -16,7 +18,7 @@ export default function App() {
             to="/"
             className="rounded-md text-sm font-semibold outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
-            CS2 FACEIT Analyzer
+            {t.app.homeLink}
           </Link>
         </header>
         <Routes>

@@ -5,23 +5,24 @@ import StatsTable from '@/components/StatsTable'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { errorMessage, MATCH_NOT_FOUND_MESSAGE } from '@/lib/errorMessage'
+import { useLocale, useT } from '@/i18n'
+import { errorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/formatDate'
 import type { ApiError } from '@/api/client'
 import type { MatchResponse, MatchStatsResponse } from '@/api/types'
 
-const STATS_UNAVAILABLE_MESSAGE = 'Stats are not available for this match yet.'
-
 /** The map, the start date and the status of a match; each is left out while FACEIT has not published it. */
 function MatchHeader({ match }: { match: MatchResponse }) {
+  const t = useT()
+  const locale = useLocale()
   return (
     <Card>
       <CardContent className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <CardTitle className="truncate text-lg">{match.mapName ?? 'Unknown map'}</CardTitle>
+          <CardTitle className="truncate text-lg">{match.mapName ?? t.match.unknownMap}</CardTitle>
           {match.startedAt && (
             <CardDescription>
-              <time dateTime={match.startedAt}>{formatDate(match.startedAt)}</time>
+              <time dateTime={match.startedAt}>{formatDate(match.startedAt, locale)}</time>
             </CardDescription>
           )}
         </div>
@@ -32,20 +33,22 @@ function MatchHeader({ match }: { match: MatchResponse }) {
 }
 
 function StatsSkeleton() {
+  const t = useT()
   return (
     <>
       <Skeleton className="h-40 w-full" />
       <Skeleton className="h-40 w-full" />
-      <span className="sr-only">Loading stats…</span>
+      <span className="sr-only">{t.match.loadingStats}</span>
     </>
   )
 }
 
 /** One table per team, or the reason there is none. Stats that are already loaded win over a failed refetch. */
 function MatchStats({ stats }: { stats: UseQueryResult<MatchStatsResponse, ApiError> }) {
+  const t = useT()
   if (stats.data) {
     return stats.data.teams.length === 0 ? (
-      <p className="text-sm text-muted-foreground">{STATS_UNAVAILABLE_MESSAGE}</p>
+      <p className="text-sm text-muted-foreground">{t.match.statsUnavailable}</p>
     ) : (
       stats.data.teams.map((team) => <StatsTable key={team.teamId} team={team} />)
     )
@@ -54,7 +57,7 @@ function MatchStats({ stats }: { stats: UseQueryResult<MatchStatsResponse, ApiEr
     // The backend answers 404 for the stats of a match that is still being played; the match itself exists.
     return (
       <p className="text-sm text-muted-foreground">
-        {stats.error.code === 'MATCH_NOT_FOUND' ? STATS_UNAVAILABLE_MESSAGE : errorMessage(stats.error)}
+        {stats.error.code === 'MATCH_NOT_FOUND' ? t.match.statsUnavailable : errorMessage(stats.error, t)}
       </p>
     )
   }
@@ -62,6 +65,7 @@ function MatchStats({ stats }: { stats: UseQueryResult<MatchStatsResponse, ApiEr
 }
 
 function MatchDetails({ matchId }: { matchId: string }) {
+  const t = useT()
   const match = useMatch(matchId)
   const stats = useMatchStats(matchId)
   // A match that cannot be shown has no stats to show either: its error is the one message on the page.
@@ -73,10 +77,10 @@ function MatchDetails({ matchId }: { matchId: string }) {
         {match.isPending && (
           <>
             <Skeleton className="h-16 w-full" />
-            <span className="sr-only">Loading match…</span>
+            <span className="sr-only">{t.match.loading}</span>
           </>
         )}
-        {matchFailed && <p className="text-sm text-destructive">{errorMessage(match.error)}</p>}
+        {matchFailed && <p className="text-sm text-destructive">{errorMessage(match.error, t)}</p>}
         {match.data && <MatchHeader match={match.data} />}
       </div>
       {!matchFailed && (
@@ -90,14 +94,15 @@ function MatchDetails({ matchId }: { matchId: string }) {
 }
 
 export default function MatchPage() {
+  const t = useT()
   const { matchId } = useParams()
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 p-4">
-      <h1 className="text-2xl font-semibold">Match</h1>
+      <h1 className="text-2xl font-semibold">{t.match.title}</h1>
       {matchId ? (
         <MatchDetails matchId={matchId} />
       ) : (
-        <p className="text-sm text-destructive">{MATCH_NOT_FOUND_MESSAGE}</p>
+        <p className="text-sm text-destructive">{t.errors.matchNotFound}</p>
       )}
     </main>
   )

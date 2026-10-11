@@ -94,7 +94,7 @@ describe('StatsTable', () => {
   it('shows the Winner badge only for the winning team', () => {
     const { rerender } = renderTable(team({ win: true }))
     expect(screen.getByText('Winner')).toBeInTheDocument()
-    expect(screen.getByText('Winner').className).toContain('green')
+    expect(screen.getByText('Winner').className).toContain('positive')
     rerender(<StatsTable team={team({ win: false })} />)
     expect(screen.queryByText('Winner')).not.toBeInTheDocument()
   })

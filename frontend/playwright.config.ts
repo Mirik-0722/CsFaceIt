@@ -9,6 +9,14 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: 'http://localhost:5173',
+    // The flows assert on the English copy, while the app itself starts in Uzbek: every context begins with the
+    // language key (src/i18n LOCALE_STORAGE_KEY) set to `en`.
+    storageState: {
+      cookies: [],
+      origins: [
+        { origin: 'http://localhost:5173', localStorage: [{ name: 'csfaceit.lang', value: 'en' }] },
+      ],
+    },
     trace: 'on-first-retry',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],

@@ -41,14 +41,14 @@ describe('MatchList', () => {
 
   it('colours WIN green and LOSS red', () => {
     renderList([match({ matchId: 'm1', result: 'WIN' }), match({ matchId: 'm2', result: 'LOSS' })])
-    expect(screen.getByText('WIN').className).toContain('green')
-    expect(screen.getByText('LOSS').className).toContain('red')
+    expect(screen.getByText('WIN').className).toContain('positive')
+    expect(screen.getByText('LOSS').className).toContain('negative')
   })
 
   it('shows a neutral dash for an UNKNOWN result', () => {
     renderList([match({ result: 'UNKNOWN' })])
     const badge = screen.getByText('—')
-    expect(badge.closest('[data-slot="badge"]')?.className).not.toMatch(/green|red/)
+    expect(badge.closest('[data-slot="badge"]')?.className).not.toMatch(/positive|negative/)
     expect(screen.queryByText('WIN')).not.toBeInTheDocument()
     expect(screen.queryByText('LOSS')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /result unknown/i })).toBeInTheDocument()

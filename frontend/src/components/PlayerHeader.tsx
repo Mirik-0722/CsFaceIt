@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
+import { useT } from '@/i18n'
 import type { PlayerResponse } from '@/api/types'
 
 function Avatar({ player }: { player: PlayerResponse }) {
@@ -18,6 +19,7 @@ function Avatar({ player }: { player: PlayerResponse }) {
 
 /** Avatar, nickname, country and CS2 rating of one player; `elo` and `level` are null without CS2 data. */
 export default function PlayerHeader({ player }: { player: PlayerResponse }) {
+  const t = useT()
   const hasCs2Data = player.elo !== null || player.level !== null
   return (
     <Card>
@@ -30,11 +32,11 @@ export default function PlayerHeader({ player }: { player: PlayerResponse }) {
         <div className="flex shrink-0 items-center gap-2">
           {hasCs2Data ? (
             <>
-              {player.elo !== null && <span className="text-sm font-medium">{`ELO ${player.elo}`}</span>}
-              {player.level !== null && <Badge>{`Level ${player.level}`}</Badge>}
+              {player.elo !== null && <span className="text-sm font-medium">{t.player.elo(player.elo)}</span>}
+              {player.level !== null && <Badge>{t.player.level(player.level)}</Badge>}
             </>
           ) : (
-            <Badge variant="secondary">No CS2 data</Badge>
+            <Badge variant="secondary">{t.player.noCs2Data}</Badge>
           )}
         </div>
       </CardContent>

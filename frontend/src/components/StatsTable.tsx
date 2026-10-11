@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useT } from '@/i18n'
 import { WIN_BADGE_CLASS } from '@/lib/badgeStyles'
 import type { TeamStatsResponse } from '@/api/types'
 
@@ -11,35 +12,36 @@ const COLUMN_COUNT = 7
  * most kills first (players with equal kills keep the order the API gave them).
  */
 export default function StatsTable({ team }: { team: TeamStatsResponse }) {
+  const t = useT()
   const players = [...team.players].sort((a, b) => b.kills - a.kills)
   return (
     // The shadcn Table puts the caption below the table (`caption-bottom`, inherited); the team header goes on top.
     <Table className="caption-top">
       <TableCaption className="mt-0 mb-2 text-left text-foreground">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-medium">{team.name ?? 'Team'}</h2>
-          {team.win && <Badge className={WIN_BADGE_CLASS}>Winner</Badge>}
+          <h2 className="text-lg font-medium">{team.name ?? t.stats.team}</h2>
+          {team.win && <Badge className={WIN_BADGE_CLASS}>{t.stats.winner}</Badge>}
           <span className="ml-auto font-mono text-lg tabular-nums">
-            <span className="sr-only">Score:</span> {team.score}
+            <span className="sr-only">{t.stats.score}</span> {team.score}
           </span>
         </div>
       </TableCaption>
       <TableHeader>
         <TableRow>
-          <TableHead>Player</TableHead>
-          <TableHead className="text-right">K</TableHead>
-          <TableHead className="text-right">D</TableHead>
-          <TableHead className="text-right">A</TableHead>
-          <TableHead className="text-right">HS</TableHead>
-          <TableHead className="text-right">K/D</TableHead>
-          <TableHead className="text-right">ADR</TableHead>
+          <TableHead>{t.stats.player}</TableHead>
+          <TableHead className="text-right">{t.stats.kills}</TableHead>
+          <TableHead className="text-right">{t.stats.deaths}</TableHead>
+          <TableHead className="text-right">{t.stats.assists}</TableHead>
+          <TableHead className="text-right">{t.stats.headshots}</TableHead>
+          <TableHead className="text-right">{t.stats.kdRatio}</TableHead>
+          <TableHead className="text-right">{t.stats.adr}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {players.length === 0 ? (
           <TableRow>
             <TableCell colSpan={COLUMN_COUNT} className="text-center text-muted-foreground">
-              No player stats
+              {t.stats.empty}
             </TableCell>
           </TableRow>
         ) : (
