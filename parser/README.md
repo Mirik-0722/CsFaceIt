@@ -38,10 +38,13 @@ password containing a character that is special in a URL (`@ : / ? # %`) must be
 ## What the worker guarantees
 
 - **It declares nothing on the broker.** The backend declares the exchange and the queues when it first connects. The
-  worker checks for `demo.parse` every few seconds until it exists and takes one message at a time. Whenever the
-  broker cannot be reached, the connection is lost, or its work fails (a `demo.parsed` that is not confirmed, say), it
-  connects again after a pause. The pause starts at one second and doubles up to 30 seconds from one failure to the
-  next; it starts over once a message has been settled.
+  worker checks for `demo.parse` every few seconds until it exists and takes one message at a time. The backend
+  applies its Flyway migrations (`V3__analysis.sql` adds the table `round_players` and the column
+  `rounds.decided_tick`) before it connects to the broker, so on a new stack the worker, which waits for the queue,
+  never writes to a database without them; when you upgrade a stack whose broker still holds the queue, bring the
+  backend up first. Whenever the broker cannot be reached, the connection is lost, or its work fails (a `demo.parsed`
+  that is not confirmed, say), it connects again after a pause. The pause starts at one second and doubles up to 30
+  seconds from one failure to the next; it starts over once a message has been settled.
 - **A message is acted on only while its demo is `STORED`.** Deliveries repeat and a demo can be announced again at
   any time (a redelivery, another upload). The worker reads the demo's status first and acknowledges the message
   without doing anything unless it is `STORED`. When it writes, it locks the `demos` row and writes only if the demo
@@ -92,10 +95,18 @@ message holds up the ones behind it for as long as it fails.
   but fails as not a valid demo. `round_number` is one more than the rounds the game had played when the round
   started, so it starts at 1 and continues through overtime; when a match is restarted (a knife round followed by the
   real match, a round rolled back by an admin) the rounds that are played again replace the earlier ones. `start_tick`
-  is the tick the freeze time ended. `end_tick` is the last tick before the next round starts, so the seconds after a
-  round is decided belong to it and the kills made then count, as they do on the scoreboard; the last round ends when
+  is the tick the freeze time ended. `decided_tick` is the tick of the `round_end` event that closed the round (the
+  first of them, when the demo reports the end of a round twice), so `start_tick <= decided_tick <= end_tick`.
+  `end_tick` is the last tick before the next round starts, so the seconds after a round is decided, from
+  `decided_tick` on, belong to it and the kills made then count, as they do on the scoreboard; the last round ends when
   the match does. `winner_side` is `CT` or `T`, `win_reason` a name such as `bomb_defused`, `t_killed` or
   `time_ran_out`. A bomb planted after the round was decided is not recorded.
+- **Round players** (`round_players`). For every counted round, each player that has a sampled position in it (see
+  Positions) and the side the player was on: `CT` or `T`, taken from the earliest sampled position of the player in
+  that round, so it follows the swaps at halftime and in overtime. A round holds one row per player. Only the living
+  are sampled, so a player who is not alive at the first sampled tick of a round (up to 31 ticks after it went live)
+  is not listed. A demo whose positions cannot be read is still parsed, with a warning in the log, but has no round
+  players (and no movement heat bins).
 - **Kills, damages and positions** belong to the round whose tick range contains their tick; anything else (warmup,
   freeze time, after the match) is dropped. A side is the side at that tick, so it follows the swaps at halftime and
   in overtime.
@@ -106,13 +117,17 @@ message holds up the ones behind it for as long as it fails.
   `damage_health` is the damage of the hit, not the health the victim lost: an AWP headshot is over 400. For damage
   per round as HLTV and FACEIT show it, cap each hit at the health the victim has left (100 at the start of the
   round, minus the earlier damage of that round).
-- **Positions** of the living players are taken every 32 ticks. They are only stored as heat bins: squares of 64
-  world units, `bin = floor(coordinate / 64)`, counted per player, side and kind: `kill` (where the killer stood, for
-  every kill that has a killer), `death` (where the victim stood) and `movement` (the sampled positions).
+- **Positions** of the living players are taken every 32 ticks. They are not stored as such: they give the round
+  players, and they are stored as heat bins: squares of 64 world units, `bin = floor(coordinate / 64)`, counted per
+  player, side and kind: `kill` (where the killer stood, for every kill that has a killer), `death` (where the victim
+  stood) and `movement` (the sampled positions).
 - **`tick_rate`** is the ticks played divided by the seconds played, from the file information the demo header
   points to; 64 when the demo has none.
 - **Players** are found by `players.steam_id`. For a SteamID nobody has, a player `steam:<SteamID>` is created with
   the name from the demo.
+- **Demos parsed before `V3__analysis.sql`** keep the facts they have: their rounds have no `decided_tick` and the
+  match has no `round_players`, because the worker does not add facts to a stored parse. Import or upload such a demo
+  again; the new parse replaces the old one.
 
 ## Building
 

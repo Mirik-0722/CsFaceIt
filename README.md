@@ -3,8 +3,8 @@
 A web app for looking up Counter-Strike 2 players on [FACEIT](https://www.faceit.com): search a player by nickname,
 see the profile and the recent match history, and open a match to read the per-team stats tables (kills, deaths,
 assists, headshots, K/D, K/R, ADR). Behind that sits a demo pipeline: the demo (`.dem`) of a match is downloaded or
-uploaded, stored, and parsed by a Rust worker into rounds, kills, damages and position heat bins, which later
-sub-projects turn into highlights and statistics.
+uploaded, stored, and parsed by a Rust worker into rounds, the players of every round, kills, damages and position
+heat bins, which later sub-projects turn into highlights and statistics.
 
 ```
 Browser --> Nginx (frontend container) --/api/--> Spring Boot backend --> FACEIT Data API v4
@@ -212,7 +212,8 @@ facts in PostgreSQL.
 POST .../demo/import  (or .../demo/upload with a file)
   -> demos row QUEUED -> demo.import
   -> backend import worker: download from FACEIT, compress to zstd, store in MinIO  -> STORED -> demo.parse
-  -> Rust parser: read from MinIO, parse, write rounds / kills / damages / heat_bins -> PARSED -> demo.parsed
+  -> Rust parser: read from MinIO, parse, write rounds / round_players / kills / damages / heat_bins
+     -> PARSED -> demo.parsed
   -> backend listener: logs and counts the message (the analysis of a later sub-project moves PARSED to ANALYZED)
 ```
 
@@ -283,12 +284,31 @@ demo, so its import ends in `FAILED` at the parser; the matches `1-ffffffff-0000
 `...000404` end in `FAILED` at the download. To see a demo parsed to the end, serve a real demo through the fake as
 dev/fake-faceit/README.md describes, or upload one with the command above.
 
+### The facts
+
+The parser writes what the demo says and interprets none of it; [`parser/README.md`](parser/README.md#the-facts) has
+the exact definitions. For each match it writes:
+
+- `rounds`: one row per counted round, with the winner and the reason, `start_tick` (the round went live),
+  `decided_tick` (the tick of the `round_end` that closed the round), `end_tick` (the last tick before the next round
+  starts, so it also covers the seconds after the round was decided) and the bomb ticks.
+- `round_players`: who played each counted round and on which side, `CT` or `T`. These are the players that have a
+  sampled position in the round (every 32 ticks, living players only), with the side of the earliest one, so the side
+  follows the swap at halftime.
+- `kills`, `damages` and `heat_bins` (where the players stood, counted in squares of 64 map units).
+
+`round_players` and `rounds.decided_tick` come with the migration `V3__analysis.sql`. The backend applies its
+migrations before it connects to RabbitMQ and declares `demo.parse`, and the parser waits for that queue, so on a new
+stack the parser never writes to a database that lacks them (when you upgrade a running stack, bring the backend up
+first). A demo parsed before `V3` stays without them: import or upload it again, and the new parse replaces the old
+one.
+
 ### Retention
 
 A job removes the stored demo files that are older than `DEMO_RETENTION_DAYS` (default 30) once a day at 04:00 server
-time. It deletes the file and clears `demos.storage_key`; the status and the parsed facts (`rounds`, `kills`,
-`damages`, `heat_bins`) stay. It does nothing when the variable is `0`. A demo whose file is gone can be brought back by
-uploading it again.
+time. It deletes the file and clears `demos.storage_key`; the status and the parsed facts (`rounds`, `round_players`,
+`kills`, `damages`, `heat_bins`) stay. It does nothing when the variable is `0`. A demo whose file is gone can be
+brought back by uploading it again.
 
 ## Metrics and dashboards
 
