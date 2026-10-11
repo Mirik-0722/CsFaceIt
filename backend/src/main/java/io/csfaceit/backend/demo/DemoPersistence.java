@@ -234,7 +234,8 @@ public class DemoPersistence {
      * demo is not FAILED: its facts are intact and the analysis can be started again, so a PARSED demo stays PARSED and
      * only gets {@code error}. A demo in any other status is left as it is, an ANALYZED one included: it keeps the
      * results of its earlier analysis, and a demo that was uploaded again is on its way to a new parse. The check and
-     * the update happen under the row lock.
+     * the update happen under the row lock. {@code updated_at} keeps its value (see {@link DemoRepository#noteError}),
+     * so an analysis that is running does not take the error for a new upload or parse and drop its result.
      *
      * @return whether the error was recorded, that is, whether the demo is PARSED
      */
@@ -244,8 +245,7 @@ public class DemoPersistence {
         if (demo == null || demo.getStatus() != DemoStatus.PARSED) {
             return false;
         }
-        demo.noteError(error);
-        demos.saveAndFlush(demo);
+        demos.noteError(demoId, error);
         return true;
     }
 

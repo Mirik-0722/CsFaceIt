@@ -34,4 +34,15 @@ public interface DemoRepository extends JpaRepository<Demo, Long> {
     @Modifying
     @Query("update Demo d set d.storageKey = null where d.storageKey = :storageKey")
     int clearStorageKey(@Param("storageKey") String storageKey);
+
+    /**
+     * Sets {@code error} on the demo and nothing else: the status stays, and so does {@code updated_at}. A bulk update,
+     * so the entity lifecycle does not run. Noting that an analysis failed is no change of the demo's place in the
+     * pipeline, and {@code updated_at} is the version an analysis compares to see whether the demo was uploaded or
+     * parsed again; a bump here would make an analysis that claimed the demo just before look outdated and drop its
+     * result. The caller holds the row lock and has checked the status.
+     */
+    @Modifying
+    @Query("update Demo d set d.error = :error where d.id = :id")
+    int noteError(@Param("id") Long id, @Param("error") String error);
 }

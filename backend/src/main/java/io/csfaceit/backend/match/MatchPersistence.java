@@ -61,20 +61,24 @@ public class MatchPersistence {
      *
      * <p>FACEIT's numbers do not replace those of a row the analysis of a demo has filled in ({@code rounds_played} is
      * set): kills, deaths, assists, headshots and adr then stay as they are, so that every figure of the row comes from
-     * the same facts. Whether the player's team won the match is always FACEIT's answer, which is the official one.
+     * the same facts. Whether the player's team won the match is FACEIT's answer, which is the official one, but only
+     * when FACEIT names exactly one winning team. Statistics without a "Team Win" (every team reads as a loss) or with
+     * several winners say nothing, and {@code won} then stays as it is.
      */
     @Transactional
     public void storeStats(String matchId, MatchStatsResponse stats) {
         Match match = matches.findByFaceitMatchId(matchId)
                 .orElseThrow(() -> new IllegalStateException("Match " + matchId + " is not stored"));
+        boolean winnerKnown = stats.teams().stream().filter(TeamStatsResponse::win).count() == 1;
         for (TeamStatsResponse team : stats.teams()) {
             for (PlayerStatsResponse playerStats : team.players()) {
-                storePlayerStats(match, playerStats, team.win());
+                storePlayerStats(match, playerStats, winnerKnown ? team.win() : null);
             }
         }
     }
 
-    private void storePlayerStats(Match match, PlayerStatsResponse stats, boolean won) {
+    /** @param won whether the player's team won; {@code null} to leave what the row has */
+    private void storePlayerStats(Match match, PlayerStatsResponse stats, Boolean won) {
         Player player = players.ensurePlayer(stats.playerId(), stats.nickname());
         PlayerMatchStats row = playerMatchStats.findByPlayerIdAndMatchId(player.getId(), match.getId())
                 .orElseGet(() -> new PlayerMatchStats(player, match));
@@ -85,7 +89,9 @@ public class MatchPersistence {
             row.setHeadshots(stats.headshots());
             row.setAdr(BigDecimal.valueOf(stats.adr()).setScale(2, RoundingMode.HALF_UP));
         }
-        row.setWon(won);
+        if (won != null) {
+            row.setWon(won);
+        }
         playerMatchStats.save(row);
     }
 }

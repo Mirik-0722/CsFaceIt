@@ -322,7 +322,8 @@ one.
 
 When the parser announces a demo on `demo.parsed`, the backend analyzes it: it reads the facts of the match from the
 database, computes the statistics of every player who played a round, writes them to `player_match_stats` (one row per
-player and match) and moves the demo to `ANALYZED`. The analysis needs neither the demo file nor FACEIT, only the facts,
+player and match), finds the highlights of the match and writes them to `highlights` (see "Highlights" below), and
+moves the demo to `ANALYZED`. The analysis needs neither the demo file nor FACEIT, only the facts,
 and it is idempotent: the same facts give the same rows, so it can be repeated at any time with
 `POST .../demo/analyze` (see [Endpoints](#endpoints)) and a `demo.parsed` that arrives twice does no harm. A demo that
 was uploaded or parsed again while it was being analyzed is not overwritten with the old result: the new upload
@@ -344,7 +345,7 @@ What is computed for each player of the match:
 | `assists` | The kill rows the player is named as the assister of, whose victim was his enemy. |
 | `rounds_played` | The number of rounds the player is in the roster of. A row whose `rounds_played` is set was analyzed from the current facts of the demo. Without it the row holds FACEIT's numbers, or the numbers of an earlier analysis that did not mention the player (a new parse can have a different roster). |
 | `adr` | The damage the player did to enemies per round played, with two decimals. Within a round every player starts with 100 health and the hits are taken in the order they happened. A hit takes no more than the health its victim had left, whoever dealt it (an AWP headshot of over 400 is 100 at most, and damage a teammate or the world did earlier is health the victim no longer has), and only what was taken from an enemy is the attacker's damage. |
-| `won` | Whether the player's team won the match. The team that wins the last round of the demo has won the match, so this is the side of the player in the last round compared with the winner of that round; it stays empty for a player who is not in the roster of the last round and when the round has no known winner. It is written only into a row that has no result yet: FACEIT's own result, stored whenever `GET /api/v1/matches/{matchId}/stats` is called, is the official one and replaces it. |
+| `won` | Whether the player's team won the match. The team that wins the last round of the demo has won the match, so this is the side of the player in the last round compared with the winner of that round; it stays empty for a player who is not in the roster of the last round and when the round has no known winner. It is written only into a row that has no result yet: FACEIT's own result, stored whenever `GET /api/v1/matches/{matchId}/stats` is called, is the official one and replaces it, but only when FACEIT names exactly one winning team (statistics without a "Team Win", or with several, leave `won` as it is). |
 | `kast` | The share of the rounds the player played in which he had a kill, gave an assist, survived or had his death traded (K, A, S, T), in percent with two decimals, from 0 to 100. A round counts once however many of the four apply. A kill and an assist are those of `kills` and `assists` (an assist counts when the assister is an enemy of the victim, whoever killed him, even if the row is a team kill, a kill of oneself or a death by the world). *Survived* means that no kill row of the round has the player as its victim, whoever caused the death and whenever it happened. *Traded* means that a teammate killed the player's killer in time (see `trade_kills`). |
 | `entry_kills` | The number of rounds in which the player made the first kill of an enemy, the first by `(tick, id)`. A round has at most one entry kill, and none when nobody killed an enemy in it: a team kill, a kill of oneself or a death by the world does not open a round. |
 | `trade_kills` | The kills of an enemy that traded the death of a teammate: the victim had killed a teammate of the killer (never the killer himself) in the same round at most `analysis.trade-window-seconds` seconds, as ticks of the demo, before the kill or on its tick. A kill counts once however many teammates its victim had killed in that time, and each of those teammates has his death traded. |
@@ -373,6 +374,40 @@ ADR are written only into a row that was not analyzed from a demo, so every numb
 same facts. The demo's players are not necessarily FACEIT's: a SteamID that no roster knows is stored as a placeholder
 player `steam:<SteamID>`, so a match can have both analyzed rows (placeholders) and FACEIT rows.
 
+**Highlights.** The same analysis finds the moments of the match that are worth a clip and stores them in
+`highlights`: one row per highlight, with the player it belongs to (`player_id`), its type, the round, and the first and
+last tick of the clip (`tick_start`, `tick_end`). Only the kills of an enemy take part in a highlight (see `kills`
+above): a team kill, a kill of oneself and a death by the world or the bomb never do.
+
+| Type | Rule | The event lasts |
+| --- | --- | --- |
+| `ACE` | Five or more kills of an enemy by one player in a round. | From the first of those kills to the last. |
+| `K4`, `K3` | Exactly four, or exactly three, kills of an enemy by one player in a round. A player has only the highest type of a round, so an ace is no `K4` as well. | From the first of those kills to the last. |
+| `CLUTCH_1V1` to `CLUTCH_1V5` | A clutch (see above) that the player's side won; the number is how many enemies were alive when he was left alone, at most five. A clutch that was lost is no highlight, it only counts in `clutch_attempts`. | From the tick he was left alone to the tick the round was decided. |
+| `NO_SCOPE` | A kill of an enemy that the parser flagged `noscope`, with an `awp`, `ssg08`, `g3sg1` or `scar20`. | The tick of the kill. |
+| `KNIFE_KILL` | A kill of an enemy with a weapon whose name starts with `knife` or is `bayonet`. | The tick of the kill. |
+| `WALLBANG` | A kill of an enemy that the parser flagged `wallbang`. | The tick of the kill. |
+| `SMOKE_KILL` | A kill of an enemy that the parser flagged `thrusmoke`. | The tick of the kill. |
+| `NINJA_DEFUSE` | The bomb was defused by a player of the round's roster while at least one player of the other side was alive at that tick (one who dies on that very tick is not). The highlight belongs to the defuser. | From `analysis.ninja.defuse-seconds` before the defuse to the tick of the defuse. |
+
+One kill can be several highlights (a wallbang through smoke is a `WALLBANG` and a `SMOKE_KILL`), and the kills of a
+multi-kill can be special kills as well. Weapon names are compared without regard to case.
+
+**What `NINJA_DEFUSE` does not check.** A ninja defuse in the game's sense is a defuse that is finished while the
+enemies are away from the bomb. The parser stores no position per tick, so this rule only knows that an enemy was alive
+when the bomb was defused, not whether he was near it when the defuse began. A defuse that is finished with an enemy
+right beside the bomb is a `NINJA_DEFUSE` here too, so expect more of them than the game would call by the name. A
+stricter rule needs positions in the facts and a new parse of the demo.
+
+The clip starts `analysis.clip.pre-seconds` before the first tick of the event and ends `analysis.clip.post-seconds`
+after its last, as ticks of the demo (64 per second when the demo does not say), but never outside the round:
+`tick_start = max(round start, first tick - pre x tick rate)` and `tick_end = min(round end, last tick + post x tick
+rate)`, where the round's start and end are its `start_tick` and `end_tick` (an event that lies wholly outside its round,
+which the parser's facts do not produce, is not stored). Every analysis replaces the highlights of
+the match as a whole, in the same transaction that stores the statistics: the earlier rows are deleted and the new ones
+inserted, so repeating an analysis leaves no duplicates, and an analysis that fails leaves the earlier highlights as they
+were.
+
 The thresholds of the analysis are the `analysis` block of `backend/src/main/resources/application.yml`. They are
 validated when the backend starts (all must be positive) and are meant to be changed there, not in `.env`; Spring's
 relaxed binding does accept environment variables such as `ANALYSIS_TRADE_WINDOW_SECONDS` on the backend container.
@@ -384,18 +419,24 @@ relaxed binding does accept environment variables such as `ANALYSIS_TRADE_WINDOW
 | `analysis.trade-window-seconds` | 5 | How soon after a teammate's death the killer has to be killed for that kill to be a trade. |
 | `analysis.ninja.defuse-seconds` | 10 | How long a defuse takes in the rules of the ninja defuse highlight. |
 
-Of these settings only `analysis.trade-window-seconds` is read so far (by `trade_kills` and the T of KAST, as seconds
-times the tick rate of the demo, 64 when the demo does not say). The others are bound and validated, and the highlight
-rules that use them are added to the analysis step by step.
+All four are read: `analysis.trade-window-seconds` by `trade_kills` and the T of KAST, `analysis.clip.pre-seconds` and
+`analysis.clip.post-seconds` by the clip of every highlight, and `analysis.ninja.defuse-seconds` by `NINJA_DEFUSE`.
+Seconds become ticks with the tick rate of the demo (64 when the demo does not say).
 
-**When the analysis fails.** The backend tries the `demo.parsed` message three times (the database being unavailable,
-say) and then gives up. The demo is not marked `FAILED`, because the facts the parser wrote are intact and a re-upload
+**When the analysis fails.** The backend tries the `demo.parsed` message three times (an exception in the analysis
+itself, say, from facts it cannot handle; every failed attempt is logged at `ERROR` with the exception and its stack
+trace) and then gives up. The demo is not marked `FAILED`, because the facts the parser wrote are intact and a re-upload
 would be wasted work (and impossible once the retention job has removed the file). A `PARSED` demo stays `PARSED` and its
 `error` becomes `Analyzing the demo failed after 3 attempts. The parsed data is kept; start the analysis again.`. Start
 the analysis again with `POST .../demo/analyze`: a successful analysis moves the demo to `ANALYZED` and clears the error,
 and uploading the file again clears it too. An `ANALYZED` demo whose repeated analysis fails is not changed at all: it
-keeps the statistics of the earlier analysis, and the failure shows only as an `ERROR` line in the backend log. In both
+keeps the statistics and the highlights of the earlier analysis, and the failure shows only in the backend log. In both
 cases `demo_pipeline_failed_total{stage="analyze"}` counts the failed analysis.
+
+The one failure that leaves nothing on the demo is the database being unavailable for so long that the error cannot be
+noted either: the dead letter is tried three times, then dropped with an `ERROR` line ("Dropping a dead-lettered
+message ..."), the demo stays as it was, with no `error`, and `demo_pipeline_failed_total` does not count it. Start the
+analysis again with `POST .../demo/analyze` once the database is back.
 
 ### Retention
 

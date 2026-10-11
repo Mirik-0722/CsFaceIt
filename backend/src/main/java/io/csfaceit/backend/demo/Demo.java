@@ -19,9 +19,9 @@ import java.time.temporal.ChronoUnit;
 
 /**
  * The demo of one match and its place in the pipeline. {@code error} says why the demo FAILED and is cleared when
- * the demo leaves that status. A PARSED demo whose analysis failed also has an {@code error} (see {@link #noteError});
- * it stays PARSED, because the facts the parser wrote are intact, and the error goes when the demo is analyzed or
- * stored again.
+ * the demo leaves that status. A PARSED demo whose analysis failed also has an {@code error} (see
+ * {@link DemoRepository#noteError}, which leaves {@code updatedAt} alone); it stays PARSED, because the facts the
+ * parser wrote are intact, and the error goes when the demo is analyzed or stored again.
  */
 @Entity
 @Table(name = "demos")
@@ -120,15 +120,6 @@ public class Demo {
     /** Moves the demo to FAILED and records why. */
     public void fail(String error) {
         transitionTo(DemoStatus.FAILED);
-        this.error = error;
-    }
-
-    /**
-     * Records something that went wrong without changing the status: the analysis of a PARSED demo failed, and the demo
-     * stays PARSED so that the analysis can be started again. The next {@link #transitionTo} (to ANALYZED) or
-     * {@link #restore} clears the error. Like any change to the row it refreshes {@code updatedAt}.
-     */
-    public void noteError(String error) {
         this.error = error;
     }
 

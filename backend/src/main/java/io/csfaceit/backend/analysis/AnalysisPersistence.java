@@ -1,5 +1,10 @@
 package io.csfaceit.backend.analysis;
 
+import io.csfaceit.backend.analysis.facts.MatchFacts;
+import io.csfaceit.backend.analysis.facts.RoundFacts;
+import io.csfaceit.backend.analysis.highlight.Highlight;
+import io.csfaceit.backend.analysis.highlight.HighlightCandidate;
+import io.csfaceit.backend.analysis.highlight.HighlightRepository;
 import io.csfaceit.backend.analysis.stats.PlayerMatchStatsValues;
 import io.csfaceit.backend.demo.Demo;
 import io.csfaceit.backend.demo.DemoRepository;
@@ -10,15 +15,20 @@ import io.csfaceit.backend.match.PlayerMatchStats;
 import io.csfaceit.backend.match.PlayerMatchStatsRepository;
 import io.csfaceit.backend.player.PlayerRepository;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The database side of {@link AnalysisService}. It is a bean of its own so that the transaction proxy applies: the
  * service loads and computes with no transaction open and calls in here twice, once to take over the demo and once to
- * store the result.
+ * store the result (the statistics and the highlights).
  *
  * <p>The status of a demo is changed only under its row lock, here as everywhere. The result is stored only if the
  * demo is still where the analysis found it: a demo that was uploaded again or parsed again meanwhile has a different
@@ -35,17 +45,24 @@ public class AnalysisPersistence {
     public record Claim(long demoId, long matchRowId, String faceitMatchId, int tickRate, Instant updatedAt) {
     }
 
+    private static final Logger log = LoggerFactory.getLogger(AnalysisPersistence.class);
+
     private final DemoRepository demos;
     private final MatchRepository matches;
     private final PlayerRepository players;
     private final PlayerMatchStatsRepository stats;
+    private final HighlightRepository highlights;
+    private final AnalysisProperties properties;
 
     public AnalysisPersistence(DemoRepository demos, MatchRepository matches, PlayerRepository players,
-                               PlayerMatchStatsRepository stats) {
+                               PlayerMatchStatsRepository stats, HighlightRepository highlights,
+                               AnalysisProperties properties) {
         this.demos = demos;
         this.matches = matches;
         this.players = players;
         this.stats = stats;
+        this.highlights = highlights;
+        this.properties = properties;
     }
 
     /**
@@ -63,8 +80,8 @@ public class AnalysisPersistence {
     }
 
     /**
-     * Writes the statistics of the match and moves a PARSED demo to ANALYZED (which clears an error left by an
-     * analysis that failed), in one transaction under the row lock of the demo.
+     * Writes the statistics and the highlights of the match and moves a PARSED demo to ANALYZED (which clears an error
+     * left by an analysis that failed), in one transaction under the row lock of the demo.
      *
      * <p>Nothing is written when the demo is no longer PARSED or ANALYZED, or its {@code updated_at} is not the one
      * the claim saw: the demo was uploaded or parsed again while it was analyzed, and the new upload announces itself.
@@ -75,10 +92,20 @@ public class AnalysisPersistence {
      * {@code won} is written only into a row that has none: FACEIT's own result is the official one and replaces it
      * whenever the match statistics are fetched (see {@code MatchPersistence}).
      *
+     * <p>The highlights of the match are replaced as a whole: the ones an earlier analysis stored are deleted and
+     * {@code candidates} are inserted in their place, in the same transaction and under the same lock, so an analysis
+     * that is repeated cannot leave duplicates and one that fails leaves the earlier set as it was. A candidate becomes
+     * a clip of its round: the clip starts {@code analysis.clip.pre-seconds} before its first tick and ends
+     * {@code analysis.clip.post-seconds} after its last, as ticks of {@code facts.tickRate()}, but never outside the
+     * round (it starts no earlier than the round's {@code start_tick} and ends no later than its {@code end_tick}). A
+     * candidate of a round that {@code facts} does not have, or whose event lies wholly outside its round, is dropped.
+     *
+     * @param facts the facts {@code candidates} and {@code values} were computed from
      * @return false when nothing was written
      */
     @Transactional
-    public boolean store(Claim claim, Map<Long, PlayerMatchStatsValues> values) {
+    public boolean store(Claim claim, Map<Long, PlayerMatchStatsValues> values, List<HighlightCandidate> candidates,
+                         MatchFacts facts) {
         Demo demo = demos.findByIdForUpdate(claim.demoId()).orElse(null);
         if (demo == null || !isAnalyzable(demo.getStatus()) || !claim.updatedAt().equals(demo.getUpdatedAt())) {
             return false;
@@ -88,11 +115,41 @@ public class AnalysisPersistence {
         for (Map.Entry<Long, PlayerMatchStatsValues> entry : values.entrySet()) {
             write(match, claim.matchRowId(), entry.getKey(), entry.getValue());
         }
+        replaceHighlights(match, claim.matchRowId(), candidates, facts);
         if (demo.getStatus() == DemoStatus.PARSED) {
             demo.transitionTo(DemoStatus.ANALYZED);
             demos.saveAndFlush(demo);
         }
         return true;
+    }
+
+    private void replaceHighlights(Match match, long matchRowId, List<HighlightCandidate> candidates,
+                                   MatchFacts facts) {
+        highlights.deleteByMatchId(matchRowId);
+        Map<Integer, RoundFacts> rounds = facts.rounds().stream()
+                .collect(Collectors.toMap(RoundFacts::roundNumber, Function.identity()));
+        long lead = (long) properties.clip().preSeconds() * facts.tickRate();
+        long tail = (long) properties.clip().postSeconds() * facts.tickRate();
+        for (HighlightCandidate candidate : candidates) {
+            RoundFacts round = rounds.get(candidate.roundNumber());
+            if (round == null) {
+                log.debug("Dropping a {} highlight of match {}: round {} is not in its facts", candidate.type(),
+                        matchRowId, candidate.roundNumber());
+                continue;
+            }
+            // In long, so that no setting can overflow. A window that is kept lies between the ticks of the round,
+            // which makes the casts below safe.
+            long tickStart = Math.max(round.startTick(), candidate.firstTick() - lead);
+            long tickEnd = Math.min(round.endTick(), candidate.lastTick() + tail);
+            if (tickStart > tickEnd) {
+                log.debug("Dropping a {} highlight of match {}: its ticks {}-{} are outside round {} ({}-{})",
+                        candidate.type(), matchRowId, candidate.firstTick(), candidate.lastTick(),
+                        candidate.roundNumber(), round.startTick(), round.endTick());
+                continue;
+            }
+            highlights.save(new Highlight(match, players.getReferenceById(candidate.playerId()), candidate.type(),
+                    candidate.roundNumber(), (int) tickStart, (int) tickEnd));
+        }
     }
 
     private void write(Match match, long matchRowId, long playerId, PlayerMatchStatsValues values) {

@@ -59,7 +59,7 @@ public class DemoMetrics {
                 .tag(STAGE_TAG, STAGE_ANALYZE)
                 .register(registry);
         this.parsed = Counter.builder("demo.pipeline.parsed")
-                .description("Demos announced as parsed on demo.parsed")
+                .description("demo.parsed messages handled by the backend, each delivery attempt counted")
                 .register(registry);
         for (String stage : STAGE_BY_QUEUE.values()) {
             failedCounter(stage);
@@ -109,7 +109,8 @@ public class DemoMetrics {
 
     private Counter failedCounter(String stage) {
         return Counter.builder("demo.pipeline.failed")
-                .description("Demos that went to FAILED, by the stage they failed in")
+                .description("Demos that failed for good, by stage: moved to FAILED (import, parse) or an analysis "
+                        + "that failed three times (analyze)")
                 .tag(STAGE_TAG, stage)
                 .register(registry);
     }
