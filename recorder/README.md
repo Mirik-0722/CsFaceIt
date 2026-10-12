@@ -109,6 +109,10 @@ Under `WORK_DIR`, and nowhere else:
 
 In the Compose service `WORK_DIR` is `/work`, a volume, so the demos survive a recreated container.
 
+A work directory belongs to one recorder. A start empties `jobs/`, so two recorders on one directory would wipe the clip
+the other is recording: a second recorder on the same machine, or a throwaway one for a test, gets its own `WORK_DIR`
+(and its own `WORKER_NAME`).
+
 ## When something goes wrong
 
 The log has one line per event: the start with the settings (not the token), each claim, whether the demo came from
