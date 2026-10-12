@@ -1,4 +1,6 @@
-// The English copy: what the interface said before it had dictionaries, word for word (the tests assert on it).
+// The English copy: what the interface said before it had dictionaries, word for word (the tests assert on it), and
+// the texts written since for the screens that came later. The hero of the home page (`home.eyebrow`, `title` and
+// `subtitle`) is one of those: it was rewritten for the landing page.
 // The shape of this object is the contract of every dictionary: `Messages` (see index.ts) is its type, so a key that
 // another language lacks is a compile error. Texts with a number in them are functions.
 export const en = {
@@ -11,14 +13,63 @@ export const en = {
     clips: 'Clips',
   },
   home: {
-    eyebrow: 'CS2 · FACEIT analytics',
-    title: 'Player search',
-    subtitle: 'Type a FACEIT nickname to see ELO, level and recent matches.',
+    eyebrow: 'CS2 demo analysis · highlight clips',
+    title: 'Every ace deserves a clip.',
+    subtitle:
+      'Type a FACEIT nickname to see ELO, matches and statistics in one place. We find the aces, clutches and multi-kills of a demo ourselves.',
     nicknameLabel: 'nickname',
     placeholder: 'FACEIT nickname',
     submit: 'Search',
     searching: 'Searching…',
     invalidNickname: 'Nickname must be 2–32 characters: letters, digits, _ or -',
+    // The sections under the search. The clip, the scoreboard and the names in them are made up: `sample` says so.
+    sample: 'Sample',
+    frameRound: 'MIRAGE · ROUND 14',
+    steps: {
+      title: 'From demo to clip in three steps',
+      demo: {
+        title: 'The demo arrives',
+        text: 'The demo of a match (.dem) is uploaded. The analysis is ready within minutes.',
+        analyzed: 'Analyzed',
+      },
+      highlights: {
+        title: 'Highlights are found',
+        text: 'Aces, 4Ks, clutches, no-scopes and more, down to the round and the second.',
+      },
+      clip: {
+        title: 'The clip is recorded',
+        text: 'The demo is played back in the game and recorded, and the MP4 stays on the site.',
+        // Recording a clip is not open to visitors yet, and the step says so.
+        comingSoon: 'Coming soon',
+      },
+    },
+    kinds: {
+      title: 'Two kinds of clip',
+      highlight: {
+        label: 'Highlight clip',
+        title: 'One moment, one video',
+        text: 'A clip starts 3 seconds before the first kill and ends 2 seconds after the last. Nothing extra.',
+      },
+      // Its label is `clip.compilation`.
+      compilation: {
+        title: 'The whole match, only the kills',
+        text: 'Every kill of yours in a match, one after another, in one video. The idle time in between is cut.',
+      },
+      legend: {
+        kill: 'Kill',
+        included: 'The part that goes into the video',
+      },
+    },
+    statistics: {
+      label: 'Statistics',
+      title: 'Beyond clips: your game in numbers',
+      text: 'Every demo is analysed round by round. The figures FACEIT does not give are here too.',
+      bullets: ['K/D, ADR, HS% and KAST', 'Entry and trade kills', 'Clutch attempts and wins'],
+    },
+    closing: {
+      line: 'See what happened in your last match.',
+      button: 'Find a player',
+    },
   },
   player: {
     title: 'Player profile',

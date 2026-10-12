@@ -10,14 +10,60 @@ export const uz: Messages = {
     clips: 'Kliplar',
   },
   home: {
-    eyebrow: 'CS2 · FACEIT tahlili',
-    title: "O'yinchini toping.",
-    subtitle: "FACEIT nickname'ini yozing: ELO, daraja va so'nggi matchlar bir joyda.",
+    eyebrow: 'CS2 demo tahlili · highlight kliplar',
+    title: 'Har bir ace klipga loyiq.',
+    subtitle:
+      "FACEIT nickname'ini yozing: ELO, matchlar va statistika bir joyda. Demodagi ace, clutch va multi-kill'larni o'zimiz topamiz.",
     nicknameLabel: 'nickname',
     placeholder: 'FACEIT nickname',
     submit: 'Qidirish',
     searching: 'Qidirilmoqda…',
     invalidNickname: "Nickname 2–32 belgi bo'lsin: harf, raqam, _ yoki -",
+    sample: 'Namuna',
+    frameRound: 'MIRAGE · 14-RAUND',
+    steps: {
+      title: 'Demodan klipgacha — uch qadam',
+      demo: {
+        title: 'Demo keladi',
+        text: "Match demosi (.dem) yuklanadi. Tahlil bir necha daqiqada tayyor bo'ladi.",
+        analyzed: 'Tahlil qilindi',
+      },
+      highlights: {
+        title: "Highlight'lar topiladi",
+        text: 'Ace, 4K, clutch, no-scope va boshqalar — qaysi raund, qaysi soniya ekanigacha.',
+      },
+      clip: {
+        title: 'Klip yoziladi',
+        text: "Demo o'yin ichida qayta o'ynatilib yoziladi, MP4 saytda turadi.",
+        comingSoon: 'Tez orada',
+      },
+    },
+    kinds: {
+      title: 'Ikki xil klip',
+      highlight: {
+        label: 'Highlight klipi',
+        title: 'Bitta lahza, bitta video',
+        text: "Klip birinchi kill'dan 3 soniya oldin boshlanadi va oxirgisidan 2 soniya keyin tugaydi. Ortiqcha hech narsa yo'q.",
+      },
+      compilation: {
+        title: "Butun match, faqat kill'lar",
+        text: "Bir matchdagi barcha kill'laringiz ketma-ket, bitta videoda. Oralaridagi bo'sh vaqt kesib tashlanadi.",
+      },
+      legend: {
+        kill: 'Kill',
+        included: 'Videoga kiradigan qism',
+      },
+    },
+    statistics: {
+      label: 'Statistika',
+      title: "Klipdan tashqari — o'yiningiz raqamlarda",
+      text: "Har bir demo raundma-raund tahlil qilinadi. FACEIT bermaydigan ko'rsatkichlar ham shu yerda.",
+      bullets: ['K/D, ADR, HS% va KAST', "Entry va trade kill'lar", 'Clutch urinishlari va yutilganlari'],
+    },
+    closing: {
+      line: "Oxirgi matchingizda nima bo'lganini ko'ring.",
+      button: "O'yinchini qidirish",
+    },
   },
   player: {
     title: "O'yinchi",
