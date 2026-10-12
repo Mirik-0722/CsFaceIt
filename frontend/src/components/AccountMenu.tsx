@@ -30,12 +30,22 @@ function Face({ me }: { me: MeResponse }) {
  * when there is a player, the clips, and the way out. A popover, not a `menu` role: it holds a heading and links to
  * pages, which Tab walks through, and it closes on Escape, on a click outside and on following a link.
  */
-export default function AccountMenu({ me }: { me: MeResponse }) {
+export default function AccountMenu({ me, onSignedOut }: { me: MeResponse; onSignedOut: () => void }) {
   const t = useT()
-  const logout = useLogout()
+  const logout = useLogout(onSignedOut)
   const [open, setOpen] = useState(false)
+
+  // The error of a sign-out that failed is told in the menu, and goes when the menu closes (not while a sign-out is
+  // still on its way, which is not an error).
+  function close() {
+    setOpen(false)
+    if (logout.isError) {
+      logout.reset()
+    }
+  }
+
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
+    <Popover.Root open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
       <Popover.Trigger
         aria-label={t.auth.accountMenu(me.nickname)}
         className="inline-flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-line-strong bg-border text-sm font-semibold text-foreground transition-colors aria-expanded:border-foreground"
@@ -59,11 +69,11 @@ export default function AccountMenu({ me }: { me: MeResponse }) {
             </div>
             {/* The links close the menu themselves: a closer of the library would make each of them a `button`. */}
             {me.playerId && (
-              <Link to={`/players/${encodeURIComponent(me.playerId)}`} onClick={() => setOpen(false)} className={ROW}>
+              <Link to={`/players/${encodeURIComponent(me.playerId)}`} onClick={close} className={ROW}>
                 {t.auth.myStatistics}
               </Link>
             )}
-            <Link to="/clips" onClick={() => setOpen(false)} className={ROW}>
+            <Link to="/clips" onClick={close} className={ROW}>
               {t.nav.clips}
             </Link>
             {/* Not a closer: the menu stays until the backend has answered, so that a failure is told where it was asked

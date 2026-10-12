@@ -38,12 +38,13 @@ export default function TopBarSearch() {
         <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
         <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
-      {/* FACEIT's nickname lookup is case-sensitive: a phone must not capitalise or correct what is typed. */}
+      {/* FACEIT's nickname lookup is case-sensitive: a phone must not capitalise or correct what is typed. The text is
+          the mockup's 14px from `sm` up and 16px below, because an iPhone zooms the page into a field under 16px. */}
       <Input
         id={fieldId}
         name="q"
         type="search"
-        className="w-50 pr-3 pl-9 text-sm"
+        className="w-50 pr-3 pl-9 text-base sm:text-sm"
         placeholder={t.auth.searchPlaceholder}
         autoComplete="off"
         autoCapitalize="none"

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useMe } from '@/api/auth'
 import AccountMenu from '@/components/AccountMenu'
@@ -28,17 +28,32 @@ const ANCHORS = [
  * The bar above every page (spec 6): the logo, the navigation, and on the right the player search, the language and
  * the visitor's way in. The navigation depends on who is looking. A visitor who is not signed in finds, on the home
  * page, the sections of the landing page; elsewhere "Clips". A signed-in visitor always has the pages of their own
- * (matches, clips, statistics), the player ones when a FACEIT player is linked. The parts that depend on the answer
- * of `/auth/me` wait for it, so that nothing is drawn for a moment and then moved.
+ * (matches, clips, statistics), the player ones when a FACEIT player is linked.
+ *
+ * Until `/auth/me` has answered, the bar of a visitor who is not signed in (the common case) is drawn at its real size
+ * but cannot be seen, reached or read (`invisible`, `aria-hidden`, `inert`). When the answer says "not signed in",
+ * nothing moves; a signed-in visitor gets the one change, the avatar and the longer navigation.
  */
 export default function TopBar() {
   const t = useT()
   const me = useMe()
   const { pathname } = useLocation()
   const [signInOpen, setSignInOpen] = useState(false)
-  const settled = !me.isPending
+  const pending = me.isPending
   // A failed answer is a visitor who is not signed in: the bar still has to work when the backend does not.
   const user = me.data ?? null
+
+  // After a sign-out the focus goes to the button that takes the avatar's place: the avatar it was on is gone, and the
+  // browser would drop it on the body. Only a sign-out the visitor chose (`afterSignOut`) does that: a session that
+  // ends by itself must not take the focus from whatever the visitor is doing.
+  const signInRef = useRef<HTMLButtonElement>(null)
+  const afterSignOut = useRef(false)
+  useEffect(() => {
+    if (afterSignOut.current && user === null) {
+      afterSignOut.current = false
+      signInRef.current?.focus()
+    }
+  }, [user])
   const home = pathname === '/'
   // The landing page's bar is the lighter one: anchors of 44px and a right side that does not wrap by itself.
   const landing = home && user === null
@@ -48,10 +63,15 @@ export default function TopBar() {
   // The navigation of the inner pages gets a row of its own under it; the anchors of the landing page and the search
   // of the bar are left to wider screens (the page scrolls, and the home page has the search).
   const itemClass = cn(ITEM, landing ? 'min-h-11' : 'min-h-11 sm:min-h-17')
-  let navigation = null
-  if (settled && landing) {
+  let navigation
+  if (landing) {
     navigation = (
-      <nav aria-label={t.auth.sectionsLabel} className="flex flex-auto flex-wrap gap-1 max-md:hidden">
+      <nav
+        aria-label={t.auth.sectionsLabel}
+        aria-hidden={pending || undefined}
+        inert={pending}
+        className={cn('flex flex-auto flex-wrap gap-1 max-md:hidden', pending && 'invisible')}
+      >
         {ANCHORS.map(({ href, label }) => (
           <a key={href} href={href} className={itemClass}>
             {t.auth[label]}
@@ -59,11 +79,16 @@ export default function TopBar() {
         ))}
       </nav>
     )
-  } else if (settled) {
+  } else {
     navigation = (
       <nav
         aria-label={t.nav.label}
-        className="flex flex-auto flex-wrap gap-1 self-stretch max-sm:order-last max-sm:w-full"
+        aria-hidden={pending || undefined}
+        inert={pending}
+        className={cn(
+          'flex flex-auto flex-wrap gap-1 self-stretch max-sm:order-last max-sm:w-full',
+          pending && 'invisible',
+        )}
       >
         {playerPath && (
           <NavLink to={`${playerPath}/matches`} className={cn(itemClass, CURRENT)}>
@@ -96,9 +121,8 @@ export default function TopBar() {
           <Logo />
         </Link>
         {/* The navigation takes the free room (`flex-auto`: from its own width, so that on a narrow screen it wraps as
-            a whole to a row of its own and does not squeeze in beside the logo). Until the answer is here the room is
-            kept, so that the right side stays on the right. */}
-        {navigation ?? <div className="flex-1" />}
+            a whole to a row of its own and does not squeeze in beside the logo). */}
+        {navigation}
         <div
           className={cn(
             'ml-auto flex flex-wrap items-center gap-x-3 gap-y-2',
@@ -111,14 +135,26 @@ export default function TopBar() {
             </div>
           )}
           <LanguageSwitch />
-          {settled &&
-            (user ? (
-              <AccountMenu me={user} />
-            ) : (
-              <Button type="button" variant="outline" onClick={() => setSignInOpen(true)}>
-                {t.auth.signIn}
-              </Button>
-            ))}
+          {user ? (
+            <AccountMenu
+              me={user}
+              onSignedOut={() => {
+                afterSignOut.current = true
+              }}
+            />
+          ) : (
+            <Button
+              ref={signInRef}
+              type="button"
+              variant="outline"
+              aria-hidden={pending || undefined}
+              inert={pending}
+              className={pending ? 'invisible' : undefined}
+              onClick={() => setSignInOpen(true)}
+            >
+              {t.auth.signIn}
+            </Button>
+          )}
         </div>
       </div>
       <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />

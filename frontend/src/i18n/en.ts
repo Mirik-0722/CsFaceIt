@@ -39,6 +39,7 @@ export const en = {
     myStatistics: 'My statistics',
     signOut: 'Sign out',
     orByNickname: 'Or without signing in, by nickname',
+    byNickname: 'By nickname',
     signInFailed: 'The sign-in did not work. Try again.',
     unlinkedTag: 'FACEIT not found',
     unlinked: 'No FACEIT account is linked to this Steam account. You can search by nickname.',

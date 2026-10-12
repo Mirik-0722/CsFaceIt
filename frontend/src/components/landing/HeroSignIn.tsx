@@ -1,16 +1,18 @@
 import { Link } from 'react-router-dom'
 import { useMe } from '@/api/auth'
-import { FaceitSignInButton, SteamSignInButton } from '@/components/SignInButtons'
+import { FaceitComingSoon, FaceitSignInButton, SteamSignInButton } from '@/components/SignInButtons'
 import UnlinkedNotice from '@/components/UnlinkedNotice'
 import { buttonVariants } from '@/components/ui/button'
 import { useT } from '@/i18n'
+import { cn } from '@/lib/utils'
 
 /**
  * What the hero offers under its paragraph (spec 6). A visitor who is not signed in gets the two ways to sign in. A
  * signed-in one has no use for them: the way to their own statistics takes their place, or, when their Steam account
- * has no FACEIT player, the line that says so. Until `/auth/me` has answered the place is kept empty and as high as
- * the buttons, so that nothing under it moves when the answer comes. The providers are asked for by the FACEIT button,
- * which exists only for a visitor who needs it.
+ * has no FACEIT player, the line that says so. Until `/auth/me` has answered, the buttons of a visitor who is not
+ * signed in (the common case) are drawn at their real size but cannot be seen, reached or read, so that nothing under
+ * them moves when the answer says so. The providers are asked for by the FACEIT button, which exists only once the
+ * answer is here.
  *
  * `failed` is the sign-in that did not work (`/?login=failed`): one line above the buttons, in a polite live region.
  */
@@ -18,9 +20,9 @@ export default function HeroSignIn({ failed }: { failed: boolean }) {
   const t = useT()
   const me = useMe()
   const user = me.data ?? null
-  const settled = !me.isPending
+  const pending = me.isPending
 
-  let content = <div aria-hidden="true" className="min-h-13" />
+  let content
   if (user?.playerId) {
     content = (
       <Link
@@ -32,11 +34,11 @@ export default function HeroSignIn({ failed }: { failed: boolean }) {
     )
   } else if (user) {
     content = <UnlinkedNotice />
-  } else if (settled) {
+  } else {
     content = (
-      <div className="flex flex-wrap gap-3">
+      <div aria-hidden={pending || undefined} inert={pending} className={cn('flex flex-wrap gap-3', pending && 'invisible')}>
         <SteamSignInButton layout="hero" />
-        <FaceitSignInButton layout="hero" />
+        {pending ? <FaceitComingSoon layout="hero" /> : <FaceitSignInButton layout="hero" />}
       </div>
     )
   }

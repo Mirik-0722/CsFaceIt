@@ -1,5 +1,6 @@
 import { type SyntheticEvent, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { useMe } from '@/api/auth'
 import { usePlayerSearch } from '@/api/queries'
 import ClipKindsSection from '@/components/landing/ClipKindsSection'
 import ClosingCall from '@/components/landing/ClosingCall'
@@ -13,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
+import { cn } from '@/lib/utils'
 
 /** What the backend accepts as a nickname; anything else would only come back as a 400. */
 const NICKNAME_PATTERN = /^[A-Za-z0-9_-]{2,32}$/
@@ -27,6 +29,7 @@ const NICKNAME_PATTERN = /^[A-Za-z0-9_-]{2,32}$/
  */
 export default function SearchPage() {
   const t = useT()
+  const me = useMe()
   const [searchParams, setSearchParams] = useSearchParams()
   // Read once, when the page opens: what the visitor types afterwards is theirs, and the address does not follow it.
   const [handedOver] = useState(() => (searchParams.get('q') ?? '').trim())
@@ -101,8 +104,11 @@ export default function SearchPage() {
             <div className="mt-1 w-full border-t border-border pt-5">
               {/* The words that introduce the search, read before it. They are not the field's label (that is `nickname`,
                   below) and do not name the form: a second label would make two things of the page answer to the name
-                  of the field. */}
-              <p className="label-mono mb-2.5">{t.auth.orByNickname}</p>
+                  of the field. A visitor who is signed in is not told "or without signing in"; until the answer is
+                  here the words are not shown. */}
+              <p className={cn('label-mono mb-2.5', me.isPending && 'invisible')}>
+                {me.data ? t.auth.byNickname : t.auth.orByNickname}
+              </p>
               {/* The field and the button share a row where they fit and wrap where they do not. */}
               <form role="search" onSubmit={handleSubmit} className="flex flex-wrap gap-3">
                 {/* A real label, hidden: the placeholder is not a name, and it goes away as soon as something is
@@ -111,12 +117,13 @@ export default function SearchPage() {
                   {t.home.nicknameLabel}
                 </label>
                 {/* FACEIT's nickname lookup is case-sensitive: a phone must not capitalise or correct what is
-                    typed. */}
+                    typed. The text is the mockup's 15px from `sm` up and 16px below, because an iPhone zooms the page
+                    into a field under 16px. */}
                 <Input
                   id="nickname"
                   name="nickname"
                   ref={inputRef}
-                  className="flex-[1_1_260px] text-[15px]"
+                  className="flex-[1_1_260px] text-base sm:text-[15px]"
                   placeholder={t.home.placeholder}
                   autoComplete="off"
                   autoCapitalize="none"

@@ -42,8 +42,12 @@ export function useAuthProviders() {
   })
 }
 
-/** Signs out: the backend drops the session, and the cache then holds no visitor, so every page redraws itself. */
-export function useLogout() {
+/**
+ * Signs out: the backend drops the session, and the cache then holds no visitor, so every page redraws itself.
+ * `onSignedOut` runs after that, for the one thing the cache cannot say: that the visitor chose to sign out (and did
+ * not, say, lose the session), which is when the focus has somewhere to go.
+ */
+export function useLogout(onSignedOut?: () => void) {
   const queryClient = useQueryClient()
   return useMutation<void, ApiError>({
     // Not `apiPost`: that one carries the admin key and reads a JSON body, and this answer (204) has neither.
@@ -58,8 +62,11 @@ export function useLogout() {
         throw new ApiError(res.status, 'UNKNOWN', `Request failed with status ${res.status}`)
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      // A refetch of the visitor that is still on its way would write the old visitor back over the `null`.
+      await queryClient.cancelQueries({ queryKey: ME_KEY })
       queryClient.setQueryData<MeResponse | null>(ME_KEY, null)
+      onSignedOut?.()
     },
   })
 }

@@ -489,12 +489,14 @@ const SCENARIOS: Scenario[] = [
   { name: 'focus', before: pressTab },
 ]
 
-/** The `uz`/`en` choice as the app reads it: a context that starts with the key set in `localStorage`. */
-function languageState(language: Language) {
-  return {
-    cookies: [],
-    origins: [{ origin: 'http://localhost:5173', localStorage: [{ name: LANGUAGE_KEY, value: language }] }],
-  }
+/**
+ * The `uz`/`en` choice as the app reads it: the key set in `localStorage` before the page's own scripts run. It is set
+ * by a script of the page, not by a storage state, so that it reaches whichever origin the tool runs on (the one of
+ * the `baseURL` of the config): a state names its origin, and a tool on another port would photograph Uzbek only.
+ * (A script, not a function: this project has no DOM types to write one in.)
+ */
+async function setLanguage(page: Page, language: Language) {
+  await page.addInitScript(`localStorage.setItem(${JSON.stringify(LANGUAGE_KEY)}, ${JSON.stringify(language)})`)
 }
 
 interface Reply {
@@ -666,14 +668,13 @@ function defineShots() {
 
     for (const language of scenario.languages ?? ['uz']) {
       test.describe(`${scenario.name} in ${language}`, () => {
-        test.use({ storageState: languageState(language) })
-
         for (const viewport of scenario.viewports ?? DEFAULT_VIEWPORTS) {
           for (const shotPage of pages) {
             const name = `${scenario.name}-${shotPage.name}-${viewport.width}-${language}`
 
             test(name, async ({ page }) => {
               await page.setViewportSize(viewport)
+              await setLanguage(page, language)
               await mockApi(page, answersFor(backend))
               await page.goto(shotPage.path)
               await settle(page)

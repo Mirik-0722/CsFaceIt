@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react'
 import { useLocation } from 'react-router-dom'
 import { type AuthProvider, signInUrl, useAuthProviders } from '@/api/auth'
 import { Badge } from '@/components/ui/badge'
@@ -20,13 +21,48 @@ function SignInIcon() {
   )
 }
 
+// Once a sign-in has been started the page is on its way to the provider, and every sign-in button is off: a second
+// press, on the same button or on the other, would start a second sign-in. One flag for the whole page, because the
+// hero and the dialog each have their buttons.
+let leaving = false
+const listeners = new Set<() => void>()
+
+function setLeaving(next: boolean) {
+  leaving = next
+  listeners.forEach((listener) => listener())
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+// Back from the provider's page the browser may bring this page back as it was left (the back/forward cache), buttons
+// off and all: the visitor has to be able to start again.
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    setLeaving(false)
+  }
+})
+
 /**
  * Takes the whole page to the provider and, once the visitor is back, to the page they were on (path and query). It is
- * a navigation, not a request of the app: the provider's own page asks for the confirmation.
+ * a navigation, not a request of the app: the provider's own page asks for the confirmation. `leaving` is true from
+ * the first press on.
  */
 function useSignIn(provider: AuthProvider) {
   const { pathname, search } = useLocation()
-  return () => window.location.assign(signInUrl(provider, `${pathname}${search}`))
+  const isLeaving = useSyncExternalStore(subscribe, () => leaving)
+  function signIn() {
+    if (leaving) {
+      return
+    }
+    setLeaving(true)
+    window.location.assign(signInUrl(provider, `${pathname}${search}`))
+  }
+  return { signIn, leaving: isLeaving }
 }
 
 /**
@@ -40,9 +76,9 @@ const LAYOUT: Record<Layout, string> = { hero: 'px-5.5', dialog: 'w-full px-5' }
 /** "Sign in with Steam": the filled button, in the dialog and in the hero. */
 export function SteamSignInButton({ layout }: { layout: Layout }) {
   const t = useT()
-  const signIn = useSignIn('steam')
+  const { signIn, leaving } = useSignIn('steam')
   return (
-    <Button type="button" size="lg" onClick={signIn} className={cn('gap-3', LAYOUT[layout])}>
+    <Button type="button" size="lg" disabled={leaving} onClick={signIn} className={cn('gap-3', LAYOUT[layout])}>
       <SignInIcon />
       {t.auth.steamSignIn}
     </Button>
@@ -50,20 +86,12 @@ export function SteamSignInButton({ layout }: { layout: Layout }) {
 }
 
 /**
- * "Sign in with FACEIT": the outline button once the backend has the provider turned on. Until then (and when the
- * answer cannot be had) it is a muted box with the tag that says it is coming: nothing to press, so nothing that fails.
+ * The muted box that stands for "Sign in with FACEIT" while the backend does not have the provider turned on: the tag
+ * says it is coming, and there is nothing to press, so nothing that fails. It does not ask for the providers, so the
+ * hero can draw it, unseen, before it is known whether the visitor needs it.
  */
-export function FaceitSignInButton({ layout }: { layout: Layout }) {
+export function FaceitComingSoon({ layout }: { layout: Layout }) {
   const t = useT()
-  const providers = useAuthProviders()
-  const signIn = useSignIn('faceit')
-  if (providers.data?.faceit) {
-    return (
-      <Button type="button" variant="outline" size="lg" onClick={signIn} className={LAYOUT[layout]}>
-        {t.auth.faceitSignIn}
-      </Button>
-    )
-  }
   return (
     // The box is the dialog's (20px of padding) also in the hero, where the mockup draws no such state: the two buttons
     // then still share a row in English, whose words are a little longer.
@@ -79,4 +107,29 @@ export function FaceitSignInButton({ layout }: { layout: Layout }) {
       </Badge>
     </div>
   )
+}
+
+/**
+ * "Sign in with FACEIT": the outline button once the backend has the provider turned on; until then (and when the
+ * answer cannot be had) the muted box.
+ */
+export function FaceitSignInButton({ layout }: { layout: Layout }) {
+  const t = useT()
+  const providers = useAuthProviders()
+  const { signIn, leaving } = useSignIn('faceit')
+  if (providers.data?.faceit) {
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="lg"
+        disabled={leaving}
+        onClick={signIn}
+        className={LAYOUT[layout]}
+      >
+        {t.auth.faceitSignIn}
+      </Button>
+    )
+  }
+  return <FaceitComingSoon layout={layout} />
 }

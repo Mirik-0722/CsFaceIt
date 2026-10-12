@@ -34,6 +34,7 @@ export const uz: Messages = {
     myStatistics: 'Mening statistikam',
     signOut: 'Chiqish',
     orByNickname: "Yoki kirmasdan, nickname bo'yicha",
+    byNickname: "Nickname bo'yicha",
     signInFailed: "Kirish amalga oshmadi. Qayta urinib ko'ring.",
     unlinkedTag: 'FACEIT topilmasa',
     unlinked: "Bu Steam hisobiga FACEIT bog'lanmagan. Nickname bo'yicha qidirishingiz mumkin.",
