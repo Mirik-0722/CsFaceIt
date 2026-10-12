@@ -44,6 +44,8 @@ import org.hibernate.type.SqlTypes;
  *   <li>{@link #complete}: an active clip becomes {@code DONE}.
  *   <li>{@link #fail}: a {@code QUEUED} or active clip becomes {@code FAILED}.
  *   <li>{@link #requeue}: an active clip goes back to {@code QUEUED}, to be recorded again.
+ *   <li>{@link #release}: a clip that was just claimed goes back to {@code QUEUED} together with its attempt, because
+ *       the recorder could not be told of it.
  * </ul>
  */
 @Entity
@@ -294,8 +296,26 @@ public class Clip {
      */
     public void requeue(String error) {
         requireActive("be queued again");
-        this.status = ClipStatus.QUEUED;
         this.error = error;
+        forgetAttempt();
+    }
+
+    /**
+     * The recorder was never told that it holds the clip (the answer to its claim could not be made, for instance
+     * because the storage could not be asked for the demo): an active clip goes back to {@code QUEUED} as if it had
+     * not been claimed. What {@link #requeue} forgets is forgotten, and the attempt that the claim counted is given
+     * back, so that claims which came to nothing do not use a clip up. {@code error} stays as it is: the claim cleared
+     * it, and nothing has happened to the clip since.
+     */
+    public void release() {
+        requireActive("be given back");
+        forgetAttempt();
+        this.attempts = Math.max(0, attempts - 1);
+    }
+
+    /** Back in the queue: the claim, the progress and everything the attempt uploaded are forgotten. */
+    private void forgetAttempt() {
+        this.status = ClipStatus.QUEUED;
         this.claimedBy = null;
         this.claimedAt = null;
         this.heartbeatAt = null;

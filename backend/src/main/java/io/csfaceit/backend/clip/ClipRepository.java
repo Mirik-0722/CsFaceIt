@@ -72,12 +72,15 @@ public interface ClipRepository extends JpaRepository<Clip, Long> {
     @Query("select c from Clip c where c.id = :id")
     Optional<Clip> findByIdForUpdate(@Param("id") long id);
 
-    /** Whether the clip is held by that recorder: claimed by it and in one of {@code activeStatuses}. A look, no lock. */
+    /**
+     * The attempt that the recorder holds the clip in (its {@code attempts}, counted from 1), or nothing when it does
+     * not hold it: the clip is not claimed by it, or not in one of {@code activeStatuses}. A look, no lock.
+     */
     @Query("""
-            select count(c) > 0 from Clip c
+            select c.attempts from Clip c
             where c.id = :id and c.claimedBy = :worker and c.status in :activeStatuses""")
-    boolean isHeldBy(@Param("id") long id, @Param("worker") String worker,
-                     @Param("activeStatuses") Collection<ClipStatus> activeStatuses);
+    Optional<Integer> findAttemptHeldBy(@Param("id") long id, @Param("worker") String worker,
+                                        @Param("activeStatuses") Collection<ClipStatus> activeStatuses);
 
     /**
      * The ids of the active clips whose recorder has given no sign of life since {@code cutoff}; a clip without a

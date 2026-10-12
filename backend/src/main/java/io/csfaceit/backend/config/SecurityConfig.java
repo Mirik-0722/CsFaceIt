@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.csfaceit.backend.clip.ClipProperties;
 import io.csfaceit.backend.clip.worker.WorkerTokenAuthFilter;
 import io.csfaceit.backend.common.api.ApiError;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
@@ -109,7 +108,8 @@ public class SecurityConfig {
         return (request, response, authException) -> {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            String message = isWorkerApi(request) ? WORKER_UNAUTHORIZED_MESSAGE : UNAUTHORIZED_MESSAGE;
+            String message = WorkerTokenAuthFilter.isWorkerRequest(request)
+                    ? WORKER_UNAUTHORIZED_MESSAGE : UNAUTHORIZED_MESSAGE;
             mapper.writeValue(response.getOutputStream(), new ApiError(UNAUTHORIZED, message));
         };
     }
@@ -124,9 +124,5 @@ public class SecurityConfig {
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             mapper.writeValue(response.getOutputStream(), new ApiError(FORBIDDEN, FORBIDDEN_MESSAGE));
         };
-    }
-
-    private static boolean isWorkerApi(HttpServletRequest request) {
-        return WorkerTokenAuthFilter.isWorkerPath(request.getRequestURI());
     }
 }

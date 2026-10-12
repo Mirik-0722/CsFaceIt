@@ -1,6 +1,5 @@
 package io.csfaceit.backend.clip.worker.dto;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -11,9 +10,11 @@ import jakarta.validation.constraints.Size;
  * that is what the progress reports are for.
  */
 public record HeartbeatRequest(
-        @NotBlank @Size(max = WorkerLimits.NAME) String worker,
-        @Size(max = WorkerLimits.VERSION) String version,
-        @Size(max = WorkerLimits.MODE) String mode,
+        @WorkerName String worker,
+        @Size(max = WorkerLimits.VERSION) @Pattern(regexp = WorkerLimits.PLAIN, message = WorkerLimits.PLAIN_MESSAGE)
+        String version,
+        @Size(max = WorkerLimits.MODE) @Pattern(regexp = WorkerLimits.PLAIN, message = WorkerLimits.PLAIN_MESSAGE)
+        String mode,
         @NotNull @Pattern(regexp = "IDLE|WORKING", message = "must be IDLE or WORKING") String state,
         Long clipId) {
 }

@@ -37,6 +37,12 @@ import org.springframework.transaction.annotation.Transactional;
  * report that reaches the clip first keeps it from being taken back, and one that comes after the job has taken it
  * gets a {@code 409 CLIP_NOT_CLAIMED} and changes nothing. {@link Clip} checks neither who holds a clip nor a lock,
  * that is done here.
+ *
+ * <p>A request that takes long, an upload, belongs to the attempt it began in: it is told that attempt's number by its
+ * first look at the claim ({@link #attemptHeldBy}) and every later look and the final change under the lock
+ * ({@link #videoStored}, {@link #thumbnailStored}) find the clip held by the same recorder in the same attempt, or the
+ * answer is a 409. A recorder that has lost the clip and claimed it again (it keeps its name) is therefore not the
+ * holder that the earlier upload began under.
  */
 @Component
 public class WorkerPersistence {
@@ -155,15 +161,26 @@ public class WorkerPersistence {
     }
 
     /**
-     * Checks that the recorder holds the clip: it is claimed by it and in an active status. A look and no lock, for the
-     * recorder's requests that do their work before they change anything; the change itself looks again under the
-     * lock.
+     * The attempt that the recorder holds the clip in (counted from 1): the clip is claimed by it and in an active
+     * status. A look and no lock, for the recorder's requests that do their work before they change anything; the
+     * change itself looks again under the lock.
      *
      * @throws ConflictException {@code CLIP_NOT_CLAIMED}
      */
     @Transactional(readOnly = true)
-    public void requireHeldBy(long clipId, String worker) {
-        if (!clips.isHeldBy(clipId, worker, ACTIVE_STATUSES)) {
+    public int attemptHeldBy(long clipId, String worker) {
+        return clips.findAttemptHeldBy(clipId, worker, ACTIVE_STATUSES).orElseThrow(() -> notClaimed(clipId));
+    }
+
+    /**
+     * Checks that the recorder still holds the clip in {@code attempt}: the same look as {@link #attemptHeldBy}, which
+     * must find that attempt. Another look, no lock.
+     *
+     * @throws ConflictException {@code CLIP_NOT_CLAIMED}
+     */
+    @Transactional(readOnly = true)
+    public void requireHeldIn(long clipId, String worker, int attempt) {
+        if (attemptHeldBy(clipId, worker) != attempt) {
             throw notClaimed(clipId);
         }
     }
@@ -196,28 +213,45 @@ public class WorkerPersistence {
     }
 
     /**
-     * Records that the video is in storage: the clip becomes {@code UPLOADING}. The claim is looked at again under the
-     * lock, as the upload took a while, and a recorder that has lost the clip meanwhile changes nothing.
+     * Records that the video of {@code attempt} is in storage under {@code videoKey}: the clip becomes
+     * {@code UPLOADING}. The claim is looked at again under the lock, as the upload took a while: the clip has to be
+     * held by the same recorder in the same {@code attempt}, or the row is not changed and the answer is a 409.
      *
      * @throws ConflictException {@code CLIP_NOT_CLAIMED}
      */
     @Transactional
-    public void videoStored(long clipId, String worker, String videoKey, long sizeBytes) {
-        Clip clip = lockHeldBy(clipId, worker);
+    public void videoStored(long clipId, String worker, int attempt, String videoKey, long sizeBytes) {
+        Clip clip = lockHeldIn(clipId, worker, attempt);
         clip.videoStored(videoKey, sizeBytes);
         clips.saveAndFlush(clip);
     }
 
     /**
-     * Records that the thumbnail is in storage, with the same look under the lock as {@link #videoStored}.
+     * Records that the thumbnail of {@code attempt} is in storage, with the same look under the lock as
+     * {@link #videoStored}.
      *
      * @throws ConflictException {@code CLIP_NOT_CLAIMED}
      */
     @Transactional
-    public void thumbnailStored(long clipId, String worker, String thumbnailKey) {
-        Clip clip = lockHeldBy(clipId, worker);
+    public void thumbnailStored(long clipId, String worker, int attempt, String thumbnailKey) {
+        Clip clip = lockHeldIn(clipId, worker, attempt);
         clip.thumbnailStored(thumbnailKey);
         clips.saveAndFlush(clip);
+    }
+
+    /**
+     * Gives a clip that was just claimed back to the queue together with its attempt (see {@link Clip#release}): the
+     * claim came to nothing because the recorder could not be told of the clip. Under the lock, and only if the
+     * recorder still holds the clip in {@code attempt}. The recorder holds nothing now, so it is noted as idle.
+     *
+     * @throws ConflictException {@code CLIP_NOT_CLAIMED}
+     */
+    @Transactional
+    public void giveBack(long clipId, String worker, int attempt) {
+        Clip clip = lockHeldIn(clipId, worker, attempt);
+        clip.release();
+        clips.saveAndFlush(clip);
+        touchWorker(worker, null, null, STATE_IDLE, null);
     }
 
     /**
@@ -284,6 +318,15 @@ public class WorkerPersistence {
     private Clip lockHeldBy(long clipId, String worker) {
         Clip clip = clips.findByIdForUpdate(clipId).orElseThrow(() -> notClaimed(clipId));
         if (!isHeldBy(clip, worker)) {
+            throw notClaimed(clipId);
+        }
+        return clip;
+    }
+
+    /** The clip locked, provided the recorder holds it in that attempt. */
+    private Clip lockHeldIn(long clipId, String worker, int attempt) {
+        Clip clip = lockHeldBy(clipId, worker);
+        if (clip.getAttempts() != attempt) {
             throw notClaimed(clipId);
         }
         return clip;

@@ -1,5 +1,6 @@
 package io.csfaceit.backend.clip.worker;
 
+import io.csfaceit.backend.clip.ClipFiles;
 import io.csfaceit.backend.clip.ClipProperties;
 import io.csfaceit.backend.clip.ClipQuality;
 import io.csfaceit.backend.clip.ClipStatus;
@@ -30,7 +31,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
-import java.util.function.LongConsumer;
+import java.util.function.IntFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -72,6 +73,13 @@ public class WorkerService {
     public record DemoDownload(long sizeBytes, InputStream content) {
     }
 
+    /** What an upload does to the clip once its file is in storage: the row of {@code attempt} learns the key. */
+    @FunctionalInterface
+    private interface UploadRecorder {
+
+        void record(int attempt, String key, long sizeBytes);
+    }
+
     private final WorkerPersistence persistence;
     private final StorageService storage;
     private final ClipProperties properties;
@@ -82,22 +90,16 @@ public class WorkerService {
         this.properties = properties;
     }
 
-    /** Where the video of a clip is kept in the storage. */
-    public static String videoKey(long clipId) {
-        return "clips/" + clipId + ".mp4";
-    }
-
-    /** Where the thumbnail of a clip is kept in the storage. */
-    public static String thumbnailKey(long clipId) {
-        return "clips/" + clipId + ".jpg";
-    }
-
     /**
      * Gives the recorder the oldest queued clip of the qualities it can record, which becomes {@code RECORDING}, or
      * nothing when none is waiting. Each turn takes one clip in its own short transaction; one that cannot be recorded
      * (its demo file is gone, its player has no Steam ID) is failed there and the next is taken, so the loop ends: a
      * failed clip is not queued any more. The size of the demo file is asked of the storage after the claim has
-     * committed. A clip whose file is not there although the row names it is failed too, and the next is taken.
+     * committed. A clip whose file is not there although the row names it is failed too, and the next is taken. If the
+     * storage cannot be asked at all, the clip goes back to the queue with its attempt and the failure is thrown (the
+     * recorder is answered with a 503, and the next clip is not touched, so an outage cannot strand the queue).
+     *
+     * @throws StorageException the storage could not be asked
      */
     public Optional<WorkerJob> claim(ClaimRequest request) {
         String worker = request.worker();
@@ -155,7 +157,9 @@ public class WorkerService {
     }
 
     /**
-     * Takes the video the recorder uploads and stores it as {@link #videoKey}; the clip becomes {@code UPLOADING}.
+     * Takes the video the recorder uploads and stores it under {@link ClipFiles#video} of the attempt the recorder
+     * holds the clip in; the clip becomes {@code UPLOADING}. See {@link #store} for what happens to an upload of a
+     * recorder that loses the clip on the way.
      *
      * @param declaredLength the {@code Content-Length} of the request, or -1 when it has none
      * @param body the raw bytes of the video, read once and not closed here
@@ -164,14 +168,14 @@ public class WorkerService {
      * @throws BadRequestException there is no video in the request, or it was cut off
      */
     public void storeVideo(long clipId, String worker, long declaredLength, InputStream body) {
-        store(clipId, worker, "video", declaredLength, body, videoKey(clipId),
-                size -> persistence.videoStored(clipId, worker, videoKey(clipId), size));
+        store(clipId, worker, "video", declaredLength, body, attempt -> ClipFiles.video(clipId, attempt),
+                (attempt, key, size) -> persistence.videoStored(clipId, worker, attempt, key, size));
     }
 
-    /** Takes the thumbnail in the same way and stores it as {@link #thumbnailKey}; the status of the clip stays. */
+    /** Takes the thumbnail in the same way, under {@link ClipFiles#thumbnail}; the status of the clip stays. */
     public void storeThumbnail(long clipId, String worker, long declaredLength, InputStream body) {
-        store(clipId, worker, "thumbnail", declaredLength, body, thumbnailKey(clipId),
-                size -> persistence.thumbnailStored(clipId, worker, thumbnailKey(clipId)));
+        store(clipId, worker, "thumbnail", declaredLength, body, attempt -> ClipFiles.thumbnail(clipId, attempt),
+                (attempt, key, size) -> persistence.thumbnailStored(clipId, worker, attempt, key));
     }
 
     /**
@@ -213,10 +217,20 @@ public class WorkerService {
 
     /**
      * The job for a clip the recorder has been given, with the size of the demo file. When the file is not there
-     * although the demo row names it, the clip is failed instead and the recorder is given none.
+     * although the demo row names it, the clip is failed instead and the recorder is given none. When the storage
+     * cannot be asked at all, the recorder gets no job either: the clip goes back to the queue together with the
+     * attempt the claim counted (see {@link #giveBack}), and the failure goes on to the caller as it is.
+     *
+     * @throws StorageException the storage could not be asked
      */
     private Optional<WorkerJob> jobOf(ClaimedClip clip, String worker) {
-        OptionalLong demoSize = demoSize(clip.demoStorageKey());
+        OptionalLong demoSize;
+        try {
+            demoSize = demoSize(clip.demoStorageKey());
+        } catch (StorageException e) {
+            giveBack(clip, worker);
+            throw e;
+        }
         if (demoSize.isEmpty()) {
             try {
                 persistence.fail(clip.clipId(), worker, WorkerPersistence.DEMO_GONE, false, properties.maxAttempts());
@@ -233,6 +247,27 @@ public class WorkerService {
         return Optional.of(new WorkerJob(clip.clipId(), clip.kind(), clip.matchId(), clip.mapName(),
                 clip.focusSteamId(), clip.tickRate(), clip.segments(), clip.width(), clip.height(), clip.fps(),
                 demoSize.getAsLong(), clip.demoVersion()));
+    }
+
+    /**
+     * Gives the clip that was just claimed back to the queue, with its attempt: the recorder is about to get an error
+     * and not the clip, and a clip that nobody works on must neither wait for the stale check nor use an attempt up
+     * (a storage that is down would otherwise strand a queued clip with every poll of the recorder). If the clip cannot
+     * be given back, which only a failure of the database or a clip taken away in the meantime can cause, it is left
+     * to the stale check, and the storage failure stays the answer.
+     */
+    private void giveBack(ClaimedClip clip, String worker) {
+        try {
+            persistence.giveBack(clip.clipId(), worker, clip.attempts());
+            log.warn("The storage could not be asked for the demo of clip {}: it is back in the queue, not given to {}",
+                    clip.clipId(), worker);
+        } catch (ConflictException e) {
+            log.warn("Clip {} was taken from {} before it could be given back after a storage failure", clip.clipId(),
+                    worker);
+        } catch (RuntimeException e) {
+            log.error("Clip {} could not be given back after a storage failure; the stale check will return it",
+                    clip.clipId(), e);
+        }
     }
 
     /**
@@ -255,16 +290,25 @@ public class WorkerService {
     }
 
     /**
-     * One upload, in this order: the claim is looked at; the body goes to a temporary file, counted, and is refused if
-     * it is larger than {@code clip.upload-max-size} (the declared length is held against it before a byte is read);
-     * the file goes to the storage; and then the claim is looked at again, under the row lock, as the clip may have
-     * been taken back while the upload ran, and the upload is recorded. If the claim was lost, the answer is a 409 and
-     * the object stays in the storage, where the next attempt overwrites it and a delete removes it. No transaction is
-     * open while the body is read or the storage is written, and the temporary file is deleted in every case.
+     * One upload, in this order: the claim is looked at, which tells the attempt the recorder holds the clip in; the
+     * body goes to a temporary file, counted, and is refused if it is larger than {@code clip.upload-max-size} (the
+     * declared length is held against it before a byte is read); the claim is looked at once more, so that a body that
+     * arrives after the clip was taken away is normally not stored at all; the file goes to the storage under the keys
+     * of that attempt; and then the claim is looked at again under the row lock, which has to find the clip held by the
+     * same recorder in the same attempt, and the upload is recorded.
+     *
+     * <p>The row of the clip is never changed by an upload of a recorder that is not the holder any more, nor of an
+     * attempt that is over: the answer is a 409. Between the last two looks lies the transfer to the storage, and a
+     * clip can be taken away in it. The object of such an upload is stored all the same, but under the key of its own
+     * attempt, which no other attempt writes and no row names: nothing reads it, and deleting the clip removes the
+     * files of every attempt. So a late upload cannot replace the object that the row names, as one key for all
+     * attempts would let it. No transaction is open while the body is read or the storage is written, and the
+     * temporary file is deleted in every case.
      */
-    private void store(long clipId, String worker, String what, long declaredLength, InputStream body, String key,
-                       LongConsumer recordUpload) {
-        persistence.requireHeldBy(clipId, worker);
+    private void store(long clipId, String worker, String what, long declaredLength, InputStream body,
+                       IntFunction<String> keyOfAttempt, UploadRecorder recorder) {
+        int attempt = persistence.attemptHeldBy(clipId, worker);
+        String key = keyOfAttempt.apply(attempt);
         long max = properties.uploadMaxSize().toBytes();
         if (declaredLength > max) {
             throw new MaxUploadSizeExceededException(max);
@@ -276,15 +320,23 @@ public class WorkerService {
             if (size == 0) {
                 throw new BadRequestException("The request body is empty");
             }
-            storage.put(key, file);
             try {
-                recordUpload.accept(size);
+                persistence.requireHeldIn(clipId, worker, attempt);
             } catch (ConflictException e) {
-                log.warn("Recorder {} lost clip {} while it uploaded the {}; {} stays in the storage", worker, clipId,
-                        what, key);
+                log.warn("Recorder {} lost clip {} (attempt {}) while it uploaded the {}; the body is not stored",
+                        worker, clipId, attempt, what);
                 throw e;
             }
-            log.info("Stored the {} of clip {} from {}: {} bytes as {}", what, clipId, worker, size, key);
+            storage.put(key, file);
+            try {
+                recorder.record(attempt, key, size);
+            } catch (ConflictException e) {
+                log.warn("Recorder {} lost clip {} (attempt {}) while it uploaded the {}; {} stays in the storage and "
+                        + "no row names it", worker, clipId, attempt, what, key);
+                throw e;
+            }
+            log.info("Stored the {} of clip {} (attempt {}) from {}: {} bytes as {}", what, clipId, attempt, worker,
+                    size, key);
         } finally {
             deleteQuietly(file);
         }

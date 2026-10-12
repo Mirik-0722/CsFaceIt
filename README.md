@@ -246,6 +246,7 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip file expands beyond it), or a recorder's video or thumbnail is larger than `CLIP_UPLOAD_MAX_SIZE`. |
 | 429 | `CLIP_QUEUE_FULL` | A new clip was requested but the queue of clips is full; see [Video clips](#video-clips). |
 | 502 | `FACEIT_UNAVAILABLE` | FACEIT failed or timed out after retries, or refused the request (for example a rejected `FACEIT_API_KEY`, which is not retried), and no cached copy exists. |
+| 503 | `STORAGE_UNAVAILABLE` | The storage cannot do what a recorder's request needs; see [Worker API](#worker-api-the-recorder). |
 
 FACEIT responses are cached in Redis (player profile 5 minutes, match history 2 minutes, finished match 24 hours),
 and an expired copy is served when FACEIT is down.
@@ -773,23 +774,39 @@ seconds in every stage, while downloading the demo, recording, encoding and uplo
 request, so the reports go out on a timer of their own). A clip that has had no report for `clip.stale-after` (3 minutes)
 is taken back by a job that runs every 30 seconds: it goes back to the queue with the error "The recorder stopped
 responding", or is `FAILED` with it when it has had `clip.max-attempts` attempts. An attempt is counted when the clip is
-claimed. **A `409 CLIP_NOT_CLAIMED` to any request about a clip means: stop working on it.** The clip is not held by that
-`worker` (it was taken back, finished, failed or deleted, or there is no such clip); whatever the recorder has done for
-it is thrown away, and a late request changes nothing.
+claimed. **A `409 CLIP_NOT_CLAIMED` to any request about a clip means: stop working on it, and abort an upload that is in
+flight.** The clip is not held by that `worker` (it was taken back, finished, failed or deleted, or there is no such
+clip), or not in the attempt that the request began in (an upload of an earlier attempt, after the recorder has claimed
+the clip again). The row of the clip is never changed by such a late request. The body of an upload that arrives after
+the claim was lost is normally not stored at all; one that was already on its way to the storage is stored under the key
+of its own attempt (`clips/{clipId}-{attempt}.mp4`), which no later attempt writes and no row names: nothing reads it,
+and deleting the clip removes it. Every attempt uploads under keys of its own, so an earlier attempt can never replace
+the file that the clip's row names.
 
 | Method and path | Request | Success | Errors |
 | --- | --- | --- | --- |
-| `POST /claim` | JSON `{"worker": "pc-1", "version": "1.0", "mode": "game", "qualities": ["720p", "1080p"]}`. `worker` is the name of the recorder (required, at most 64 characters), `version` (at most 32) and `mode` (at most 16) are for the operator, `qualities` are the qualities it can record (left out or empty: every quality). | `200` and the job (below): the oldest waiting clip of those qualities, now `RECORDING` with `progress` 0, held by `worker`, one more attempt counted. `204`, no body, when none is waiting. | `400 VALIDATION_ERROR` |
+| `POST /claim` | JSON `{"worker": "pc-1", "version": "1.0", "mode": "game", "qualities": ["720p", "1080p"]}`. `worker` is the name of the recorder (required, at most 64 characters), `version` (at most 32) and `mode` (at most 16) are for the operator; all three are made only of letters, digits, `.`, `_` and `-`, anything else is a `400`, `qualities` are the qualities it can record (left out or empty: every quality). | `200` and the job (below): the oldest waiting clip of those qualities, now `RECORDING` with `progress` 0, held by `worker`, one more attempt counted. `204`, no body, when none is waiting. | `400 VALIDATION_ERROR`, `503 STORAGE_UNAVAILABLE` (the storage could not be asked for the size of the demo: the clip goes back to the queue with its attempt, and the recorder waits a while before it asks again) |
 | `POST /clips/{clipId}/progress` | JSON `{"worker": "pc-1", "stage": "RECORDING", "progress": 40}`. `stage` is `RECORDING`, `ENCODING` or `UPLOADING` (the clip takes it as its status, so an earlier stage is possible too), `progress` the percent done, 0 to 100. | `204`. The clip shows the stage and percent in `GET /api/v1/clips/{clipId}`. | `400 VALIDATION_ERROR`, `409 CLIP_NOT_CLAIMED` |
-| `GET /clips/{clipId}/demo?worker=pc-1` | The name of the recorder in the query. | `200`, `Content-Type: application/zstd`, `Content-Length` of the job's `demoSizeBytes`: the demo as it is stored, compressed with zstd (`zstd -d` gives the `.dem`). Streamed. | `400 VALIDATION_ERROR` (no `worker`), `409 CLIP_NOT_CLAIMED`, `410 DEMO_NOT_AVAILABLE` (the file is not stored any more, or the demo is not parsed) |
-| `PUT /clips/{clipId}/video?worker=pc-1` | The MP4 file as the raw body, `Content-Type: video/mp4`; not empty, and not larger than `CLIP_UPLOAD_MAX_SIZE` (a `Content-Length` above it is refused before the body is read). | `204`. The video is stored as `clips/{clipId}.mp4`, the clip becomes `UPLOADING` with `sizeBytes`. A video that is sent again replaces the first. | `400 VALIDATION_ERROR` (empty body, or cut off), `409 CLIP_NOT_CLAIMED` (also when the clip was taken back while the file was on its way: nothing is recorded then), `413 PAYLOAD_TOO_LARGE`, `415 UNSUPPORTED_MEDIA_TYPE` |
-| `PUT /clips/{clipId}/thumbnail?worker=pc-1` | The JPEG file as the raw body, `Content-Type: image/jpeg`; the same limits. | `204`. Stored as `clips/{clipId}.jpg`; the status of the clip stays. | As for the video |
+| `GET /clips/{clipId}/demo?worker=pc-1` | The name of the recorder in the query. | `200`, `Content-Type: application/zstd`, `Content-Length` of the job's `demoSizeBytes`: the demo as it is stored, compressed with zstd (`zstd -d` gives the `.dem`). Streamed. | `400 VALIDATION_ERROR` (no `worker`), `409 CLIP_NOT_CLAIMED`, `410 DEMO_NOT_AVAILABLE` (the file is not stored any more, or the demo is not parsed), `503 STORAGE_UNAVAILABLE` (the storage cannot be read; if it fails with part of the file sent, the connection is broken instead, so a download that ends short of its `Content-Length` is a failed download) |
+| `PUT /clips/{clipId}/video?worker=pc-1` | The MP4 file as the raw body, `Content-Type: video/mp4`; not empty, and not larger than `CLIP_UPLOAD_MAX_SIZE` (a `Content-Length` above it is refused before the body is read). | `204`. The video is stored as `clips/{clipId}-{attempt}.mp4`, `attempt` being the number of the attempt the clip is in (its `attempts`, counted from 1), and the clip becomes `UPLOADING` with `sizeBytes`. A video that is sent again in the same attempt replaces the first. | `400 VALIDATION_ERROR` (empty body, or cut off), `409 CLIP_NOT_CLAIMED` (also when the clip was taken back while the file was on its way, or the recorder has claimed it again meanwhile: nothing is recorded then), `413 PAYLOAD_TOO_LARGE`, `415 UNSUPPORTED_MEDIA_TYPE`, `503 STORAGE_UNAVAILABLE` |
+| `PUT /clips/{clipId}/thumbnail?worker=pc-1` | The JPEG file as the raw body, `Content-Type: image/jpeg`; the same limits. | `204`. Stored as `clips/{clipId}-{attempt}.jpg`; the status of the clip stays. | As for the video |
 | `POST /clips/{clipId}/complete` | JSON `{"worker": "pc-1", "durationMs": 14500, "width": 1280, "height": 720}`; all three numbers are positive. | `204`. The clip is `DONE`, `progress` 100, with `durationMs`, and `videoUrl` is set. | `400 VALIDATION_ERROR`, `409 CLIP_NOT_CLAIMED`, `409 CLIP_VIDEO_MISSING` (no video was uploaded in this attempt) |
-| `POST /clips/{clipId}/fail` | JSON `{"worker": "pc-1", "error": "The game crashed", "retryable": true}`. `error` is kept on the clip (cut to 2000 characters). | `204`. With `retryable` true and fewer than `clip.max-attempts` attempts so far the clip goes back to the queue (`QUEUED`, the claim, the progress and the uploaded files forgotten, the `error` kept until it is claimed again); otherwise it is `FAILED` with the `error`. | `400 VALIDATION_ERROR`, `409 CLIP_NOT_CLAIMED` |
+| `POST /clips/{clipId}/fail` | JSON `{"worker": "pc-1", "error": "The game crashed", "retryable": true}`. `error` is kept on the clip (cut to 2000 characters), and `GET /api/v1/clips/{clipId}` shows it to everyone: it must hold no local path and no stack trace. | `204`. With `retryable` true and fewer than `clip.max-attempts` attempts so far the clip goes back to the queue (`QUEUED`, the claim, the progress and the uploaded files forgotten, the `error` kept until it is claimed again); otherwise it is `FAILED` with the `error`. | `400 VALIDATION_ERROR`, `409 CLIP_NOT_CLAIMED` |
 | `POST /heartbeat` | JSON `{"worker": "pc-1", "version": "1.0", "mode": "game", "state": "IDLE", "clipId": null}`. `state` is `IDLE` or `WORKING`; `clipId` is the clip it works on, if any. | `204`. The recorder counts as seen (`GET /api/v1/recorder/status`). It does not keep a clip alive; progress reports do. | `400 VALIDATION_ERROR` |
 
 `claim` and `progress` count as a sighting of the recorder too, so a recorder that asks for work every few seconds
 needs no heartbeat while it is idle.
+
+**An answer can arrive before the body is sent.** The backend refuses an upload without reading the rest of its body (a
+clip that is not the recorder's: `409`; a body that is too large: `413`; a wrong token: `401`), and Nginx passes the
+answer on at once. `curl` shows the JSON answer when it comes, after the first megabytes of a 350 MiB body. A client that
+sends the whole body before it reads the answer may see a broken connection instead of the answer: it then asks about
+the clip with a `progress` call, whose answer (`204`, or `409 CLIP_NOT_CLAIMED`) says whether the claim still holds.
+
+**The name of a recorder** (`worker`) has to be unique among the recorders that run at the same time: the check that a
+clip is the recorder's rests on it, and two recorders with one name would be taken for one. A `claim` whose answer was
+lost on the way may still have claimed a clip: it is `RECORDING` for a recorder that never saw the job, and comes back to
+the queue by the stale check after `clip.stale-after`, with the attempt counted.
 
 The job that `claim` answers with:
 

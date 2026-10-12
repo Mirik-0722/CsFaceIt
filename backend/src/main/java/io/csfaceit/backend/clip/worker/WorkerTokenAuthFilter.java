@@ -83,7 +83,7 @@ public class WorkerTokenAuthFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        if (isWorkerPath(requestedPath(request)) && matches(request.getHeader(HEADER_NAME))) {
+        if (isWorkerRequest(request) && matches(request.getHeader(HEADER_NAME))) {
             SecurityContext context = contextHolder.createEmptyContext();
             context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(PRINCIPAL, null, AUTHORITIES));
             contextHolder.setContext(context);
@@ -94,6 +94,15 @@ public class WorkerTokenAuthFilter extends OncePerRequestFilter {
     /** Whether the path is the recorder's API: {@code /api/worker} and what is below it, not {@code /api/workers}. */
     public static boolean isWorkerPath(String path) {
         return path.equals(PATH_ROOT) || path.startsWith(PATH_ROOT + "/");
+    }
+
+    /**
+     * Whether the request is for the recorder's API: its path is (see {@link #isWorkerPath}), and on the error
+     * dispatch the path is the one the failed request had, not {@code /error}. The 401 of the application uses it too,
+     * to name the header the path takes.
+     */
+    public static boolean isWorkerRequest(HttpServletRequest request) {
+        return isWorkerPath(requestedPath(request));
     }
 
     /** The path the client asked for; on the error dispatch the container has put it in a request attribute. */
