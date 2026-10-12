@@ -1035,10 +1035,10 @@ snapshot whatever the number of rounds and players. A `matchId` that is not made
 | --- | --- |
 | `rounds` | One entry for each round of the demo, by `number` (from 1, on through overtime). |
 | `rounds[].winnerSide` | `"CT"` or `"T"`: the side that won the round. `null` when the demo does not say. |
-| `rounds[].winnerPlayerIds` | The ids of the players who played the round on the winning side (their `round_players` rows), ascending, five in a full round; empty when `winnerSide` is `null`. An id is the `playerId` of the highlights: the FACEIT player id, or `steam:<SteamID>` for a player known only from the demo. |
-| `players` | One entry for each player whose row of statistics was analyzed from the demo (`rounds_played` is set; the rows that only hold FACEIT's numbers are not part of it), by `playerId`. |
+| `rounds[].winnerPlayerIds` | The ids of the players who played the round on the winning side (their `round_players` rows), in ascending bytewise order, five in a full round; empty when `winnerSide` is `null`. An id is the `playerId` of the highlights: the FACEIT player id, or `steam:<SteamID>` for a player known only from the demo. |
+| `players` | One entry for each player whose row of statistics was analyzed from the demo (`rounds_played` is set; the rows that only hold FACEIT's numbers are not part of it), by `playerId` in bytewise order. |
 | `players[].kast` | The KAST of the match, a percentage with one decimal, rounded as the `kast` of `.../stats` is. `null` when it was not computed. |
-| `players[].entryKills`, `tradeKills`, `clutchWins`, `clutchAttempts` | The counts of the match (see the columns of `player_match_stats` in [Analysis](#analysis)). `null` when not computed, never 0. |
+| `players[].entryKills`, `tradeKills`, `clutchWins`, `clutchAttempts` | The counts of the match (see the columns of `player_match_stats` in [Analysis](#analysis)). `null` when the analysis did not compute the figure (it is not reported as 0); a player with none has 0. |
 
 Both lists follow the rule of the highlights: a match the database does not know, and one whose demo is not `ANALYZED`
 (it has no demo, or the demo was uploaded again and is not yet analyzed), is a `200` with `"rounds": []` and

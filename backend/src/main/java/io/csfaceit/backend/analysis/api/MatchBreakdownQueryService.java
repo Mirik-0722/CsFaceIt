@@ -20,12 +20,12 @@ import org.springframework.transaction.annotation.Transactional;
  * Reads the breakdown of a match for its page: who won each round, and the numbers the analysis computed for each
  * player. It only reads the database: nothing here talks to FACEIT.
  *
- * <p>Like the highlights, the breakdown is served only while the demo of the match is {@code ANALYZED}. Once the demo
- * was uploaded again (it is {@code STORED}, then {@code PARSED}) the new parse has replaced the rounds, while the
- * figures of the players are still those of the earlier analysis until a new one has run; a demo that was parsed again
- * and failed leaves both from a file that is no longer the stored one. Either way the answer would not describe one
- * demo. A match whose demo is in any other status, that has no demo, or that the database does not know has two empty
- * lists.
+ * <p>Like the highlights, the breakdown is served only while the demo of the match is {@code ANALYZED}. A demo that
+ * was uploaded again is {@code STORED} with the earlier facts still in place; once it has been parsed again
+ * ({@code PARSED}) the new parse has replaced the rounds, while the figures of the players are still those of the
+ * earlier analysis until a new one has run; a demo that was parsed again and failed leaves both from a file that is
+ * no longer the stored one. Either way the answer would not describe one demo. A match whose demo is in any other
+ * status, that has no demo, or that the database does not know has two empty lists.
  *
  * <p>The breakdown is two statements, whatever the number of rounds and players: one for the rounds with the ids of the
  * players who won each, and one for the players. Both carry the same gate and run in one read-only transaction on one
