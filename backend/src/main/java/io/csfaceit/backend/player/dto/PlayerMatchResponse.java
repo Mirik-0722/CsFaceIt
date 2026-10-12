@@ -13,8 +13,8 @@ import java.util.Map;
  *   <li>{@code mapName}: {@code null} while the match is not stored or has no map yet.
  *   <li>{@code kills}, {@code deaths}, {@code assists}: the player's own numbers, {@code null} while there is no row of
  *       statistics for him in this match.
- *   <li>{@code adr}: the player's damage per round with one decimal, and only when the match was analyzed from a demo;
- *       {@code null} otherwise.
+ *   <li>{@code adr}: the player's damage per round with one decimal, and only when his own numbers in this match come
+ *       from the analysis of a demo; {@code null} otherwise, also in an analyzed match whose demo does not hold him.
  *   <li>{@code demoStatus}: the status of the match's demo as the demo endpoints name it ({@code ANALYZED} and so on),
  *       {@code null} when the match has no demo.
  *   <li>{@code highlights}: the player's highlights in this match by type, the most frequent type first, then by name;

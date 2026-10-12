@@ -1005,9 +1005,11 @@ whole page (three statements, whatever `limit` is).
 - `GET /api/v1/players/{playerId}/matches?offset=0&limit=20`: `{"items": [...], "offset": 0, "limit": 20}`. The
   items are the lines `.../history` returns for the same `offset` and `limit` (`matchId`, `startedAt`, `finishedAt`,
   `result`, `score`, with the same limits on the parameters and the same errors, including `404 PLAYER_NOT_FOUND` and
-  `502 FACEIT_UNAVAILABLE`), each with `mapName` (`null` while the match is not stored), the player's `kills`,
-  `deaths` and `assists` in it (`null` while there is no row of statistics for him), `adr` (one decimal, `null` unless
-  the match was analyzed), `demoStatus` (`null` without a demo), `highlights` (his highlights in the match by type, as
+  `502 FACEIT_UNAVAILABLE`), each with `mapName` (`null` while the match is not stored or has no map yet), the
+  player's `kills`, `deaths` and `assists` in it (`null` while there is no row of statistics for him), `adr` (one
+  decimal, `null` unless his numbers in the match come from the analysis of a demo: an analyzed demo that does not
+  hold him leaves it `null`), `demoStatus` (`null` without a demo), `highlights` (his highlights in the match by
+  type, as
   above; empty list) and `clips`: `{"done": 1, "active": 1, "failed": 0}`, the clips of the match that follow the
   player, `active` being every clip that is neither `DONE` nor `FAILED` (waiting in the queue, being recorded, encoded
   or uploaded).

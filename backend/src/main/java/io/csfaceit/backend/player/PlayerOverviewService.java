@@ -38,7 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
  *       match has none.
  *   <li>Highlights are counted under the rule the highlight endpoints serve them by: only while the demo of their match
  *       is {@code ANALYZED}. After a demo was uploaded again the earlier analysis' rows are still in the table but
- *       belong to a file that is no longer the stored one, and the figures here must equal what the lists show.
+ *       belong to a file that is no longer the stored one, and the figures here are meant to agree with the lists.
  *   <li>A page of matches costs three statements whatever its size, each for the whole page ({@code IN} over the
  *       match ids): the numbers of the player with the map and the demo, his highlights by type, and his clips by
  *       status. They run in one read-only transaction on one snapshot, so a demo that is analyzed again in between
