@@ -11,9 +11,9 @@ spring:
   servlet.multipart:
     max-file-size: ${demo.upload.max-size}
     max-request-size: ${demo.upload.max-size}
-  # The scheduled jobs (the daily clean-up of old files, the check for clips whose recorder has gone quiet) share one
-  # scheduler, whose default is a single thread. With two, the check that has to run every 30 seconds does not wait
-  # behind a clean-up that takes minutes.
+  # The scheduled jobs (the daily clean-ups of old demo files and old clips, the check for clips whose recorder has gone
+  # quiet, the read of the clip gauges) share one scheduler, whose default is a single thread. With two, the check that
+  # has to run every 30 seconds does not wait behind a clean-up that takes minutes.
   task.scheduling.pool.size: 2
   data.redis:
     host: ${REDIS_HOST:localhost}

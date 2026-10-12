@@ -30,11 +30,12 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Asking for the clip of a highlight, deleting a clip, and reading clips and the state of the recorder. The request and
- * the delete are a {@code POST} and a {@code DELETE} and need the admin key like every other write; the reads are open
- * and answer from the database only: an id the database does not know gives an empty list, not a 404 (a single clip
- * that does not exist is a 404). A {@code quality} that is not one of the {@link ClipQuality} labels is a 400. The
- * video and the thumbnail of a clip are served by {@link ClipMediaController}.
+ * Asking for the clip of a highlight or for the compilation of a player's kills in a match, deleting a clip, and
+ * reading clips and the state of the recorder. The two requests are {@code POST}s and the delete a {@code DELETE}, and
+ * all three need the admin key like every other write; the reads are open and answer from the database only: an id the
+ * database does not know gives an empty list, not a 404 (a single clip that does not exist is a 404). A {@code quality}
+ * that is not one of the {@link ClipQuality} labels is a 400. The video and the thumbnail of a clip are served by
+ * {@link ClipMediaController}.
  */
 @RestController
 @RequestMapping("/api/v1")

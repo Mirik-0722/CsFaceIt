@@ -23,8 +23,9 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
   Actuator and Prometheus metrics.
 - `parser/` - the Rust worker that parses stored demos ([`parser/README.md`](parser/README.md)).
 - `recorder/` - the recorder that turns the clips that were asked for into videos: it takes them from the backend's
-  worker API, records them and uploads the MP4 and a thumbnail ([`recorder/README.md`](recorder/README.md)). Only its
-  fake recording mode, a test pattern made by ffmpeg, exists so far.
+  worker API, records them and uploads the MP4 and a thumbnail ([`recorder/README.md`](recorder/README.md)). Its fake
+  recording mode, a test pattern made by ffmpeg, runs the whole chain; the mode that plays the demo in CS2 on Windows
+  is not written yet (see [Video clips](#video-clips)).
 - `frontend/` - React + TypeScript single-page app built with Vite. In production Nginx serves it and proxies `/api/`
   to the backend. Its look follows the "A · REC" design: colours, type, components and screens are specified in
   [`docs/superpowers/specs/2026-10-11-web-ui-design.md`](docs/superpowers/specs/2026-10-11-web-ui-design.md), which
@@ -164,11 +165,9 @@ The fake ids, what it serves and how to serve a real demo file are described in
 stack has to be taken down with `down -v` before you switch between the real and the fake mode (see
 [Operational notes](#operational-notes)).
 
-The override also starts `recorder-fake`, the [recorder](recorder/README.md) in its fake recording mode. It takes the
-clips that are asked for (see [Video clips](#video-clips)) from the queue, makes a test pattern with ffmpeg in place of
-playing the demo, and uploads it, so the whole chain from the button to the player can be tried without a game. It
-records in real time by default, so a ten-second clip takes about ten seconds; `FAKE_SPEED=0` in the environment of
-the `docker compose` command makes it as fast as ffmpeg goes.
+The override also starts `recorder-fake`, the [recorder](recorder/README.md) in its fake recording mode, so that the
+clips that are asked for (see [Video clips](#video-clips)) are recorded, as a test pattern, without a game; how it goes
+and what `FAKE_SPEED` does are in [The fake recorder](#the-fake-recorder).
 
 ## Run in dev mode
 
@@ -249,10 +248,10 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 400 | `VALIDATION_ERROR` | A nickname, id, highlight `type` or paging parameter is malformed; for the upload also a bad file name, an empty or corrupt file, or a multipart body that is malformed or was cut off. |
 | 401 | `UNAUTHORIZED` | A protected request is missing a valid `X-API-Key` header; a request to the recorder's API (`/api/worker/**`) a valid `X-Worker-Token` header. |
 | 403 | `FORBIDDEN` | The request has a valid credential that its path does not accept: the admin key on the recorder's API. |
-| 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND`, `DEMO_NOT_FOUND` | FACEIT does not know the player or match, or the match has no demo record yet. |
+| 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND`, `DEMO_NOT_FOUND` | FACEIT does not know the player or match, or the match has no demo record yet. The request for the compilation of a player's kills does not ask FACEIT: there the first two say that the database has no such match or player; see [Video clips](#video-clips). |
 | 404 | `HIGHLIGHT_NOT_FOUND`, `CLIP_NOT_FOUND` | There is no such highlight (or its demo is not `ANALYZED`) or clip; see [Video clips](#video-clips). |
 | 409 | `DEMO_URL_UNAVAILABLE`, `DEMO_NOT_PARSED` | A demo import was requested but FACEIT has no demo for the match (yet); or an analysis was requested but the demo is not `PARSED` or `ANALYZED`. |
-| 409 | `DEMO_NOT_AVAILABLE`, `PLAYER_STEAM_ID_UNKNOWN`, `CLIP_TOO_LONG` | A new clip was requested but the demo file is not stored, the player's SteamID is unknown, or the clip would be longer than allowed; see [Video clips](#video-clips). |
+| 409 | `DEMO_NOT_AVAILABLE`, `PLAYER_STEAM_ID_UNKNOWN`, `NO_KILLS`, `CLIP_TOO_LONG` | A new clip was requested but the demo file is not stored, the player's SteamID is unknown, the player made no kill of an enemy in the match (a compilation), or the clip would be longer than allowed; see [Video clips](#video-clips). |
 | 409 | `CLIP_IN_PROGRESS` | A clip was to be deleted while a recorder works on it; see [Video clips](#video-clips). |
 | 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip file expands beyond it), or a recorder's video or thumbnail is larger than `CLIP_UPLOAD_MAX_SIZE`. |
 | 416 | `RANGE_NOT_SATISFIABLE` | The `Range` of a request for a clip's video starts at or beyond its end; see [Video clips](#video-clips). |
@@ -621,15 +620,62 @@ numbers, `0.0` for a player without a stored row (and `hsPercent` for one withou
 "no data" from "zero" tests `matches > 0`. A player the database does not know has `matches`, `analyzedMatches`,
 `clutchAttempts` and `clutchWins` at `0`, `kd` and `hsPercent` at `0.0`, and the other figures `null`.
 
-### Video clips
+### Retention
 
-A clip is a video of a moment of a match, cut from the stored demo of the match. Asking for the clip of a highlight puts
-a row in the `clips` table with the status `QUEUED` and the **segments** of the demo the video is made of; a recorder
-takes the queued clips one at a time (see [Worker API](#worker-api-the-recorder)). The endpoints below are the request,
-the reads and the delete. The `POST` and the `DELETE` need the admin key
-in the `X-API-Key` header, the reads are open and answer from the database only (nothing is asked of FACEIT), except
-the video and the thumbnail, which come from the storage. The examples use the Compose address; `<highlightId>` is the
-`id` of an item of `GET /api/v1/matches/{matchId}/highlights`.
+A job removes the stored demo files that are older than `DEMO_RETENTION_DAYS` (default 30) once a day at 04:00 server
+time. It deletes the file and clears `demos.storage_key`; the status and the parsed facts (`rounds`, `round_players`,
+`kills`, `damages`, `heat_bins`) stay. It does nothing when the variable is `0`. A demo whose file is gone can be
+brought back by uploading it again. Clips have a clean-up of their own, at 04:30 and by `CLIP_RETENTION_DAYS`; see
+[Video clips](#video-clips).
+
+## Video clips
+
+A clip is a video of a moment of a match, cut from the stored demo of the match. There are two kinds: the clip of one
+**highlight** (a moment the analysis found, see [Highlights and statistics](#highlights-and-statistics)) and the
+**compilation** of every kill of one player in a match. Asking for either puts a row in the `clips` table with the
+status `QUEUED` and the **segments** of the demo the video is made of. A recorder, a separate program, takes the queued
+clips one at a time, records them and uploads an MP4 and a thumbnail (see [Worker API](#worker-api-the-recorder)). The
+recorder that plays the demo in CS2 on a Windows machine is not written yet; the fake recorder, which makes a test
+pattern with ffmpeg in its place, runs the whole chain (see [The fake recorder](#the-fake-recorder) and
+[Limits](#limits)).
+
+The two requests and the `DELETE` need the admin key in the `X-API-Key` header, the reads are open and answer from the
+database only (nothing is asked of FACEIT), except the video and the thumbnail, which come from the storage. The
+examples use the Compose address; `<highlightId>` is the `id` of an item of `GET /api/v1/matches/{matchId}/highlights`.
+
+### The chain
+
+```
+POST /api/v1/highlights/{id}/clips  (or POST /api/v1/matches/{id}/clips for a compilation)
+  -> backend: check the demo file, work out the segments, insert a clips row            QUEUED
+Recorder, a separate program that only calls /api/worker/v1 with the header X-Worker-Token:
+  -> POST /claim: the oldest queued clip of the qualities it can record                 RECORDING
+  -> GET .../demo: the demo as stored (zstd), kept on its disk under the job's demoVersion
+  -> record the segments one after the other, POST .../progress at least every 10 s     RECORDING, ENCODING
+  -> PUT .../video, PUT .../thumbnail: into the storage (MinIO)                         UPLOADING
+  -> POST .../complete                                                                  DONE
+Browser: GET /api/v1/clips/{clipId}, GET .../video (Range), GET .../thumbnail
+```
+
+### Statuses
+
+| Status | Meaning | A clip gets there by |
+| --- | --- | --- |
+| `QUEUED` | Waits for a recorder. `queuePosition` is its place: 1 is the clip a recorder takes next, the oldest request first. | The request. Or back from an active status: the recorder gave an attempt up and said it may be repeated (`fail` with `retryable`) and the clip has attempts left, the recorder went silent for `clip.stale-after`, or the answer to a `claim` could not be made because the storage could not be asked (that attempt is not counted). |
+| `RECORDING` | A recorder holds the clip: it downloads the demo and records the segments. | `POST /claim`, or a progress report that names this stage. |
+| `ENCODING` | The recorder makes the thumbnail and reads the length and size of the video. | A progress report that names this stage. |
+| `UPLOADING` | The video is in the storage. | The upload of the video, or a progress report that names this stage. |
+| `DONE` | The video is ready and is served. Final. | `POST .../complete`, which needs the video of this attempt to be uploaded. |
+| `FAILED` | Given up; `error` says why. Final: a new request for the same clip queues a new one. | `fail` without `retryable`, or with the attempts used up; a recorder that went silent with the attempts used up; a `claim` that finds the demo file gone or the player's SteamID unknown (not retried). |
+
+`RECORDING`, `ENCODING` and `UPLOADING` are the active statuses, the ones in which a recorder holds the clip. A recorder
+may report any active stage at any time, also an earlier one. A status changes only under the lock of the clip's row, so
+of a recorder's report and the check that takes a silent clip back, whichever comes first wins and the other finds the
+clip as it was left: it is answered with `409 CLIP_NOT_CLAIMED` and changes nothing. `attempts` counts the claims. A clip
+that goes back to the queue keeps its count, forgets the claim, the progress and the files of the attempt, and shows the
+reason in `error` until it is claimed again; at `clip.max-attempts` it is `FAILED` instead.
+
+### Requests and reads
 
 | Endpoint | Answer |
 | --- | --- |
@@ -675,7 +721,7 @@ A clip, here a queued one of a `K3` (ids shortened):
 | Field | Meaning |
 | --- | --- |
 | `kind` | `HIGHLIGHT`, the clip of one highlight, or `COMPILATION`, all the kills of a player in a match. A compilation has no `highlightType`, `roundNumber` or `tickStart`. |
-| `status`, `progress` | `QUEUED`, then `RECORDING`, `ENCODING` and `UPLOADING` while a recorder works on it, then `DONE`; `FAILED` when it was given up. `progress` is the percent done of the attempt that is running. |
+| `status`, `progress` | `QUEUED`, `RECORDING`, `ENCODING`, `UPLOADING`, `DONE` or `FAILED`; see [Statuses](#statuses). `progress` is the percent done of the attempt that is running. |
 | `matchId`, `playerId`, `nickname`, `mapName` | The FACEIT match id, the FACEIT player id (`steam:<SteamID>` for a player known only from a demo), his nickname and the map. |
 | `highlightType`, `roundNumber`, `tickStart` | The highlight the clip was made for (see [Analysis](#analysis)): its type, its round, and the first tick of its window. |
 | `quality`, `fps` | The size of the picture (`"720p"` is 1280x720, `"1080p"` is 1920x1080) and the frames per second (`clip.fps`, as it was when the clip was requested). |
@@ -683,7 +729,7 @@ A clip, here a queued one of a `K3` (ids shortened):
 | `error` | Why the clip failed, or why its last attempt did while it waits to be recorded again. |
 | `durationMs`, `sizeBytes` | The length of the finished video, and the size of its file (known from the upload on). |
 | `videoUrl`, `thumbnailUrl` | Where the video and its thumbnail are served from (`/api/v1/clips/{id}/video`, `/api/v1/clips/{id}/thumbnail`); `null` until the clip is `DONE`, and `thumbnailUrl` also when the recorder uploaded no thumbnail. |
-| `createdAt`, `finishedAt`, `expiresAt` | When the clip was requested, when it became `DONE` or `FAILED`, and when the clean-up of old clips will remove it (`finishedAt` plus `clip.retention-days`; `null` for a clip that is not `DONE`, or when the setting is 0). |
+| `createdAt`, `finishedAt`, `expiresAt` | When the clip was requested, when it became `DONE` or `FAILED`, and when the clean-up of old clips removes it (`finishedAt` plus `clip.retention-days`; `null` for a clip that is not `DONE`, or when the setting is 0). |
 | `kills` | The kills of an enemy the video shows, each `{"offsetMs", "weapon", "headshot", "victimNickname"}`, in the order of the video. `offsetMs` is the place on the timeline of the finished video: the length of the segments before the kill's own plus its distance from the start of that segment. Only `GET /api/v1/clips/{clipId}` fills it; the lists and the answer to the `POST` carry `[]`. |
 
 **One clip per highlight and quality.** The clip of a highlight is told apart from the others by the match, the player,
@@ -719,12 +765,6 @@ nothing (a window with no kill is shown whole only for a highlight). The video i
 length is their sum, and `GET /api/v1/clips/{clipId}` places every kill on its timeline. The demo only has to be parsed
 (`PARSED` or `ANALYZED`): the kills are the facts of the parser, and no highlight is read.
 
-A compilation is checked in this order, and the first check that fails ends the request: the match and then the player,
-in the database only (`404 MATCH_NOT_FOUND`, `404 PLAYER_NOT_FOUND`; FACEIT is not asked); the compilation that is there
-already (answered with `200`, whatever became of the demo file and however long the queue is); the demo file; the SteamID
-of the player; that he made a kill of an enemy in the match (`409 NO_KILLS`); the queue; and last the length of the
-segments.
-
 **The video and the thumbnail.** Only a `DONE` clip has either. For a clip that is not `DONE`, one that does not exist,
 a thumbnail the recorder did not upload, and a `DONE` clip whose file is missing from the storage (a warning is logged
 then), the answer is `404 CLIP_NOT_FOUND`. The video is `Content-Type: video/mp4`, always with `Accept-Ranges: bytes`
@@ -753,6 +793,10 @@ finished more than `clip.retention-days` days ago (`DONE` and `FAILED` ones, bot
 once a day at 04:30 server time (`clip.retention-cron`), and logs one line with the number it removed; a clip it cannot
 remove does not stop it. `0` days switches the job off, and then `expiresAt` is `null`.
 
+### Checks and errors
+
+Besides `200`, `201` and `204`, the requests above are answered with:
+
 | Status | `code` | When |
 | --- | --- | --- |
 | 400 | `VALIDATION_ERROR` | The `quality` is not `"720p"` or `"1080p"`, the body cannot be read, the `playerId` of a compilation is missing or is neither a FACEIT player id nor `steam:<SteamID>`, or an id or paging parameter is malformed. A player known only from a demo has the id `steam:<SteamID>`, whose colon the id rule does not allow, so `GET /api/v1/players/{playerId}/clips` cannot name him (as for his highlights); his clips are in the list of the match. |
@@ -772,30 +816,11 @@ The `POST` for a highlight checks in this order, and the first that fails ends t
 already (answered with `200`, whatever became of the demo file and however long the queue is); the demo file; the SteamID
 of the player; the queue; and last the length of the segments.
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `clip.fps` | 60 | Frames per second of a recording. |
-| `clip.pre-seconds`, `clip.post-seconds` | 3, 2 | How long a segment starts before a kill and ends after it. |
-| `clip.merge-gap-seconds` | 4 | Segments less than this far apart are one. |
-| `clip.max-duration-seconds` | 300 | The most the segments of one clip may add up to. |
-| `clip.max-queued` | 50 | How many clips may wait in the queue. |
-| `clip.max-attempts` | 3 | How many times a clip is recorded before it is given up (`FAILED`). |
-| `clip.stale-after` | 3m | An active clip whose recorder has reported nothing for this long is taken back. |
-| `clip.worker-online-within` | 90s | A recorder seen this recently counts as online. |
-| `clip.upload-max-size` (`CLIP_UPLOAD_MAX_SIZE`) | 1GB | The most a recorder may upload for one clip (the video and the thumbnail each). |
-| `clip.retention-days` (`CLIP_RETENTION_DAYS`) | 30 | Days a finished clip (`DONE` or `FAILED`) is kept before the clean-up removes it with its files; `expiresAt` is worked out from it. `0` keeps every clip. |
-| `clip.worker-token` (`CLIP_WORKER_TOKEN`) | empty | The secret of the recorder's API; see [Worker API](#worker-api-the-recorder). |
-
-`clip.retention-cron` (`CLIP_RETENTION_CRON`, six cron fields, server time) is when the clean-up of old clips runs, by
-default every day at 04:30; it is normally left alone.
-
-**Do not change `analysis.clip.pre-seconds` or `analysis.clip.post-seconds` once a clip exists.** A clip finds its
-highlight by the first tick of the highlight's window (`tick_start`), and that tick is worked out from `pre-seconds`
-(see [Analysis](#analysis)): after a change and a new analysis the highlights have other first ticks, the clips made
-before no longer find theirs, and a request for the same event queues a second clip. A changed `post-seconds` moves the
-end of every highlight's window, so the clips made before would have been cut to another window than their highlight
-has now. Change them before the first clip is made. If they have to change later, the highlight must first get the ticks
-of the event itself (a new migration), and the clip's key has to move to them.
+A compilation is checked in this order, and the first check that fails ends the request: the match and then the player,
+in the database only (`404 MATCH_NOT_FOUND`, `404 PLAYER_NOT_FOUND`; FACEIT is not asked); the compilation that is there
+already (answered with `200`, whatever became of the demo file and however long the queue is); the demo file; the SteamID
+of the player; that he made a kill of an enemy in the match (`409 NO_KILLS`); the queue; and last the length of the
+segments.
 
 ### Worker API (the recorder)
 
@@ -891,17 +916,83 @@ curl -X POST -H "$H" -H 'Content-Type: application/json' -d '{"worker": "pc-1", 
   http://localhost:3000/api/worker/v1/clips/7/complete
 ```
 
-### Retention
+### The fake recorder
 
-A job removes the stored demo files that are older than `DEMO_RETENTION_DAYS` (default 30) once a day at 04:00 server
-time. It deletes the file and clears `demos.storage_key`; the status and the parsed facts (`rounds`, `round_players`,
-`kills`, `damages`, `heat_bins`) stay. It does nothing when the variable is `0`. A demo whose file is gone can be
-brought back by uploading it again. Clips have a clean-up of their own, at 04:30 and by `CLIP_RETENTION_DAYS`; see
-[Video clips](#video-clips).
+`recorder-fake` is the [recorder](recorder/README.md) in its fake recording mode, a service of `docker-compose.fake.yml`,
+so the fake-FACEIT stack (see [Running without a FACEIT key](#running-without-a-faceit-key)) starts it with everything
+else. It claims the queued clips like any recorder (as `fake-1`, with the token `dev-worker-token`), downloads the
+demo, and makes a test pattern with ffmpeg in place of playing it: the frames carry the clip id, the SteamID of the
+player and the tick of the demo they stand for, so a mark of a kill on the clip page takes the video to the frame of
+that tick. It uploads the video and a thumbnail and completes the clip, so that the whole chain from the button to the
+player can be tried without a game.
+
+It records in real time by default: a clip of ten seconds takes about ten seconds, long enough to watch it go from
+state to state. `FAKE_SPEED` is the seconds of video it makes per second of real time, and `0` makes it as fast as ffmpeg
+goes. Set it in the environment of the `docker compose` command:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.fake.yml logs -f recorder-fake
+FAKE_SPEED=0 docker compose -f docker-compose.yml -f docker-compose.fake.yml up -d recorder-fake
+docker compose -f docker-compose.yml -f docker-compose.fake.yml stop recorder-fake
+```
+
+Stopping the service gives the clip it holds back to the queue at once; killing it (`kill`) leaves the clip to be taken
+back after `clip.stale-after`. The recorder's own settings (`BACKEND_URL`, `RECORDER_MODE`, `WORKER_NAME`, `FAKE_SPEED`
+and the rest), what it writes where and what it does when something goes wrong are in
+[`recorder/README.md`](recorder/README.md).
+
+### Settings
+
+The `clip` block of `backend/src/main/resources/application.yml`. The four with an environment variable are set in
+`.env` (see [Configuration](#configuration)); the others are changed in the file. They are checked when the backend
+starts: a count, a time span or a size that is not positive is refused (`retention-days` may be 0).
+
+| Setting | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `clip.worker-token` | `CLIP_WORKER_TOKEN` | empty | The secret of the recorder's API; see [Worker API](#worker-api-the-recorder). While it is empty every request of a recorder is refused. |
+| `clip.fps` | | 60 | Frames per second of a recording. |
+| `clip.pre-seconds`, `clip.post-seconds` | | 3, 2 | How long a segment starts before a kill and ends after it. |
+| `clip.merge-gap-seconds` | | 4 | Segments less than this far apart are one. |
+| `clip.max-duration-seconds` | | 300 | The most the segments of one clip may add up to. |
+| `clip.max-queued` | | 50 | How many clips may wait in the queue. |
+| `clip.max-attempts` | | 3 | How many times a clip is recorded before it is given up (`FAILED`). |
+| `clip.stale-after` | | 3m | An active clip whose recorder has reported nothing for this long is taken back. |
+| `clip.worker-online-within` | | 90s | A recorder seen this recently counts as online. |
+| `clip.upload-max-size` | `CLIP_UPLOAD_MAX_SIZE` | 1GB | The most a recorder may upload for one clip (the video and the thumbnail each). |
+| `clip.retention-days` | `CLIP_RETENTION_DAYS` | 30 | Days a finished clip (`DONE` or `FAILED`) is kept before the clean-up removes it with its files; `expiresAt` is worked out from it. `0` keeps every clip. |
+| `clip.retention-cron` | `CLIP_RETENTION_CRON` | `0 30 4 * * *` | When the clean-up runs: Spring's six cron fields, server time. Normally left alone. |
+
+The counters, gauges and the timer of the clip pipeline are listed under [Metrics and dashboards](#metrics-and-dashboards).
+
+### Limits
+
+**A clip needs the stored demo file.** The recorder cuts the clip from that file, and the retention job removes the stored
+demo files after `DEMO_RETENTION_DAYS` days (30, see [Retention](#retention)); the parsed facts and the status of the
+demo stay. From then on a request for a new clip is a `409 DEMO_NOT_AVAILABLE`, a clip that still waits is `FAILED` when
+a recorder claims it ("The demo file is no longer stored", not retried), and the demo has to be uploaded again. A clip
+that is `DONE` is a file of its own and stays until `clip.retention-days` have passed since it finished.
+
+**One recorder records one clip at a time.** At the default `FAKE_SPEED` the fake recorder takes as long as the video
+lasts, so a queue of `clip.max-queued` (50) clips is a long wait, and a compilation of a player with many kills is
+minutes of video (`clip.max-duration-seconds` is 300). More than one recorder may serve the queue, each under a name of
+its own; in practice there is one, the machine with the game.
+
+**Do not change `analysis.clip.pre-seconds` or `analysis.clip.post-seconds` once a clip exists.** A clip finds its
+highlight by the first tick of the highlight's window (`tick_start`), and that tick is worked out from `pre-seconds`
+(see [Analysis](#analysis)): after a change and a new analysis the highlights have other first ticks, the clips made
+before no longer find theirs, and a request for the same event queues a second clip. A changed `post-seconds` moves the
+end of every highlight's window, so the clips made before would have been cut to another window than their highlight
+has now. Change them before the first clip is made. If they have to change later, the highlight must first get the ticks
+of the event itself (a new migration), and the clip's key has to move to them.
+
+**Real recording is not implemented.** The recorder that plays the demo in CS2 on a Windows machine
+(`RECORDER_MODE=csdm`) is not written: the program ends at start with a message that says so, and every clip made today
+is the test pattern of the fake recorder.
 
 ## Metrics and dashboards
 
-The backend exports Micrometer metrics at `/actuator/prometheus`, among them the demo pipeline's:
+The backend exports Micrometer metrics at `/actuator/prometheus`, among them those of the demo pipeline and of the clip
+pipeline:
 
 | Metric (Prometheus name) | Meaning |
 | --- | --- |
@@ -909,9 +1000,28 @@ The backend exports Micrometer metrics at `/actuator/prometheus`, among them the
 | `demo_pipeline_stage_duration_seconds_count`, `_sum`, `_max` (`stage="analyze"`) | How long one handling of a `demo.parsed` message took, the analysis of the demo from reading its facts to storing the statistics and the highlights; an attempt that failed and a message that found nothing to analyze are included. |
 | `demo_pipeline_failed_total` (`stage` = `import`, `parse` or `analyze`) | Failures, each counted once, in the stage it failed in. `import`: a rejected download, a dead letter from `demo.import`, and a demo whose `demo.import` or `demo.parse` message could not be published because the broker was unavailable. `parse`: the parser's own failures (it records `FAILED` and rejects the message; the backend counts the rejection when it reads the dead letter) and a dead letter from `demo.parse` for a demo that was still `STORED`. These demos went to `FAILED`. `analyze`: an analysis that failed three times (a dead letter from `demo.parsed`) for a demo that is `PARSED` or `ANALYZED`; the demo does not go to `FAILED` (see [Analysis](#analysis)). A demo set to `FAILED` by hand in the database is not counted. |
 | `demo_pipeline_parsed_total` | `demo.parsed` messages handled by the backend, each time the listener handles one: a message whose analysis fails is tried three times and counts three times. It also counts messages for a demo that is not there or is no longer `PARSED`, which the analysis skips. |
+| `clips_requested_total` (`kind` = `HIGHLIGHT` or `COMPILATION`) | Requests that queued a new clip. A request answered with the clip that was already there (a repeated request, also one from a second browser) is not counted, and neither is one that was refused. |
+| `clips_finished_total` (`status` = `DONE` or `FAILED`) | Every arrival of a clip in a final status, whoever caused it: a recorder's `complete`; a recorder's `fail` that may not be retried or has no attempt left; the check that takes back the clip of a silent recorder when no attempt is left; a `claim` that found the demo file gone or the player's SteamID unknown. A clip deleted, by a request or by the retention job, is not counted. |
+| `clips_requeued_total` | Every return of a clip to the queue: a `fail` with `retryable` while an attempt is left, a clip taken back from a recorder that went silent, and a claim that was given back because the storage could not be asked for the demo. |
+| `clips_record_duration_seconds_count`, `_sum`, `_max` | How long a clip that became `DONE` was held by its recorder: from `claimed_at` to `finished_at` of the attempt that succeeded, so the download of the demo (when the recorder does not have it yet), the recording, the encoding and the upload. Only clips that became `DONE` are in it. |
+| `clips_queue_size`, `clips_active` | Gauges: the clips that are `QUEUED`, and the clips that are `RECORDING`, `ENCODING` or `UPLOADING`. |
+| `clips_recorder_online` | A gauge: 1 when some recorder was seen (it claimed, reported or sent a heartbeat) within `clip.worker-online-within`, else 0. |
 
-The meters live in the backend's memory and start from 0 after a restart; `rate()` and `increase()` in Prometheus
-allow for that.
+The counters and the timer live in the backend's memory and start from 0 after a restart; `rate()` and `increase()` in
+Prometheus allow for that. The three clip gauges are the figures `GET /api/v1/recorder/status` gives. A job reads them
+from the database every 10 seconds and a scrape reads the last figures, so a scrape never waits for the database. A
+scrape that did would wait for a connection while the database is down, and the pool waits 30 seconds for one, longer
+than Prometheus waits for a scrape (10 seconds by default): the backend's other metrics would be lost with it, just when
+they are wanted. When a read fails the gauges are `NaN`, "unknown", and not the last figure, until a read succeeds; the
+first read to fail has waited for the pool, so that is up to about 40 seconds after the database went away. The backend
+logs the outage once, and the end of it once.
+
+The Actuator endpoints are not published, so to look at the clip metrics without Prometheus ask the backend from inside
+the stack:
+
+```bash
+docker compose exec -T backend curl -s http://localhost:8080/actuator/prometheus | grep '^clips_'
+```
 
 The length of the queues and the consumers come from RabbitMQ's own Prometheus endpoint (port `15692`, the
 `rabbitmq_prometheus` plugin the `rabbitmq:4-management` image enables). Prometheus reads its `/metrics/per-object`
