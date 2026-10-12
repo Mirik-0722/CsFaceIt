@@ -43,6 +43,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     static final String FACEIT_UNAVAILABLE = "FACEIT_UNAVAILABLE";
     static final String PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
     static final String RANGE_NOT_SATISFIABLE = "RANGE_NOT_SATISFIABLE";
+    static final String UNAUTHENTICATED = "UNAUTHENTICATED";
 
     private static final String FACEIT_UNAVAILABLE_MESSAGE = "FACEIT is unavailable";
     private static final String INTERNAL_ERROR_MESSAGE = "Unexpected server error";
@@ -57,6 +58,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(BadRequestException.class)
     ResponseEntity<ApiError> handleBadRequest(BadRequestException ex) {
         return ResponseEntity.badRequest().body(new ApiError(VALIDATION_ERROR, ex.getMessage()));
+    }
+
+    @ExceptionHandler(UnauthenticatedException.class)
+    ResponseEntity<ApiError> handleUnauthenticated(UnauthenticatedException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiError(UNAUTHENTICATED, ex.getMessage()));
     }
 
     @ExceptionHandler(ConflictException.class)

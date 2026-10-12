@@ -123,6 +123,14 @@ services:
       FACEIT_BASE_URL: ${FACEIT_BASE_URL:-https://open.faceit.com/data/v4}
       FACEIT_HISTORY_LOOKBACK: ${FACEIT_HISTORY_LOOKBACK:-365d}
       APP_API_KEY: ${APP_API_KEY:-}
+      # The SteamID64s (17 digits, comma separated) of the people who get the role ADMIN when they sign in with Steam; every
+      # other visitor is a USER. Empty by default. The role is shown by /api/v1/auth/me and does not yet let anyone act
+      # without the admin key.
+      AUTH_ADMIN_STEAM_IDS: ${AUTH_ADMIN_STEAM_IDS:-}
+      # The FACEIT OAuth application, for signing in with FACEIT. Empty by default, and then only Steam is offered. The
+      # sign-in with FACEIT itself is not written yet, so they are read and nothing more; the secret is never logged.
+      FACEIT_OAUTH_CLIENT_ID: ${FACEIT_OAUTH_CLIENT_ID:-}
+      FACEIT_OAUTH_CLIENT_SECRET: ${FACEIT_OAUTH_CLIENT_SECRET:-}
       # The browser origin the backend allows (scheme, host and port). Over plain HTTP on the published web port the
       # page and the API are one origin and the list is not consulted, so the default is enough. Set PUBLIC_ORIGIN, for
       # example https://example.com, when a proxy in front of the web port terminates HTTPS: the browser then sends

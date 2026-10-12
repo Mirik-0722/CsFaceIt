@@ -47,6 +47,28 @@ faceit:
 app:
   security.api-key: ${APP_API_KEY}
   cors.allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+# Signing in (auth/AuthProperties). A visitor signs in with Steam (OpenID 2.0: no key, no registration) and the site then
+# looks for their FACEIT player by the SteamID. The session lives in a cookie for session-lifetime and use does not extend
+# it; the address Steam sends the visitor back to is the one the browser used, so nothing here names the site. A session
+# only identifies the visitor: what needs the admin key (APP_API_KEY) still needs it, whoever is signed in.
+auth:
+  steam:
+    # Where the browser is sent to sign in, and where the backend posts the answer back to have Steam confirm it. Both are
+    # Steam's own address; the stack without a FACEIT key (docker-compose.fake.yml) points them at its fake Steam instead,
+    # which is why they are two settings: the browser and the backend reach that one at different addresses. The identity
+    # in the answer has to be Steam's own (https://steamcommunity.com/openid/id/<17 digits>) in every environment.
+    login-url: ${AUTH_STEAM_LOGIN_URL:https://steamcommunity.com/openid/login}
+    verify-url: ${AUTH_STEAM_VERIFY_URL:https://steamcommunity.com/openid/login}
+  # The SteamID64s (17 digits, comma separated) of the people who get the role ADMIN when they sign in; every other
+  # visitor is a USER. The role is stored and shown by /api/v1/auth/me; it does not yet let anyone act without the admin key.
+  admin-steam-ids: ${AUTH_ADMIN_STEAM_IDS:}
+  # The FACEIT OAuth application. The sign-in with FACEIT is on only while a client id is set, and its flow is not written
+  # yet: /api/v1/auth/providers says it is available then, and its endpoints still answer 404. Neither value is logged.
+  faceit:
+    client-id: ${FACEIT_OAUTH_CLIENT_ID:}
+    client-secret: ${FACEIT_OAUTH_CLIENT_SECRET:}
+  # How long a session lasts from the moment it is made. A plain value, like the thresholds of the analysis: not part of .env.
+  session-lifetime: 30d
 management:
   endpoints.web.exposure.include: health,info,metrics,prometheus
   # Redis is a best-effort cache here, so an outage must not turn /actuator/health (the container HEALTHCHECK) DOWN.

@@ -38,10 +38,16 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 
     public static final String HEADER_NAME = "X-API-Key";
 
+    /**
+     * The role the key gives; the authority is {@code ROLE_} and this. The last authorization rule asks for it by this
+     * name: it is what separates the key from a session, which authenticates a request without being it.
+     */
+    public static final String ROLE = "ADMIN";
+
     private static final Logger log = LoggerFactory.getLogger(ApiKeyAuthFilter.class);
 
     private static final String PRINCIPAL = "api-key";
-    private static final List<GrantedAuthority> AUTHORITIES = List.of(new SimpleGrantedAuthority("ROLE_ADMIN"));
+    private static final List<GrantedAuthority> AUTHORITIES = List.of(new SimpleGrantedAuthority("ROLE_" + ROLE));
 
     private final SecurityContextHolderStrategy contextHolder = SecurityContextHolder.getContextHolderStrategy();
 

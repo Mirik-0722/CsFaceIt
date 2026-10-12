@@ -18,6 +18,12 @@ public interface FaceitGateway {
     /** {@code GET /players?nickname=}. */
     FaceitPlayer findPlayerByNickname(String nickname);
 
+    /**
+     * {@code GET /players?game=cs2&game_player_id=}: the FACEIT player whose CS2 account is the given SteamID64. A
+     * SteamID that no FACEIT player has linked is a {@link FaceitNotFoundException}.
+     */
+    FaceitPlayer findPlayerBySteamId(String steamId);
+
     /** {@code GET /players/{id}}. */
     FaceitPlayer getPlayer(String playerId);
 

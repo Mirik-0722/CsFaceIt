@@ -53,6 +53,12 @@ public class CachingFaceitGateway implements FaceitGateway {
     }
 
     @Override
+    public FaceitPlayer findPlayerBySteamId(String steamId) {
+        return cached("player-by-steam:" + steamId, FaceitPlayer.class,
+                player -> cache.playerTtl(), () -> delegate.findPlayerBySteamId(steamId));
+    }
+
+    @Override
     public FaceitPlayer getPlayer(String playerId) {
         return cached("player:" + playerId, FaceitPlayer.class,
                 player -> cache.playerTtl(), () -> delegate.getPlayer(playerId));

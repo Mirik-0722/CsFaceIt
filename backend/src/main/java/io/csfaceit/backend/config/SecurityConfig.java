@@ -1,6 +1,8 @@
 package io.csfaceit.backend.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.csfaceit.backend.auth.SessionAuthFilter;
+import io.csfaceit.backend.auth.SessionService;
 import io.csfaceit.backend.clip.ClipProperties;
 import io.csfaceit.backend.clip.worker.WorkerTokenAuthFilter;
 import io.csfaceit.backend.common.api.ApiError;
@@ -26,14 +28,24 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  * {@code GET} and {@code HEAD} on {@code /api/v1/**}, {@code /actuator/health} and {@code /actuator/prometheus} are
  * public; every other request needs the {@code X-API-Key} header. The one exception is the recorder's API under
  * {@code /api/worker/**}: it takes the {@code X-Worker-Token} header instead, for every method (none of it is public),
- * and the token opens nothing outside it. The key and the token travel in headers, so there are no sessions, cookies
- * or CSRF tokens, and no login form, HTTP Basic or default user either. A write endpoint added later (for example a
- * POST) is protected by this chain without further configuration, but a new {@code GET} under {@code /api/v1/**} is
- * public unless a rule is added here.
+ * and the token opens nothing outside it. The key and the token travel in headers, so there are no HTTP sessions or
+ * CSRF tokens, and no login form, HTTP Basic or default user either. A write endpoint added later (for example a POST)
+ * is protected by this chain without further configuration, but a new {@code GET} under {@code /api/v1/**} is public
+ * unless a rule is added here.
+ *
+ * <p>A visitor who has signed in carries one more credential, the {@code csf_session} cookie, which
+ * {@link SessionAuthFilter} turns into {@code ROLE_USER}. A session identifies the visitor and nothing more: the last
+ * rule asks for the role of the admin key by name ({@link ApiKeyAuthFilter#ROLE}), not for "any authenticated request",
+ * which a session would satisfy and which would make every signed-in visitor an administrator. The sign-in itself is
+ * open (its redirects and their callbacks, the list of providers), and so are {@code /api/v1/auth/me} and
+ * {@code /api/v1/auth/logout}, which answer a visitor without a session themselves instead of with this chain's 401.
+ * There is no CSRF protection to add for the cookie: it is {@code SameSite=Lax}, so the browser does not send it with
+ * a request made from another site, and the one request that acts on it, the logout, only ends the session. CORS stays
+ * without credentials, so a page of another origin cannot read what a session would show.
  *
  * <p>A request without a valid credential is answered 401. One that is authenticated but not allowed on its path (the
- * admin key on the worker API) is answered 403 {@code FORBIDDEN}; the worker token on {@code /api/v1/**} is no
- * credential there, so it is a 401.
+ * admin key on the worker API, a session on anything that needs the key) is answered 403 {@code FORBIDDEN}; the worker
+ * token on {@code /api/v1/**} is no credential there, so it is a 401.
  */
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfig {
@@ -43,6 +55,20 @@ public class SecurityConfig {
 
     /** Only the worker role reaches these, whatever the method. */
     private static final String WORKER_PATHS = WorkerTokenAuthFilter.PATH_ROOT + "/**";
+
+    /**
+     * The sign-in, open to a visitor who has no credential yet: the redirects to Steam and FACEIT and their callbacks,
+     * and the list of the ways to sign in. All reads, so the public reads below cover them as well; they are listed on
+     * their own so that the rule which keeps the sign-in open stays on the page if the reads are ever narrowed.
+     */
+    private static final String[] SIGN_IN_PATHS = {"/api/v1/auth/steam/**", "/api/v1/auth/faceit/**",
+            "/api/v1/auth/providers"};
+
+    /** Who is signed in. The controller answers a visitor without a session with 401 {@code UNAUTHENTICATED}. */
+    private static final String ME_PATH = "/api/v1/auth/me";
+
+    /** Signing out. The controller answers 204 whether or not there was a session. */
+    private static final String LOGOUT_PATH = "/api/v1/auth/logout";
 
     private static final String UNAUTHORIZED = "UNAUTHORIZED";
     private static final String FORBIDDEN = "FORBIDDEN";
@@ -58,7 +84,7 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, AppProperties properties, ClipProperties clip,
-                                            ObjectMapper mapper) throws Exception {
+                                            SessionService sessions, ObjectMapper mapper) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -73,16 +99,26 @@ public class SecurityConfig {
                         UsernamePasswordAuthenticationFilter.class)
                 // After the key's filter, so that a request with both credentials is a worker's on the worker API.
                 .addFilterAfter(new WorkerTokenAuthFilter(clip.workerToken()), ApiKeyAuthFilter.class)
+                // Last of the three, and it leaves a request alone that one of the others has authenticated: a
+                // request with a session cookie and the admin key is the admin's, and one with the worker token is the
+                // worker's.
+                .addFilterAfter(new SessionAuthFilter(sessions), WorkerTokenAuthFilter.class)
                 .authorizeHttpRequests(requests -> {
                     // First, because the rules are tried in order: the public reads below then never include a GET of
-                    // the worker API, and the last rule (any authenticated request) cannot let the admin key in.
+                    // the worker API, and the last rule cannot let the admin key in.
                     requests.requestMatchers(WORKER_PATHS).hasRole(WorkerTokenAuthFilter.ROLE);
                     // HEAD is a read like GET (health probes use it). CORS preflights need no rule: the CORS filter
                     // answers them before authorization, and any other OPTIONS is just another request that needs the key.
                     for (HttpMethod read : List.of(HttpMethod.GET, HttpMethod.HEAD)) {
+                        requests.requestMatchers(read, SIGN_IN_PATHS).permitAll();
+                        requests.requestMatchers(read, ME_PATH).permitAll();
                         requests.requestMatchers(read, READ_ONLY_PATHS).permitAll();
                     }
-                    requests.anyRequest().authenticated();
+                    requests.requestMatchers(HttpMethod.POST, LOGOUT_PATH).permitAll();
+                    // Everything else needs the admin key itself. Not "any authenticated request": a session
+                    // authenticates a request too, and would let every signed-in visitor upload demos and order and
+                    // delete clips.
+                    requests.anyRequest().hasRole(ApiKeyAuthFilter.ROLE);
                 })
                 .build();
     }

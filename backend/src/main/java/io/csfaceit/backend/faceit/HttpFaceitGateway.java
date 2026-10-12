@@ -56,6 +56,11 @@ public class HttpFaceitGateway implements FaceitGateway {
     }
 
     @Override
+    public FaceitPlayer findPlayerBySteamId(String steamId) {
+        return get("player_by_steam_id", FaceitPlayer.class, "/players?game=cs2&game_player_id={steamId}", steamId);
+    }
+
+    @Override
     public FaceitPlayer getPlayer(String playerId) {
         return get("player", FaceitPlayer.class, "/players/{playerId}", playerId);
     }
