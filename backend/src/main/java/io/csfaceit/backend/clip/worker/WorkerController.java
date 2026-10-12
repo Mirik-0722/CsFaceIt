@@ -82,10 +82,11 @@ public class WorkerController {
     /**
      * Sends the demo file as it is stored (zstd), streamed from the storage and never held in memory. The first piece
      * is read before the status and the length go out, so a storage that fails at once is still an error response. A
-     * read that fails later, with the file half sent, can no longer be told in a status: it is thrown, and the
-     * connection is broken (see {@link #handleStorageFailure}), because a recorder that is handed a normal end of a
-     * body shorter than the length it was promised would wait for the rest. A write that fails is the recorder having
-     * gone away: its doing, noted in the log in one line, and the end of the matter.
+     * read that fails later, with the file half sent, can no longer be told in a status: it is thrown, without its
+     * cause and with that noted in the log, and the connection is broken (see {@link #handleStorageFailure}), because
+     * a recorder that is handed a normal end of a body shorter than the length it was promised would wait for the
+     * rest. A write that fails is the recorder having gone away: its doing, noted in the log in one line, and the end
+     * of the matter.
      */
     @GetMapping("/clips/{clipId}/demo")
     public void downloadDemo(@PathVariable long clipId, @RequestParam @WorkerName String worker,
@@ -117,6 +118,10 @@ public class WorkerController {
                 throw new StorageException("The demo of clip " + clipId + " ended after " + sent + " of "
                         + demo.sizeBytes() + " bytes in the storage");
             }
+        } catch (StorageException e) {
+            // Whatever the source of the failure, one that finds the response started leaves here without its cause
+            // (see handleStorageFailure for why).
+            throw response.isCommitted() ? brokenDownload(clipId, worker, e) : e;
         } finally {
             closeQuietly(content);
         }
@@ -164,7 +169,14 @@ public class WorkerController {
      *
      * <p>When the response has already started, as in a demo of which a part has been sent, no status can be given any
      * more. The exception is then thrown on, past the handlers of the application, and the container breaks the
-     * connection, which is how the recorder learns that the file is incomplete.
+     * connection, which is how the recorder learns that the file is incomplete. It is thrown on without a cause, and
+     * that matters: Spring ends a response quietly, with no error and the connection left open, when the chain of an
+     * exception looks like a client that went away (an {@code EOFException} anywhere in it, or "broken pipe" or
+     * "connection reset by peer" in its root message), which the {@code IOException} of a storage that breaks in the
+     * middle of a read may well do, and the recorder would then be handed a short file and a normal end. Spring judges
+     * the exception the controller threw, also after a handler has thrown another one in its place, so the cause
+     * cannot be dropped here; {@link #downloadDemo} does it for every source of the failure, and notes the cause in
+     * the log.
      */
     @ExceptionHandler(StorageException.class)
     ResponseEntity<ApiError> handleStorageFailure(StorageException ex, HttpServletResponse response) {
@@ -173,11 +185,28 @@ public class WorkerController {
         }
         // Not what a demo download had prepared (its length and type); the answer is the error alone.
         response.reset();
-        Throwable cause = ex.getCause() == null ? ex : ex.getCause();
         log.warn("The storage failed a request of a recorder, answering 503: {} ({})", ex.getMessage(),
-                cause.toString());
+                causeOf(ex).toString());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(new ApiError(STORAGE_UNAVAILABLE, "The storage is not available, try again later"));
+    }
+
+    /**
+     * The failure of a demo of which a part has been sent, as it leaves {@link #downloadDemo}: the same message and
+     * trace, and no cause. The cause is noted in the one line here and goes no further, since it could make Spring end
+     * the response quietly (see {@link #handleStorageFailure}).
+     */
+    private static StorageException brokenDownload(long clipId, String worker, StorageException failure) {
+        log.warn("The storage failed the demo download of clip {} to {} after it had started, breaking the connection: "
+                + "{} ({})", clipId, worker, failure.getMessage(), causeOf(failure).toString());
+        StorageException withoutCause = new StorageException(failure.getMessage());
+        withoutCause.setStackTrace(failure.getStackTrace());
+        return withoutCause;
+    }
+
+    /** What lies behind a failure of the storage: its cause, or the failure itself when it has none. */
+    private static Throwable causeOf(StorageException failure) {
+        return failure.getCause() == null ? failure : failure.getCause();
     }
 
     /** A piece of the demo from the storage; a read that fails is the storage's failure, not the recorder's. */
