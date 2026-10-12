@@ -364,8 +364,8 @@ export const en = {
       online: 'Recorder online',
       offline: 'Recorder offline',
       offlineQueued: 'The recording PC is offline, clips wait in the queue',
-      queued: (count: number) => `${count} queued`,
-      active: (count: number) => `recording ${count}`,
+      queued: (count: number) => `${count}\u00a0queued`,
+      active: (count: number) => `recording\u00a0${count}`,
     },
     page: {
       download: 'Download',

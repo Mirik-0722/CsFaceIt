@@ -333,8 +333,8 @@ export const uz: Messages = {
       online: 'Yozuvchi onlayn',
       offline: 'Yozuvchi oflayn',
       offlineQueued: "Yozuvchi kompyuter o'chiq, kliplar navbatda kutadi",
-      queued: (count) => `navbatda ${count}`,
-      active: (count) => `yozilmoqda ${count}`,
+      queued: (count) => `navbatda\u00a0${count}`,
+      active: (count) => `yozilmoqda\u00a0${count}`,
     },
     page: {
       download: 'Yuklab olish',
