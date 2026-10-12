@@ -28,24 +28,39 @@ export interface Recorder {
   ): Promise<string>
 }
 
+/** What a `RecorderError` says besides its message and whether trying again can help. */
+export interface RecorderErrorOptions {
+  /** The failure is of the machine and not of the clip (see below). */
+  environment?: boolean
+  /** What went wrong in detail: paths, system messages, the output of a tool. For the log of the recorder only. */
+  detail?: string
+}
+
 /**
  * A recording that did not work out, and what the backend should do about it. `retryable` says that another attempt
  * may do better (the game crashed, a timeout), which puts the clip back in the queue while it has attempts left; a
  * clip that cannot be recorded at all (the demo is of a game version nobody can play any more) is not retryable and
  * ends as `FAILED`.
  *
- * `environment` marks a failure of the machine and not of the clip: ffmpeg or the game would not start, the disk is
- * full. The recorder then takes no new clip for `ERROR_BACKOFF_SECONDS`, because the next clip would fail the same
- * way at once and each failed attempt is one of the few the clips have.
+ * The `message` is sent to the backend as the reason of the failure, and the page of the clip shows it to every
+ * visitor. It is therefore a short reason that anyone may read ("ffmpeg exited with code 1", "The demo file is no
+ * longer stored"): no path of this machine, no stack, no setting, no output of a tool. Whatever helps the operator
+ * goes in `options.detail`, which is written to the log of the recorder and never sent.
+ *
+ * `options.environment` marks a failure of the machine and not of the clip: ffmpeg or the game would not start, the
+ * disk is full. The recorder then takes no new clip for `ERROR_BACKOFF_SECONDS`, because the next clip would fail the
+ * same way at once and each failed attempt is one of the few the clips have.
  */
 export class RecorderError extends Error {
   readonly retryable: boolean
   readonly environment: boolean
+  readonly detail: string | undefined
 
-  constructor(message: string, retryable: boolean, environment = false) {
+  constructor(message: string, retryable: boolean, options: RecorderErrorOptions = {}) {
     super(message)
     this.name = 'RecorderError'
     this.retryable = retryable
-    this.environment = environment
+    this.environment = options.environment ?? false
+    this.detail = options.detail
   }
 }

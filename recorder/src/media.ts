@@ -40,7 +40,9 @@ export function createMedia(ffmpegPath: string, ffprobePath: string): Media {
       const video = streams.find((stream) => stream.codec_type === 'video')
       const seconds = Number(format.duration)
       if (video?.width === undefined || video.height === undefined || !Number.isFinite(seconds) || seconds <= 0) {
-        throw new RecorderError(`${basename(path)} is not a video that has a length and a picture`, true)
+        throw new RecorderError('The recording is not a video with a length and a picture', true, {
+          detail: `ffprobe found no video stream or no duration in ${basename(path)}`,
+        })
       }
       return {
         // The backend wants a positive number of milliseconds; a clip too short to round to one is one millisecond.
@@ -70,7 +72,12 @@ export function createMedia(ffmpegPath: string, ffprobePath: string): Media {
           lastError = error
         }
       }
-      throw lastError ?? new RecorderError(`No frame of ${basename(path)} could be written as a thumbnail`, true)
+      throw (
+        lastError ??
+        new RecorderError('No thumbnail could be made from the recording', true, {
+          detail: `ffmpeg wrote no frame of ${basename(path)}`,
+        })
+      )
     },
   }
 }
@@ -85,7 +92,7 @@ function parseProbe(output: string): ProbeOutput {
     const parsed = JSON.parse(output) as Partial<ProbeOutput>
     return { format: parsed.format ?? {}, streams: parsed.streams ?? [] }
   } catch {
-    throw new RecorderError('ffprobe did not answer with JSON', true)
+    throw new RecorderError('ffprobe could not read the recording', true, { detail: 'ffprobe did not answer with JSON' })
   }
 }
 
@@ -107,19 +114,25 @@ async function run(command: string, args: string[], signal?: AbortSignal): Promi
   }
 }
 
-/** Says what went wrong with a tool: it is not there (the machine's fault), it hung, or it complained. */
+/**
+ * Says what went wrong with a tool: it is not there (the machine's fault), it hung, or it complained. The message is
+ * only the name of the tool and what happened to it; the path of the tool and what it said go in the detail.
+ */
 function toolError(command: string, error: unknown): RecorderError {
   const failure = error as NodeJS.ErrnoException & { killed?: boolean; stderr?: string }
+  const tool = basename(command)
   if (failure.code === 'ENOENT') {
-    return new RecorderError(
-      `${command} could not be started because it is not there: set FFMPEG_PATH and FFPROBE_PATH, or install ffmpeg`,
-      true,
-      true,
-    )
+    return new RecorderError(`${tool} could not be started`, true, {
+      environment: true,
+      detail: `${command} is not there: set FFMPEG_PATH and FFPROBE_PATH, or install ffmpeg`,
+    })
   }
   if (failure.killed) {
-    return new RecorderError(`${command} was killed after ${TOOL_TIMEOUT_MS / 1000} s without finishing`, true)
+    return new RecorderError(`${tool} did not finish in time`, true, {
+      detail: `${command} was killed after ${TOOL_TIMEOUT_MS / 1000} s`,
+    })
   }
   const complaint = (failure.stderr ?? failure.message).trim().slice(-STDERR_TAIL_LENGTH)
-  return new RecorderError(`${basename(command)} failed: ${complaint}`, true)
+  const message = typeof failure.code === 'number' ? `${tool} exited with code ${failure.code}` : `${tool} failed`
+  return new RecorderError(message, true, { detail: complaint })
 }

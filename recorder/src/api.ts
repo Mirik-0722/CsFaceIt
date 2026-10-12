@@ -2,6 +2,7 @@ import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import http, { type IncomingMessage } from 'node:http'
 import https from 'node:https'
+import type { Socket } from 'node:net'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
@@ -190,7 +191,7 @@ export function createApi(config: Config, version: string): Api {
     const size = call.file === undefined ? 0 : (await stat(call.file.path)).size
     try {
       if (call.file !== undefined) {
-        return await uploadFile(url, headers, call.file.path, size, signal)
+        return await uploadFile(url, headers, call.file.path, size, call.label, signal)
       }
       const limits = [signal, timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs)]
       return await fetch(url, {
@@ -374,10 +375,27 @@ function uploadFile(
   headers: Record<string, string>,
   path: string,
   size: number,
+  label: string,
   signal: AbortSignal | undefined,
 ): Promise<Response> {
   return new Promise((resolve, reject) => {
     const transport = url.protocol === 'https:' ? https : http
+    // The count of the bytes sent is read from the connection, which the request lets go of when it is destroyed.
+    let connection: Socket | undefined
+    // An upload that is no longer wanted (the claim is lost) is cut off the moment the signal aborts, not left to
+    // finish, and the file is not read any further. `http.request` destroys the request on the signal, but a plain
+    // close would still let the kernel send what it has queued, which on a slow line is seconds of bytes that the
+    // other side only throws away. So the connection is reset first: that drops what is queued at once and ends the
+    // upload for the server too. This listener is added before the request's own, so it runs first. A TLS connection
+    // cannot be reset this way, and the destroy of the request is all there is.
+    const reset = () => {
+      try {
+        connection?.resetAndDestroy()
+      } catch {
+        // Not a plain TCP connection: the destroy that follows does the cutting.
+      }
+    }
+    signal?.addEventListener('abort', reset, { once: true })
     const request = transport.request(
       url,
       {
@@ -390,7 +408,16 @@ function uploadFile(
     request.setTimeout(UPLOAD_IDLE_TIMEOUT_MS, () => {
       request.destroy(new Error(`no data moved for ${UPLOAD_IDLE_TIMEOUT_MS / 1000} s`))
     })
-    request.on('error', reject)
+    request.on('socket', (socket) => {
+      connection = socket
+    })
+    request.on('close', () => signal?.removeEventListener('abort', reset))
+    request.on('error', (error) => {
+      if (signal?.aborted) {
+        log.info(`${label}: upload aborted after ${connection?.bytesWritten ?? 0} of ${size} bytes sent`)
+      }
+      reject(error)
+    })
     // An answer that comes before the file is all sent (a 413, say) settles the promise first; what the pipeline
     // reports after that, the connection that is closed on it, changes nothing.
     pipeline(createReadStream(path), request).catch(reject)

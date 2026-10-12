@@ -164,15 +164,11 @@ function runFfmpeg(
     signal.addEventListener('abort', kill, { once: true })
     child.once('error', (error: NodeJS.ErrnoException) => {
       signal.removeEventListener('abort', kill)
-      reject(
+      const detail =
         error.code === 'ENOENT'
-          ? new RecorderError(
-              `${config.ffmpegPath} could not be started because it is not there: set FFMPEG_PATH, or install ffmpeg`,
-              true,
-              true,
-            )
-          : new RecorderError(`ffmpeg could not be started: ${error.message}`, true, true),
-      )
+          ? `${config.ffmpegPath} is not there: set FFMPEG_PATH, or install ffmpeg`
+          : error.message
+      reject(new RecorderError('ffmpeg could not be started', true, { environment: true, detail }))
     })
     child.once('close', (code, killedBy) => {
       signal.removeEventListener('abort', kill)
@@ -183,7 +179,7 @@ function runFfmpeg(
         resolve()
       } else {
         const how = code === null ? `was killed by ${killedBy}` : `exited with code ${code}`
-        reject(new RecorderError(`ffmpeg ${how}: ${complaint.trim()}`, true))
+        reject(new RecorderError(`ffmpeg ${how}`, true, { detail: complaint.trim() }))
       }
     })
   })

@@ -41,11 +41,9 @@ export function createDemoCache(config: Config, api: Pick<Api, 'openDemo'>): Dem
 
   async function ensure(job: WorkerJob, signal?: AbortSignal): Promise<string> {
     if (!MATCH_ID.test(job.matchId) || !DEMO_VERSION.test(job.demoVersion)) {
-      throw new RecorderError(
-        `The job names a demo that cannot be kept as a file (match ${shown(job.matchId)}, ` +
-          `version ${shown(job.demoVersion)})`,
-        false,
-      )
+      throw new RecorderError('The demo of this clip has a name the recorder cannot use', false, {
+        detail: `match ${shown(job.matchId)}, version ${shown(job.demoVersion)}`,
+      })
     }
     const name = `${job.matchId}-${job.demoVersion}.dem`
     const path = join(dir, name)
@@ -77,13 +75,12 @@ export function createDemoCache(config: Config, api: Pick<Api, 'openDemo'>): Dem
     try {
       // The announced length is the stored size the job names; a demo of another size is not the one that was meant.
       if (demo.contentLength === null) {
-        throw new RecorderError('The backend sent the demo without saying how long it is', true)
+        throw new RecorderError('The backend sent the demo without its length', true)
       }
       if (demo.contentLength !== job.demoSizeBytes) {
-        throw new RecorderError(
-          `The backend announced a demo of ${demo.contentLength} bytes but the job says ${job.demoSizeBytes}`,
-          true,
-        )
+        throw new RecorderError('The demo the backend sent is not the size the job names', true, {
+          detail: `the backend announced ${demo.contentLength} bytes, the job says ${job.demoSizeBytes}`,
+        })
       }
       file = createWriteStream(temporary, { flags: 'wx' })
       await pipeline(
@@ -92,7 +89,9 @@ export function createDemoCache(config: Config, api: Pick<Api, 'openDemo'>): Dem
       )
       // The decompressor takes a stream that stops short for a finished one, so the bytes are counted.
       if (received !== job.demoSizeBytes) {
-        throw new RecorderError(`The demo download stopped at ${received} of ${job.demoSizeBytes} bytes`, true)
+        throw new RecorderError('The demo download stopped before its end', true, {
+          detail: `${received} of ${job.demoSizeBytes} bytes arrived`,
+        })
       }
       if (file.bytesWritten === 0) {
         throw new RecorderError('The stored demo unpacks to nothing', false)
@@ -171,10 +170,13 @@ function explain(error: unknown, signal: AbortSignal | undefined): unknown {
   const code = (error as NodeJS.ErrnoException | undefined)?.code
   const message = error instanceof Error ? error.message : String(error)
   if (code === 'ENOSPC') {
-    return new RecorderError('The disk of the recorder is full', true, true)
+    return new RecorderError('The recorder could not save the demo', true, {
+      environment: true,
+      detail: 'The disk of the recorder is full (ENOSPC)',
+    })
   }
   if (code?.startsWith('ZSTD_')) {
-    return new RecorderError(`The stored demo is not zstd data this recorder can unpack (${message})`, false)
+    return new RecorderError('The stored demo cannot be unpacked', false, { detail: message })
   }
-  return new RecorderError(`The demo download broke off: ${message}`, true)
+  return new RecorderError('The demo download broke off', true, { detail: message })
 }

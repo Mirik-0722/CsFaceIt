@@ -116,7 +116,7 @@ the cache or was downloaded, each stage, the upload, the end of the clip, and ev
 
 | What happens | What the recorder does |
 | --- | --- |
-| `409` on any request about a clip: the backend does not hold it for this recorder any more (it was taken back, or deleted) | Stops at once, kills ffmpeg, removes the scratch directory, sends nothing, and asks for the next clip. |
+| `409` on any request about a clip, the report of progress that goes out every 3 seconds included: the backend does not hold it for this recorder any more (it was taken back, or deleted) | Stops at once: kills ffmpeg, cuts off the download or the upload that is on its way (the connection is reset, so that what is queued on the line is dropped: the other side would only throw it away), removes the scratch directory, sends nothing, and asks for the next clip. |
 | `410` for the demo: the file is no longer stored | `fail` with `retryable = false`: "The demo file is no longer stored". |
 | `413` for an upload: the file is larger than the backend takes | `fail` with `retryable = false`. |
 | `401` or `403`: the token is wrong | One line on every try that says so, and goes on: it keeps asking every `POLL_SECONDS`, and works as soon as the token is put right. It does not exit. |
@@ -126,3 +126,11 @@ the cache or was downloaded, each stage, the upload, the end of the clip, and ev
 | The process is killed, or the machine goes to sleep | Nothing can be sent. The backend takes the clip back after `clip.stale-after` and counts the attempt. |
 
 A clip whose attempts are used up (`clip.max-attempts`) ends as `FAILED` with the last reason, which the clip page shows.
+
+**The reason of a failure is public.** The text the recorder sends with `fail` is kept on the clip, and `GET /api/v1/clips/{id}`
+shows it to every visitor. It is therefore a short reason that anyone may read ("ffmpeg exited with code 1", "The demo
+file is no longer stored", "The recorder could not reach the backend"), with nothing of this machine in it: no path, no
+output of a tool, no stack, no address, no setting. What the operator needs is in the log of the recorder, in square
+brackets after the reason: `Clip 7: failed while recording, another attempt may do better: ffmpeg exited with code 1
+[Error opening output file ...]`. A recorder for another mode follows the same rule: `RecorderError` takes the reason as
+its message and the rest as `detail`.

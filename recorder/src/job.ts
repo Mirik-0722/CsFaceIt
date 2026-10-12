@@ -65,6 +65,8 @@ export async function runJob(deps: JobDeps, job: WorkerJob, stop: AbortSignal): 
   })
   const dir = join(config.workDir, 'jobs', String(id))
   const started = Date.now()
+  // What the job is at, for the log when it is stopped from outside: a lost claim says what it interrupted.
+  let doing = 'starting'
   log.info(
     `Clip ${id}: claimed, a ${job.kind} of match ${job.matchId} on ${job.mapName ?? 'an unknown map'}: ` +
       `${job.segments.length} segment(s), ${videoSeconds(job).toFixed(1)} s at ${job.width}x${job.height} and ` +
@@ -77,21 +79,27 @@ export async function runJob(deps: JobDeps, job: WorkerJob, stop: AbortSignal): 
 
     // The claim made the clip RECORDING at 0%: getting the demo is part of that stage.
     log.info(`Clip ${id}: RECORDING`)
+    doing = 'getting the demo'
     const demoPath = await demos.ensure(job, signal)
+    doing = 'recording'
     const video = await recorder.record(job, demoPath, dir, reporter.update, signal)
 
     log.info(`Clip ${id}: ENCODING`)
+    doing = 'encoding'
     await reporter.enter('ENCODING', 100)
     const thumbnail = join(dir, 'thumbnail.jpg')
     await media.thumbnail(video, thumbnail, signal)
     const probe = await media.probe(video, signal)
 
     log.info(`Clip ${id}: UPLOADING ${probe.sizeBytes} bytes of video`)
+    doing = 'uploading the video'
     await reporter.enter('UPLOADING', 100)
     await api.uploadVideo(id, video, { signal })
+    doing = 'uploading the thumbnail'
     await api.uploadThumbnail(id, thumbnail, { signal })
 
     // No progress report may arrive after the clip is finished: the backend would answer it with a 409.
+    doing = 'finishing the clip'
     await reporter.stop()
     await api.complete(id, { durationMs: probe.durationMs, width: probe.width, height: probe.height }, { signal })
     log.info(
@@ -109,7 +117,8 @@ export async function runJob(deps: JobDeps, job: WorkerJob, stop: AbortSignal): 
     // error itself.
     const reason = own.signal.aborted ? own.signal.reason : error
     if (reason instanceof ClaimLostError) {
-      log.warn(`Clip ${id}: ${reason.message}; the work is dropped and nothing is sent about it`)
+      // Whatever was in flight, an upload included, has been aborted by the abort above or by the one that came first.
+      log.warn(`Clip ${id}: ${reason.message}; stopped at once while ${doing}, and nothing is sent about it`)
       return { outcome: 'lost', environment: false }
     }
     if (stop.aborted && !own.signal.aborted) {
@@ -117,9 +126,11 @@ export async function runJob(deps: JobDeps, job: WorkerJob, stop: AbortSignal): 
       return { outcome: 'stopped', environment: false }
     }
     const failure = describe(reason)
+    // The message goes to the backend, and from there to the page of the clip; the detail stays in this log.
+    const outlook = failure.retryable ? 'another attempt may do better' : 'not to be tried again'
     log.error(
-      `Clip ${id}: failed, ${failure.retryable ? 'another attempt may do better' : 'not to be tried again'}: ` +
-        failure.message,
+      `Clip ${id}: failed while ${doing}, ${outlook}: ${failure.message}` +
+        (failure.detail === undefined ? '' : ` [${failure.detail}]`),
     )
     await giveUp(api, id, failure.message, failure.retryable)
     return { outcome: 'failed', environment: failure.environment }
@@ -151,28 +162,64 @@ async function giveUp(
   }
 }
 
-/** What the backend is told about a failure, and whether trying again can help. */
-function describe(error: unknown): { message: string; retryable: boolean; environment: boolean } {
+interface Failure {
+  /** What the backend is told, and shows to every visitor of the clip: a short reason, nothing local. */
+  message: string
+  /** What goes to the log of the recorder alone. */
+  detail: string | undefined
+  retryable: boolean
+  environment: boolean
+}
+
+/**
+ * What the backend is told about a failure, and whether trying again can help. The reason is written here from the
+ * kind of failure and never taken from a system error, an answer or the output of a tool, which carry paths, hosts
+ * and addresses of this machine and its network; that text is kept as the detail for the log.
+ */
+function describe(error: unknown): Failure {
   if (error instanceof RecorderError) {
-    return { message: error.message, retryable: error.retryable, environment: error.environment }
+    return {
+      message: error.message,
+      detail: error.detail,
+      retryable: error.retryable,
+      environment: error.environment,
+    }
   }
   if (error instanceof ApiError) {
-    if (error.status === 410) {
-      return { message: 'The demo file is no longer stored', retryable: false, environment: false }
-    }
-    if (error.status === 413) {
-      return {
-        message: `The backend refuses a file this large (${error.message})`,
-        retryable: false,
-        environment: false,
-      }
-    }
-    return { message: error.message, retryable: true, environment: false }
+    return { ...reasonOf(error), detail: error.message, environment: false }
   }
   if (error instanceof Error && error.stack !== undefined) {
     log.error(`Unexpected error: ${error.stack}`)
   }
-  return { message: `Unexpected error of the recorder: ${messageOf(error)}`, retryable: true, environment: false }
+  return {
+    message: 'Unexpected error of the recorder',
+    detail: messageOf(error),
+    retryable: true,
+    environment: false,
+  }
+}
+
+/** The reason to give for an answer of the backend that the recorder cannot go on with. */
+function reasonOf(error: ApiError): { message: string; retryable: boolean } {
+  if (error.status === 410) {
+    return { message: 'The demo file is no longer stored', retryable: false }
+  }
+  if (error.status === 413) {
+    return { message: 'The recording is larger than the backend accepts', retryable: false }
+  }
+  if (error.status === 0) {
+    return { message: 'The recorder could not reach the backend', retryable: true }
+  }
+  if (error.status >= 500) {
+    return { message: `The backend answered with an error (HTTP ${error.status})`, retryable: true }
+  }
+  if (error.code === 'CLIP_VIDEO_MISSING') {
+    return { message: 'The backend has no video of this attempt', retryable: true }
+  }
+  if (error.tokenRefused) {
+    return { message: 'The backend does not accept the recorder', retryable: true }
+  }
+  return { message: `The backend refused a request of the recorder (HTTP ${error.status})`, retryable: true }
 }
 
 function messageOf(error: unknown): string {
