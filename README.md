@@ -183,9 +183,14 @@ for going live and not a hardened production setup: what is still missing is lis
 
 ### What the server needs
 
-- **Docker Engine with Compose v2.24.4 or newer** (`docker compose version`).
+- **Docker Engine with Compose v2.24.4 or newer.** A fresh server has neither: install Docker from Docker's own package
+  repository (<https://docs.docker.com/engine/install/ubuntu/>), not from the packages of the distribution, which can
+  be older or come without the Compose plugin. Check with `docker compose version`, and stop here if it prints less
+  than 2.24.4.
 - **About 2 CPU cores and 4 GB of memory.** The first build, which compiles the Rust parser and the backend, asks for
-  more than the running stack does.
+  more than the running stack does. With 4 GB, add a swap file of 2 to 4 GB before the first build (the compilation of
+  the parser is what runs out of memory) and build the parser by itself first: `docker compose build parser`, then the
+  `up` below.
 - **Disk:** about 10 GB for the Docker images and the build, plus the data. A demo file is about 400 MB before it is
   compressed for storage, and a clip is a video of tens of megabytes. By default demo files and clips are deleted after
   30 days (`DEMO_RETENTION_DAYS`, `CLIP_RETENTION_DAYS`).
@@ -224,20 +229,38 @@ one and the backend can no longer log in (see [Operational notes](#operational-n
    if the server really answers on that IPv6 address) and check from your own computer that `dig +short example.com`
    prints that address before you go on. Caddy asks for its certificate as soon as it starts, and the certificate
    authority refuses a name that does not point at the server yet and limits how often you may try again.
-2. **Set the domain in `.env`:** `DOMAIN=example.com`, the bare host name without `https://`.
+2. **Set the domain and the files of the stack in `.env`:**
+
+   ```bash
+   DOMAIN=example.com
+   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+   ```
+
+   `DOMAIN` is the bare host name: no `https://`, no path, and exactly the name people will type. The site answers on
+   this one name only; `www.example.com` or the address of the server get no certificate and fail. `COMPOSE_FILE` makes
+   every `docker compose` command in this directory use the production override, so that none of them can start the
+   stack without it by mistake. `docker compose config --services` must now list `caddy`.
 3. **Start the stack:**
 
    ```bash
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait
+   docker compose up -d --build --wait
    ```
 
    The first start builds the images and takes several minutes. Then open `https://example.com`; port 80 redirects to
-   HTTPS. If the browser reports a certificate error, read what Caddy says; usually the DNS record is wrong or
-   something blocks port 80 or 443:
+   HTTPS. If the browser reports a certificate error, read what Caddy says (`docker compose logs caddy`); usually the
+   DNS record is wrong or something blocks port 80 or 443. After you have corrected the record,
+   `docker compose restart caddy` makes Caddy ask again at once. Do not recreate the stack again and again instead:
+   the certificate authority limits failed attempts.
+4. **Check it.** From your own computer, a write without the admin key must be refused for the missing key and not
+   for its origin:
 
    ```bash
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml logs caddy
+   curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Origin: https://example.com' \
+     https://example.com/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/demo/analyze
    ```
+
+   `401` is right. `403` means that `DOMAIN` in `.env` is not the name in the address bar (or has `https://` in it).
+   On the server, `sudo ss -tulnp | grep -v -E '127\.0\.0\.|\[::1\]'` must show only SSH and the ports 80 and 443.
 
 `docker-compose.prod.yml` adds Caddy (`ops/caddy/Caddyfile`), which serves HTTPS for `DOMAIN` with a certificate it
 gets and renews by itself, and passes every request to the Nginx of the stack without limiting the size of a body or
@@ -246,13 +269,11 @@ network (it stays on `127.0.0.1:3000` for a look from the server itself), makes 
 has the backend allow `https://example.com` as its origin, and gives every service `restart: unless-stopped`, so that
 the stack comes back after a reboot of the server.
 
-**Every later `docker compose` command for this stack needs the same two `-f` options**; leaving them out would
-publish the web port on all interfaces again. To type them once, add this line to `.env`, after which a plain
-`docker compose …` means the production stack and the commands below can be used as they are:
-
-```bash
-COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
-```
+**Keep the `COMPOSE_FILE` line.** A `docker compose` command that does not see both files (the line removed, or
+`-f docker-compose.yml` typed by hand) starts the stack without the override: the web port is published on all
+interfaces again, the restart policies are gone, every write over HTTPS is refused with `403`, and Caddy is left
+running as an orphan. And never add `docker-compose.fake.yml` on a server: it replaces FACEIT with canned answers and
+falls back to a recorder token that is public.
 
 ### Way B: without a domain (plain HTTP)
 
@@ -273,9 +294,8 @@ write, the backend sees plain `http` behind the Nginx of the stack and takes the
 
 ### Updating, logs and backups
 
-The commands below are plain `docker compose …`, which is right for way B and for way A with the `COMPOSE_FILE` line
-in `.env`. Without that line, a stack started with way A needs the two `-f` options after `docker compose` in each of
-them.
+The commands below are plain `docker compose …`: right for way B, and for way A because of the `COMPOSE_FILE` line in
+`.env`.
 
 Update with the same `up -d --build` after pulling:
 
@@ -287,7 +307,9 @@ docker compose up -d --build --wait
 This rebuilds what changed, recreates the containers whose image or settings changed and applies new database
 migrations when the backend starts; the data volumes stay as they are. Take a backup first. A container that keeps
 running its old image after a rebuild (the change is not there, and `docker compose ps` shows an old start time) is
-recreated by name: `docker compose up -d --build --force-recreate backend`.
+recreated by name: `docker compose up -d --build --force-recreate backend`. Now and then, also refresh the images the
+stack does not build itself, above all the one that faces the internet (`docker compose pull caddy` before the `up`),
+and remove the images an update left behind with `docker image prune -f`.
 
 Look at the stack and its logs:
 
@@ -295,6 +317,10 @@ Look at the stack and its logs:
 docker compose ps
 docker compose logs -f --tail 100 backend      # also: caddy, frontend, parser, postgres
 ```
+
+An error line of Caddy carries the headers of the request that failed, the admin key (`X-API-Key`) and a recorder's
+token (`X-Worker-Token`) among them. Read such lines, but do not paste them anywhere without removing those values,
+and change a key that got out.
 
 Docker keeps the logs of a container without a size limit unless you set one. To cap them, put
 `{"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "3"}}` in `/etc/docker/daemon.json` and
@@ -306,6 +332,7 @@ the statistics, the highlights and the records of the clips. Dump it into a file
 (`-U` is your `DB_USER`, `csfaceit` unless you changed it):
 
 ```bash
+set -o pipefail   # so that a dump that fails is not hidden by gzip, which would still write a small valid file
 docker compose exec -T postgres pg_dump -U csfaceit --clean --if-exists csfaceit | gzip > csfaceit-$(date +%F).sql.gz
 ```
 
@@ -318,14 +345,24 @@ gunzip -c csfaceit-<date>.sql.gz | docker compose exec -T postgres psql -U csfac
 docker compose start backend parser
 ```
 
+If the site answers `502` after the backend has been started again, restart the Nginx of the stack, which looks up
+the address of the backend only when it starts: `docker compose restart frontend`.
+
 **Where the files are.** The demo files and the clip videos are not in the dump; they are in MinIO, in the Docker volume
 `miniodata` (bucket `csfaceit`). `docker volume ls` shows it as `<project>_miniodata`, where the project is the name of
 the directory you cloned into (`csfaceit_miniodata` for `csfaceit`, as above). To copy it, stop the stack first, then
 archive the volume:
 `docker run --rm -v csfaceit_miniodata:/data:ro -v "$PWD":/backup alpine tar czf /backup/miniodata.tgz -C /data .`
+To put it back, into the empty volume of a stack that is stopped:
+`docker run --rm -v csfaceit_miniodata:/data -v "$PWD":/backup alpine tar xzf /backup/miniodata.tgz -C /data`
 
 Never run `docker compose down -v` on a server: `-v` deletes the volumes, and with them the database and the files.
 Plain `docker compose down` removes the containers and keeps the data.
+
+The consoles of RabbitMQ (15672) and MinIO (9001), and Prometheus and Grafana if you start them, listen on `127.0.0.1`
+of the server only. Reach one through an SSH tunnel, for instance `ssh -L 15672:127.0.0.1:15672 <user>@<server>`.
+Set `GRAFANA_ADMIN_PASSWORD` before you start the observability profile on a server: with the restart policy of the
+override, Grafana without a password does not stop with its message but restarts in a loop.
 
 ### What this deployment does not do yet
 
