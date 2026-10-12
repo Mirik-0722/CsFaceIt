@@ -89,3 +89,34 @@ analysis:
   # How long a defuse takes in the rules of the ninja defuse highlight.
   ninja:
     defuse-seconds: 10
+# Video clips (clip/ClipProperties): the queue of clips waiting for a recorder, the rules that cut a clip into segments,
+# and how long a finished clip is kept. Checked when the backend starts: a count or a time span that is not positive is
+# refused (retention-days may be 0).
+clip:
+  # The secret a recorder sends in X-Worker-Token. While it is empty every request of a recorder is refused. It is never
+  # logged and has no default here.
+  worker-token: ${CLIP_WORKER_TOKEN:}
+  # Frames per second of a recording, whatever its quality.
+  fps: 60
+  # A segment of a clip starts this long before a kill of the player and ends this long after it ...
+  pre-seconds: 3
+  post-seconds: 2
+  # ... and two segments that are less than this far apart are one segment.
+  merge-gap-seconds: 4
+  # The most the segments of one clip may add up to; a request for a longer clip is answered with 409 CLIP_TOO_LONG.
+  max-duration-seconds: 300
+  # How many clips may wait in the queue; a request beyond it is answered with 429 CLIP_QUEUE_FULL. A soft limit: two
+  # requests at the limit at the same moment may both get in.
+  max-queued: 50
+  # How many times a clip is recorded before it is given up (it then ends FAILED).
+  max-attempts: 3
+  # An active clip whose recorder has said nothing for this long is taken back from it.
+  stale-after: 3m
+  # A recorder seen this recently counts as online.
+  worker-online-within: 90s
+  # A finished clip (done or failed) is removed with its files after this many days; 0 keeps every clip. The cron
+  # expression (Spring's six fields, server time) is normally left alone.
+  retention-days: ${CLIP_RETENTION_DAYS:30}
+  retention-cron: "0 30 4 * * *"
+  # The most a recorder may upload for one clip.
+  upload-max-size: ${CLIP_UPLOAD_MAX_SIZE:1GB}

@@ -63,6 +63,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError(ex.getCode(), ex.getMessage()));
     }
 
+    @ExceptionHandler(TooManyRequestsException.class)
+    ResponseEntity<ApiError> handleTooManyRequests(TooManyRequestsException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(new ApiError(ex.getCode(), ex.getMessage()));
+    }
+
     /** Safety net: services translate this into a {@link NotFoundException} with a context-specific code. */
     @ExceptionHandler(FaceitNotFoundException.class)
     ResponseEntity<ApiError> handleFaceitNotFound(FaceitNotFoundException ex) {

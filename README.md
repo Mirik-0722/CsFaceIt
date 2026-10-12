@@ -186,8 +186,8 @@ cd frontend && SHOTS=1 npx playwright test e2e/shots.spec.ts
 
 Base URL: <http://localhost:3000> with Docker Compose, <http://localhost:8080> in dev mode. Everything returns JSON,
 and errors have the shape `{"code": "...", "message": "..."}`. The player and match endpoints below are `GET` and open;
-the four [demo endpoints](#demo-pipeline) are described in their own section, and the three that change something
-(`POST`) need the `X-API-Key` header.
+the four [demo endpoints](#demo-pipeline) and the [clip endpoints](#video-clips) are described in their own sections,
+and the four that change something (`POST`) need the `X-API-Key` header.
 
 | Endpoint | Description |
 | --- | --- |
@@ -218,8 +218,11 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 400 | `VALIDATION_ERROR` | A nickname, id, highlight `type` or paging parameter is malformed; for the upload also a bad file name, an empty or corrupt file, or a multipart body that is malformed or was cut off. |
 | 401 | `UNAUTHORIZED` | A protected request is missing a valid `X-API-Key` header. |
 | 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND`, `DEMO_NOT_FOUND` | FACEIT does not know the player or match, or the match has no demo record yet. |
+| 404 | `HIGHLIGHT_NOT_FOUND`, `CLIP_NOT_FOUND` | There is no such highlight (or its demo is not `ANALYZED`) or clip; see [Video clips](#video-clips). |
 | 409 | `DEMO_URL_UNAVAILABLE`, `DEMO_NOT_PARSED` | A demo import was requested but FACEIT has no demo for the match (yet); or an analysis was requested but the demo is not `PARSED` or `ANALYZED`. |
+| 409 | `DEMO_NOT_AVAILABLE`, `PLAYER_STEAM_ID_UNKNOWN`, `CLIP_TOO_LONG` | A clip was requested but the demo file is not stored, the player's SteamID is unknown, or the clip would be longer than allowed; see [Video clips](#video-clips). |
 | 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip file expands beyond it). |
+| 429 | `CLIP_QUEUE_FULL` | A clip was requested but the queue of clips is full; see [Video clips](#video-clips). |
 | 502 | `FACEIT_UNAVAILABLE` | FACEIT failed or timed out after retries, or refused the request (for example a rejected `FACEIT_API_KEY`, which is not retried), and no cached copy exists. |
 
 FACEIT responses are cached in Redis (player profile 5 minutes, match history 2 minutes, finished match 24 hours),
@@ -481,7 +484,8 @@ Seconds become ticks with the tick rate of the demo (64 when the demo does not s
 player, type, round and `tick_start` (its `id` changes with every analysis, so it is no handle; whatever is made from a
 highlight, a clip, finds it again by these five). Once clips exist, changing `pre-seconds` and analyzing again gives the
 highlights other `tick_start` values, and the clips made before no longer find theirs: change it before clips are made,
-or make the clips again. `post-seconds` only moves where a clip ends.
+or make the clips again. `post-seconds` only moves where a clip ends. Once clips exist, neither is changed; see
+[Video clips](#video-clips).
 
 **When the analysis fails.** The backend tries the `demo.parsed` message three times (an exception in the analysis
 itself, say, from facts it cannot handle; every failed attempt is logged at `ERROR` with the exception and its stack
@@ -581,6 +585,107 @@ figures without an analyzed match and `clutchPercent` without a clutch. `kd` and
 numbers, `0.0` for a player without a stored row (and `hsPercent` for one without a kill), so a consumer that has to tell
 "no data" from "zero" tests `matches > 0`. A player the database does not know has `matches`, `analyzedMatches`,
 `clutchAttempts` and `clutchWins` at `0`, `kd` and `hsPercent` at `0.0`, and the other figures `null`.
+
+### Video clips
+
+A clip is a video of a moment of a match, cut from the stored demo of the match. Asking for the clip of a highlight puts
+a row in the `clips` table with the status `QUEUED` and the **segments** of the demo the video is made of; a recorder
+takes the queued clips one at a time. The endpoints below are the request and the reads. The `POST` needs the admin key
+in the `X-API-Key` header, the reads are open and answer from the database only (nothing is asked of FACEIT or of the
+storage). The examples use the Compose address; `<highlightId>` is the `id` of an item of
+`GET /api/v1/matches/{matchId}/highlights`.
+
+| Endpoint | Answer |
+| --- | --- |
+| `POST /api/v1/highlights/{highlightId}/clips` | Queues the clip of the highlight. The body is `{"quality": "720p"}` or `{"quality": "1080p"}`; no body, or `{}`, is 720p. `201` and the clip when this request queued it, `200` and the clip that already stands for the highlight at that quality when there is one. |
+| `GET /api/v1/clips/{clipId}` | One clip, with the `kills` its video shows. `404 CLIP_NOT_FOUND`. |
+| `GET /api/v1/matches/{matchId}/clips` | An array of the clips of the match, whatever their status, the newest first. Empty for a match the database does not know. |
+| `GET /api/v1/players/{playerId}/clips?offset=0&limit=20` | `{"items": [...], "offset": 0, "limit": 20}`: a page of the clips of the player over all his matches, whatever their status, the newest first. `offset` 0-10000, `limit` 1-100. Empty for a player the database does not know. |
+| `GET /api/v1/clips?offset=0&limit=20` | The same page, of the clips that are `DONE` only, the most recently finished first. |
+
+```bash
+curl -X POST -H 'X-API-Key: dev-admin-key' -H 'Content-Type: application/json' -d '{"quality": "1080p"}' \
+  http://localhost:3000/api/v1/highlights/<highlightId>/clips
+curl http://localhost:3000/api/v1/clips/<clipId>
+curl http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/clips
+curl "http://localhost:3000/api/v1/players/<playerId>/clips?offset=0&limit=20"
+curl "http://localhost:3000/api/v1/clips?limit=10"
+```
+
+A clip, here a queued one of a `K3` (ids shortened):
+
+```json
+{"id": 1, "kind": "HIGHLIGHT", "status": "QUEUED", "progress": 0, "matchId": "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+ "mapName": "de_mirage", "playerId": "steam:...", "nickname": "garnet", "highlightType": "K3", "roundNumber": 5,
+ "tickStart": 33246, "quality": "720p", "fps": 60, "durationMs": null, "sizeBytes": null, "error": null,
+ "queuePosition": 1, "videoUrl": null, "thumbnailUrl": null, "createdAt": "...", "finishedAt": null,
+ "expiresAt": null, "kills": []}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `HIGHLIGHT`, the clip of one highlight, or `COMPILATION`, all the kills of a player in a match. A compilation has no `highlightType`, `roundNumber` or `tickStart`. |
+| `status`, `progress` | `QUEUED`, then `RECORDING`, `ENCODING` and `UPLOADING` while a recorder works on it, then `DONE`; `FAILED` when it was given up. `progress` is the percent done of the attempt that is running. |
+| `matchId`, `playerId`, `nickname`, `mapName` | The FACEIT match id, the FACEIT player id (`steam:<SteamID>` for a player known only from a demo), his nickname and the map. |
+| `highlightType`, `roundNumber`, `tickStart` | The highlight the clip was made for (see [Analysis](#analysis)): its type, its round, and the first tick of its window. |
+| `quality`, `fps` | The size of the picture (`"720p"` is 1280x720, `"1080p"` is 1920x1080) and the frames per second (`clip.fps`, as it was when the clip was requested). |
+| `queuePosition` | While the clip is `QUEUED`: its place in the queue, 1 for the clip a recorder takes next. `null` in every other status. |
+| `error` | Why the clip failed, or why its last attempt did while it waits to be recorded again. |
+| `durationMs`, `sizeBytes` | The length of the finished video, and the size of its file (known from the upload on). |
+| `videoUrl`, `thumbnailUrl` | Where the video and its thumbnail are served from (`/api/v1/clips/{id}/video`, `/api/v1/clips/{id}/thumbnail`); `null` until the clip is `DONE`, and `thumbnailUrl` also when the recorder uploaded no thumbnail. |
+| `createdAt`, `finishedAt`, `expiresAt` | When the clip was requested, when it became `DONE` or `FAILED`, and when the clean-up of old clips will remove it (`finishedAt` plus `clip.retention-days`; `null` for a clip that is not `DONE`, or when the setting is 0). |
+| `kills` | The kills of an enemy the video shows, each `{"offsetMs", "weapon", "headshot", "victimNickname"}`, in the order of the video. `offsetMs` is the place on the timeline of the finished video: the length of the segments before the kill's own plus its distance from the start of that segment. Only `GET /api/v1/clips/{clipId}` fills it; the lists and the answer to the `POST` carry `[]`. |
+
+**One clip per highlight and quality.** The clip of a highlight is told apart from the others by the match, the player,
+the type, the round and the first tick of the highlight, and its quality (the highlight's `id` changes with every
+analysis, so the clip does not keep it). A second request for the same highlight, also at the same moment from another
+browser, finds the clip that is there and answers `200` with it; nothing is recorded twice. A clip that ended `FAILED`
+does not count: asking again queues a new one. The same highlight at the other quality is another clip. After the demo
+was analyzed again the old highlight id is a `404 HIGHLIGHT_NOT_FOUND`, and asking with the id the same event now has
+finds the clip that was made before.
+
+**The segments.** The video is made of the kills of the player inside the window of the highlight (`tickStart` to
+`tickEnd`). Each kill of an enemy gets a segment from `clip.pre-seconds` before it to `clip.post-seconds` after it, cut to
+the window; segments less than `clip.merge-gap-seconds` apart (or overlapping) become one, so kills in quick succession
+are one continuous stretch. A window with no kill of the player in it (a clutch won without a kill, a defuse) is shown
+whole. A kill of an enemy is a kill where the player is the killer, did not kill himself, and killer and victim were not
+on the same side. Seconds become ticks with the tick rate of the demo (64 when it does not say). The segments are kept
+in `clips.segments` as `[{"startTick": ..., "endTick": ...}, ...]`.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | The `quality` is not `"720p"` or `"1080p"`, the body cannot be read, or an id or paging parameter is malformed. A player known only from a demo has the id `steam:<SteamID>`, whose colon the id rule does not allow, so `GET /api/v1/players/{playerId}/clips` cannot name him (as for his highlights); his clips are in the list of the match. |
+| 401 | `UNAUTHORIZED` | The `POST` is missing a valid `X-API-Key` header. |
+| 404 | `HIGHLIGHT_NOT_FOUND` | There is no highlight with that id, or the demo of its match is not `ANALYZED` (a highlight is served only then, see [Highlights and statistics](#highlights-and-statistics)). |
+| 404 | `CLIP_NOT_FOUND` | There is no clip with that id. |
+| 409 | `DEMO_NOT_AVAILABLE` | The demo file of the match is not in storage (the retention job removed it, see [Retention](#retention); upload the demo again) or the demo is not `PARSED` or `ANALYZED`. |
+| 409 | `PLAYER_STEAM_ID_UNKNOWN` | The backend does not know the SteamID of the player, and a recorder follows a player by it. |
+| 409 | `CLIP_TOO_LONG` | The segments add up to more than `clip.max-duration-seconds`. |
+| 429 | `CLIP_QUEUE_FULL` | `clip.max-queued` clips are waiting already. Ask again later. The limit is soft: two requests at the same moment may both get in. |
+
+The `POST` checks in this order, and the first that fails ends the request: the highlight, the demo file, the SteamID
+of the player, the clip that is there already (answered with `200` whatever the queue looks like), the queue, and
+last the length of the segments.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `clip.fps` | 60 | Frames per second of a recording. |
+| `clip.pre-seconds`, `clip.post-seconds` | 3, 2 | How long a segment starts before a kill and ends after it. |
+| `clip.merge-gap-seconds` | 4 | Segments less than this far apart are one. |
+| `clip.max-duration-seconds` | 300 | The most the segments of one clip may add up to. |
+| `clip.max-queued` | 50 | How many clips may wait in the queue. |
+| `clip.retention-days` (`CLIP_RETENTION_DAYS`) | 30 | Days a finished clip is kept; `expiresAt` is worked out from it. `0` keeps every clip. |
+
+The other `clip.*` settings in `application.yml` (`worker-token`, `max-attempts`, `stale-after`, `worker-online-within`,
+`retention-cron`, `upload-max-size`) belong to the recorder side of the pipeline.
+
+**Do not change `analysis.clip.pre-seconds` or `analysis.clip.post-seconds` once a clip exists.** A clip finds its
+highlight by the first tick of the highlight's window (`tick_start`), and that tick is worked out from `pre-seconds`
+(see [Analysis](#analysis)): after a change and a new analysis the highlights have other first ticks, the clips made
+before no longer find theirs, and a request for the same event queues a second clip. A changed `post-seconds` moves the
+end of every highlight's window, so the clips made before would have been cut to another window than their highlight
+has now. Change them before the first clip is made. If they have to change later, the highlight must first get the ticks
+of the event itself (a new migration), and the clip's key has to move to them.
 
 ### Retention
 
