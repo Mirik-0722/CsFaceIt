@@ -1,6 +1,8 @@
 package io.csfaceit.backend.clip;
 
 import io.csfaceit.backend.common.api.NotFoundException;
+import io.csfaceit.backend.storage.StorageException;
+import io.csfaceit.backend.storage.StorageService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -21,20 +23,32 @@ import org.springframework.stereotype.Component;
  * logged and skipped, it never stops the run, and is found again at the next one. The file of a clip that was deleted
  * but could not be removed from the storage stays there (a warning in the log at the time), since the row that named it
  * is gone. A clip that someone deleted between the look and its turn is not a failure.
+ *
+ * <p>A run does not start while the storage cannot be asked. The row goes first and nothing sweeps {@code clips/} for
+ * files that no row names, so with the storage down at the hour of the run every expired clip would lose its row and
+ * keep its files for good. Before the loop the job therefore puts one question to the storage that costs next to
+ * nothing (whether a key exists, to which no is as good an answer as yes); if the storage fails to answer, the whole
+ * run is skipped with a warning, the rows stay, and the next run takes the clips.
  */
 @Component
 public class ClipRetentionJob {
+
+    /** What the storage is asked about before a run. Nothing is stored under it: only a failure to answer matters. */
+    private static final String PROBE_KEY = "clips/.retention-probe";
 
     private static final Logger log = LoggerFactory.getLogger(ClipRetentionJob.class);
 
     private final ClipPersistence persistence;
     private final ClipService clips;
+    private final StorageService storage;
     private final ClipProperties properties;
     private final Clock clock;
 
-    public ClipRetentionJob(ClipPersistence persistence, ClipService clips, ClipProperties properties, Clock clock) {
+    public ClipRetentionJob(ClipPersistence persistence, ClipService clips, StorageService storage,
+                            ClipProperties properties, Clock clock) {
         this.persistence = persistence;
         this.clips = clips;
+        this.storage = storage;
         this.properties = properties;
         this.clock = clock;
         if (properties.retentionDays() <= 0) {
@@ -54,6 +68,14 @@ public class ClipRetentionJob {
             expired = persistence.findFinishedBefore(cutoff);
         } catch (RuntimeException e) {
             log.error("Clip retention: could not look for the expired clips, trying again at the next run", e);
+            return;
+        }
+        try {
+            storage.exists(PROBE_KEY);
+        } catch (StorageException e) {
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            log.warn("Clip retention: the storage cannot be asked, so this run removes nothing; the {} expired clips "
+                    + "keep their rows and the next run takes them: {}", expired.size(), cause.toString());
             return;
         }
 
