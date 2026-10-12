@@ -460,6 +460,7 @@ about who is signed in are [their own section](#signing-in).
 | `GET /api/v1/matches/{matchId}` | Match details: map, status, times, teams and winner. |
 | `GET /api/v1/matches/{matchId}/stats` | Per-team, per-player stats of a match. |
 | `GET /api/v1/matches/{matchId}/highlights?type=&playerId=` | The highlights the analysis found in the match's demo (see [Highlights and statistics](#highlights-and-statistics)). |
+| `GET /api/v1/matches/{matchId}/breakdown` | The rounds of the match's analyzed demo with the side that won each and the players who played it on that side, and the KAST, entry kills, trade kills and clutches the analysis computed for each player (see [Highlights and statistics](#highlights-and-statistics)). |
 | `GET /api/v1/players/{playerId}/highlights?type=&offset=0&limit=50` | A page of the player's highlights over all his analyzed matches, the newest match first (`offset` 0-10000, `limit` 1-100). |
 | `GET /api/v1/players/{playerId}/stats` | The player's statistics over the matches the backend has stored: K/D, HS%, ADR, KAST, entry and trade kills, clutch %, win rate. |
 | `GET /api/v1/players/{playerId}/overview` | The player's results by map (matches, wins, K/D, ADR) and his highlights by type, from the database only (see [Highlights and statistics](#highlights-and-statistics)). |
@@ -472,6 +473,7 @@ curl "http://localhost:3000/api/v1/players/<playerId>/history?offset=0&limit=20"
 curl "http://localhost:3000/api/v1/matches/<matchId>"
 curl "http://localhost:3000/api/v1/matches/<matchId>/stats"
 curl "http://localhost:3000/api/v1/matches/<matchId>/highlights?type=K3"
+curl "http://localhost:3000/api/v1/matches/<matchId>/breakdown"
 curl "http://localhost:3000/api/v1/players/<playerId>/highlights?offset=0&limit=10"
 curl "http://localhost:3000/api/v1/players/<playerId>/stats"
 curl "http://localhost:3000/api/v1/players/<playerId>/overview"
@@ -904,19 +906,21 @@ analysis again with `POST .../demo/analyze` once the database is back.
 
 ### Highlights and statistics
 
-Three `GET` endpoints serve what the analysis stored. They are open (no key) and read the database only (nothing is
+Four `GET` endpoints serve what the analysis stored. They are open (no key) and read the database only (nothing is
 asked of FACEIT). An id the database does not know is not an error: the lists are empty and the statistics say
 `matches: 0`. The examples use the Compose address; `<playerId>` is a FACEIT player id.
 
 | Endpoint | Answer |
 | --- | --- |
 | `GET /api/v1/matches/{matchId}/highlights?type=&playerId=` | An array of the highlights of the match, by round and, within a round, by the first tick of the clip. `type` (one of the types in the table of highlight types in [Analysis](#analysis)) and `playerId` narrow the list; both are optional. |
+| `GET /api/v1/matches/{matchId}/breakdown` | `{"matchId": "...", "rounds": [...], "players": [...]}`: who won each round of the match and the numbers the analysis computed for each of its players, the data of the scoreboard of the match page. `rounds` is by round number and `players` by id; the fields are described at the end of this section. |
 | `GET /api/v1/players/{playerId}/highlights?type=&offset=0&limit=50` | `{"items": [...], "offset": 0, "limit": 50}`: a page of the highlights of the player over all his matches, the newest match first (a match with no start time last), then by round and clip. `type` as above, `offset` 0-10000, `limit` 1-100. |
 | `GET /api/v1/players/{playerId}/stats` | The statistics of the player over the matches the backend has stored. |
 
 ```bash
 curl "http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/highlights"
 curl "http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/highlights?type=K3&playerId=<playerId>"
+curl "http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/breakdown"
 curl "http://localhost:3000/api/v1/players/<playerId>/highlights?type=ACE&offset=0&limit=10"
 curl "http://localhost:3000/api/v1/players/<playerId>/stats"
 ```
@@ -926,7 +930,8 @@ curl "http://localhost:3000/api/v1/players/<playerId>/stats"
 `PARSED`, then `ANALYZED`) or was parsed again and ended `FAILED`, the set of the earlier analysis is still in the
 table, but it was found in a file that is no longer the stored one, and a clip is cut from the stored file by these
 ticks. Until a new analysis has run, a match whose demo is in any other status, or that has no demo at all, gives `[]` on
-the match endpoint and adds nothing to the page of a player. The statistics endpoint is not affected.
+the match endpoint (two empty lists on the breakdown of the match) and adds nothing to the page of a player. The
+statistics endpoint is not affected.
 
 A `type` that is not one of the highlight types, an `offset` or `limit` out of range and a `playerId` that is not made of
 letters, digits and `-` are a `400 VALIDATION_ERROR`. A player known only from a demo has the id `steam:<SteamID>`, whose
@@ -1013,6 +1018,31 @@ whole page (three statements, whatever `limit` is).
   above; empty list) and `clips`: `{"done": 1, "active": 1, "failed": 0}`, the clips of the match that follow the
   player, `active` being every clip that is neither `DONE` nor `FAILED` (waiting in the queue, being recorded, encoded
   or uploaded).
+
+**The breakdown of a match.** `GET /api/v1/matches/{matchId}/breakdown` serves the scoreboard of the match page: who won
+each round, and the numbers the analysis computed for each player. It reads the database only, with two statements on one
+snapshot whatever the number of rounds and players. A `matchId` that is not made of letters, digits and `-` is a
+`400 VALIDATION_ERROR`, as for the highlights. The ids in this example are made up.
+
+```json
+{"matchId": "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+ "rounds": [{"number": 1, "winnerSide": "CT", "winnerPlayerIds": ["id-a", "id-b", "id-c", "id-d", "id-e"]}, "..."],
+ "players": [{"playerId": "id-a", "kast": 74.0, "entryKills": 3, "tradeKills": 2, "clutchWins": 1,
+              "clutchAttempts": 2}, "..."]}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `rounds` | One entry for each round of the demo, by `number` (from 1, on through overtime). |
+| `rounds[].winnerSide` | `"CT"` or `"T"`: the side that won the round. `null` when the demo does not say. |
+| `rounds[].winnerPlayerIds` | The ids of the players who played the round on the winning side (their `round_players` rows), ascending, five in a full round; empty when `winnerSide` is `null`. An id is the `playerId` of the highlights: the FACEIT player id, or `steam:<SteamID>` for a player known only from the demo. |
+| `players` | One entry for each player whose row of statistics was analyzed from the demo (`rounds_played` is set; the rows that only hold FACEIT's numbers are not part of it), by `playerId`. |
+| `players[].kast` | The KAST of the match, a percentage with one decimal, rounded as the `kast` of `.../stats` is. `null` when it was not computed. |
+| `players[].entryKills`, `tradeKills`, `clutchWins`, `clutchAttempts` | The counts of the match (see the columns of `player_match_stats` in [Analysis](#analysis)). `null` when not computed, never 0. |
+
+Both lists follow the rule of the highlights: a match the database does not know, and one whose demo is not `ANALYZED`
+(it has no demo, or the demo was uploaded again and is not yet analyzed), is a `200` with `"rounds": []` and
+`"players": []`, not a 404.
 
 ### Retention
 
