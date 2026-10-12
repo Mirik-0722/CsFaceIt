@@ -70,7 +70,10 @@ function LatestHighlights({ playerId }: { playerId: string }) {
   )
 }
 
-/** The player's clips, in whatever state, newest first, a page at a time. A failure stays inside the section. */
+/**
+ * The player's clips, in whatever state, newest first, a page at a time. Most players have none, so the section is
+ * there only once it has a clip to show, or a failure to report (which stays inside it).
+ */
 function PlayerClips({ playerId }: { playerId: string }) {
   const t = useT()
   const clips = usePlayerClips(playerId)
@@ -78,17 +81,14 @@ function PlayerClips({ playerId }: { playerId: string }) {
   const items = clips.data?.pages
     .flatMap((page) => page.items)
     .filter((item, index, all) => all.findIndex((other) => other.id === item.id) === index)
+  if (!clips.isError && (!items || items.length === 0)) {
+    return null
+  }
   return (
     <section className="flex flex-col gap-4 pt-3">
       <h2 className="heading-section">{t.clip.listTitle}</h2>
       <div aria-live="polite" className="flex flex-col gap-2">
-        {clips.isPending && (
-          <>
-            <p className="label-mono">{t.clip.loadingList}</p>
-            <Skeleton className="h-40 w-full" />
-          </>
-        )}
-        {items && <ClipList items={items} />}
+        {items && items.length > 0 && <ClipList items={items} />}
         {clips.isError && <p className="text-sm text-destructive">{errorMessage(clips.error, t)}</p>}
       </div>
       {clips.hasNextPage && (

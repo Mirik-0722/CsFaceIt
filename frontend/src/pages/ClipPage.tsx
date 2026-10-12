@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useClip, useDeleteClip, useMatchClips } from '@/api/queries'
 import KillTimeline from '@/components/KillTimeline'
+import RecorderBanner from '@/components/RecorderBanner'
 import StatusChip from '@/components/StatusChip'
 import ViewfinderFrame from '@/components/ViewfinderFrame'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -90,6 +91,8 @@ function ClipPlaceholder({ clip }: { clip: ClipResponse }) {
       {clip.status === 'FAILED' && clip.error && (
         <p className="font-mono text-xs break-words text-negative">{clip.error}</p>
       )}
+      {/* Why a clip may be waiting: whether a recorder is there at all, and how long the queue is. */}
+      {clip.status === 'QUEUED' && <RecorderBanner />}
     </div>
   )
 }
@@ -312,6 +315,7 @@ function ClipView({ clip }: { clip: ClipResponse }) {
               controls
               playsInline
               preload="metadata"
+              aria-label={clipTitle(clip, t)}
               poster={clip.thumbnailUrl ?? undefined}
               src={clip.videoUrl ?? undefined}
               className="aspect-video w-full border border-border bg-black"
