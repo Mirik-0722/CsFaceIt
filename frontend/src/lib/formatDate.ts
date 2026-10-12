@@ -36,6 +36,18 @@ export function formatDateTime(iso: string, locale: Locale): string {
   return `${FORMATS[locale](date)}, ${time}`
 }
 
+/**
+ * The time of day of an ISO-8601 instant in the viewer's time zone, on the 24-hour clock: `22:14`. A string that is not a
+ * date gives an empty string.
+ */
+export function formatClock(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
 const englishDayMonth = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short' })
 
 const DAY_MONTH_FORMATS: Record<Locale, (date: Date) => string> = {
@@ -59,4 +71,17 @@ export function formatMatchTime(iso: string, locale: Locale, now: Date = new Dat
   }
   const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
   return `${DAY_MONTH_FORMATS[locale](date)} · ${time}`
+}
+
+/**
+ * The day a match was played, for a place that has room for a few characters only (the breadcrumb of the match):
+ * `10 Oct` in English, `10-okt` in Uzbek, for an instant of the year of `now`. Any other year takes the date with its
+ * year, as `formatMatchTime` does. A string that is not a date gives an empty string.
+ */
+export function formatMatchDay(iso: string, locale: Locale, now: Date = new Date()): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  return date.getFullYear() === now.getFullYear() ? DAY_MONTH_FORMATS[locale](date) : FORMATS[locale](date)
 }

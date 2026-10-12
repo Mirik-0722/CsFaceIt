@@ -45,27 +45,27 @@ describe('StatsTable', () => {
     expect(screen.getByText('Winner')).toBeInTheDocument()
   })
 
-  it('has exactly the columns Player, K, D, A, HS, K/D, ADR, in that order', () => {
+  it('has exactly the columns Player, K, D, A, K/D, ADR, HS%, in that order', () => {
     renderTable(team())
     expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual([
       'Player',
       'K',
       'D',
       'A',
-      'HS',
       'K/D',
       'ADR',
+      'HS%',
     ])
   })
 
   it('puts the player, counts, K/D with two decimals and ADR with one decimal in the matching columns', () => {
     renderTable(team())
-    expect(bodyRows()).toEqual([['s1mple', '25', '14', '5', '12', '1.79', '95.4']])
+    expect(bodyRows()).toEqual([['s1mple', '25', '14', '5', '1.79', '95.4', '48%']])
   })
 
   it('pads K/D and ADR to a fixed number of decimals', () => {
     renderTable(team({ players: [player({ kdRatio: 2, adr: 100 }), player({ playerId: 'p2', kdRatio: 0, adr: 0 })] }))
-    expect(bodyRows().map((cells) => cells.slice(5))).toEqual([
+    expect(bodyRows().map((cells) => cells.slice(4, 6))).toEqual([
       ['2.00', '100.0'],
       ['0.00', '0.0'],
     ])

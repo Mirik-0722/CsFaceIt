@@ -116,6 +116,36 @@ export const uz: Messages = {
     statsUnavailable: "Bu match uchun statistika hali yo'q.",
     loading: 'Match yuklanmoqda…',
     loadingStats: 'Statistika yuklanmoqda…',
+    breadcrumb: "Yo'l",
+    sections: "Match bo'limlari",
+    scoreboard: 'Scoreboard',
+    minutes: (count) => `${count} daqiqa`,
+    roundCount: (count) => `${count} raund`,
+    sides: (first, then) => `Avval ${first}, keyin ${then}`,
+    you: 'Siz',
+    rounds: 'Raundlar',
+    roundSummary: (round, winner, side, highlight) => {
+      const won = winner
+        ? side
+          ? `${winner} ${side} tomonida yutdi`
+          : `${winner} yutdi`
+        : side
+          ? `${side} yutdi`
+          : "g'olib noma'lum"
+      return `${round}-raund: ${won}${highlight ? ', highlight bor' : ''}`
+    },
+    legend: {
+      ct: 'CT yutgan',
+      t: 'T yutgan',
+      highlight: 'Highlight bor',
+    },
+    columns: {
+      headshotShare: 'HS%',
+      kast: 'KAST',
+      entry: 'Entry',
+      trade: 'Trade',
+      clutch: 'Clutch',
+    },
   },
   stats: {
     team: 'Jamoa',
@@ -213,11 +243,13 @@ export const uz: Messages = {
     noKills: "Kill yo'q",
     filterLabel: 'Highlight turi',
     groupAll: 'Hammasi',
+    groupMine: 'Mening',
     groupMulti: 'Multi-kill',
     groupClutch: 'Clutch',
     groupSpecial: 'Maxsus',
     typeLabel: 'Tur',
     anyType: 'Hamma turlar',
+    showMore: (count) => `Yana ${count} ta highlight`,
   },
   demo: {
     title: 'Demo',

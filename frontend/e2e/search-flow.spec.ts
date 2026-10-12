@@ -2,6 +2,7 @@ import { expect, test as base, type Locator } from '@playwright/test'
 import {
   PLAYER_ID,
   WON_MATCH_ID,
+  breakdownFixture,
   demoFixture,
   historyFixture,
   matchFixture,
@@ -29,6 +30,7 @@ const API_RESPONSES = new Map<string, unknown>([
   [`GET /api/v1/players/${PLAYER_ID}/clips?offset=0&limit=12`, { items: [], offset: 0, limit: 12 }],
   [`GET /api/v1/matches/${WON_MATCH_ID}`, matchFixture],
   [`GET /api/v1/matches/${WON_MATCH_ID}/stats`, statsFixture],
+  [`GET /api/v1/matches/${WON_MATCH_ID}/breakdown`, breakdownFixture],
   [`GET /api/v1/matches/${WON_MATCH_ID}/demo`, demoFixture],
   [`GET /api/v1/matches/${WON_MATCH_ID}/highlights`, matchHighlightsFixture],
   [`GET /api/v1/matches/${WON_MATCH_ID}/clips`, []],
@@ -106,7 +108,9 @@ test('search -> profile -> match stats', async ({ page, api }) => {
   await test.step('open the match and read both scoreboards', async () => {
     await page.getByRole('link', { name: /13 : 9/ }).click()
     await expect(page).toHaveURL(`/matches/${WON_MATCH_ID}`)
-    await expect(page.getByText('de_mirage')).toBeVisible()
+    // The map is the title of the match's panel. The profile, which stays on screen for a moment after the address has
+    // changed, names the same map in its own lists, so the title is asked for by where it stands.
+    await expect(page.locator('[data-slot="card-title"]').filter({ hasText: /^Mirage$/ })).toBeVisible()
     await expect(page.getByRole('cell', { name: '25', exact: true })).toBeVisible()
 
     const teamA = page.getByRole('table').filter({ has: page.getByRole('heading', { name: 'team_A' }) })
@@ -114,7 +118,19 @@ test('search -> profile -> match stats', async ({ page, api }) => {
     await expect(page.getByRole('table')).toHaveCount(2)
 
     const s1mple = teamA.getByRole('row').filter({ has: page.getByRole('link', { name: 's1mple' }) })
-    await expect(s1mple.getByRole('cell')).toHaveText(['s1mple', '25', '14', '3', '12', '1.79', '95.4'])
+    await expect(s1mple.getByRole('cell')).toHaveText([
+      's1mple',
+      '25',
+      '14',
+      '3',
+      '1.79',
+      '95.4',
+      '48%',
+      '77%',
+      '5',
+      '3',
+      '1/2',
+    ])
 
     // Only the winning team is marked, and each team's header is rendered above its own rows.
     await expect(page.getByText('Winner')).toHaveCount(1)

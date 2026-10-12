@@ -1,5 +1,6 @@
 import { test, type Page } from '@playwright/test'
 import type { AuthProvidersResponse, MeResponse } from '../src/api/authTypes.ts'
+import type { MatchBreakdownResponse } from '../src/api/breakdownTypes.ts'
 import type { PlayerMatchPageResponse, PlayerOverviewResponse } from '../src/api/overviewTypes.ts'
 import type {
   ClipResponse,
@@ -16,9 +17,11 @@ import type {
 import {
   PLAYER_ID,
   WON_MATCH_ID,
+  breakdownFixture,
   clipDetailFixture,
   clipFixture,
   demoFixture,
+  emptyBreakdownFixture,
   highlightFixture,
   historyFixture,
   matchFixture,
@@ -29,6 +32,7 @@ import {
   playerStatsFixture,
   recorderStatusFixture,
   statsFixture,
+  unlinkedBreakdownFixture,
 } from './fixtures.ts'
 
 /**
@@ -58,6 +62,8 @@ interface Backend {
   match: MatchResponse
   /** `null`: FACEIT has no stats for the match yet (the backend answers 404 MATCH_NOT_FOUND). */
   stats: MatchStatsResponse | null
+  /** The rounds of the match and the figures of its demo analysis; `null`: the request fails (the backend answers 500). */
+  breakdown: MatchBreakdownResponse | null
   /** The player's figures over the stored matches. */
   playerStats: PlayerAggregateStatsResponse
   /** The player's stored matches by map, and the player's highlights by kind. */
@@ -135,7 +141,8 @@ const PAGES = [
   { name: 'player', path: `/players/${PLAYER_ID}`, tabs: 7 }, // the player of the first highlight card
   { name: 'highlights', path: `/players/${PLAYER_ID}/highlights`, tabs: 8 }, // the type filter (after the player card)
   { name: 'matches', path: `/players/${PLAYER_ID}/matches`, tabs: 7 }, // the link to the profile, beside the title
-  { name: 'match', path: `/matches/${WON_MATCH_ID}`, tabs: 8 }, // the first filter button (after "Manage")
+  // the first filter button (after "Manage" and the three section tabs)
+  { name: 'match', path: `/matches/${WON_MATCH_ID}`, tabs: 11 },
   // The order of a clip: the dialog that the first "Record clip" button of the match page opens. Its focus picture is
   // of what one Tab reaches from where the dialog put the focus when it opened.
   { name: 'order', path: `/matches/${WON_MATCH_ID}`, open: openClipOrder, tabs: 1 },
@@ -206,6 +213,7 @@ const DEFAULT_BACKEND: Backend = {
   history: tenMatches(),
   match: matchFixture,
   stats: statsFixture,
+  breakdown: breakdownFixture,
   playerStats: playerStatsFixture,
   overview: playerOverviewFixture,
   playerMatches: playerMatchesFixture,
@@ -390,6 +398,7 @@ const SCENARIOS: Scenario[] = [
     backend: {
       match: { ...matchFixture, mapName: null, startedAt: null, finishedAt: null, winner: null, status: 'ONGOING' },
       stats: null,
+      breakdown: emptyBreakdownFixture,
       demo: null,
       highlights: [],
       clips: [],
@@ -418,6 +427,12 @@ const SCENARIOS: Scenario[] = [
   { name: 'unlinked', pages: ['home', 'clips', 'menu'], backend: { me: UNLINKED_USER } },
   // FACEIT turned on in the backend: its sign-in button is a button now, in the hero and in the dialog.
   { name: 'faceit', pages: ['home', 'signin'], backend: { providers: { steam: true, faceit: true } } },
+  // The players of the demo are not linked to the roster: the strip has one row, the scoreboard no analysis columns.
+  { name: 'unlinked-demo', pages: ['match'], backend: { breakdown: unlinkedBreakdownFixture } },
+  // The demo has not been analyzed: no strip, no sides, no analysis columns.
+  { name: 'nobreakdown', pages: ['match'], backend: { breakdown: emptyBreakdownFixture } },
+  // The breakdown cannot be had: the page is as without one, and nothing else on it fails.
+  { name: 'breakdown-failed', pages: ['match'], backend: { breakdown: null } },
   // The demo panel opened: the admin key field and the three requests it guards.
   { name: 'manage', pages: ['match'], before: openDemoControls },
   // The first scoreboard scrolled to its right end, on a phone: the player column and the team header stay in place.
@@ -501,6 +516,12 @@ function answersFor(backend: Backend): Map<string, Reply> {
       backend.stats
         ? { body: backend.stats }
         : { status: 404, body: { code: 'MATCH_NOT_FOUND', message: 'Match not found' } },
+    ],
+    [
+      `GET /api/v1/matches/${WON_MATCH_ID}/breakdown`,
+      backend.breakdown
+        ? { body: backend.breakdown }
+        : { status: 500, body: { code: 'INTERNAL_ERROR', message: 'Internal error' } },
     ],
   ])
 }

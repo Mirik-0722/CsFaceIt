@@ -3,14 +3,15 @@ import type { MatchResponse, MatchStatsResponse, PlayerStatsResponse, TeamStatsR
 import { deferred, mockFetchRoutes as mockRoutes, renderWithProviders, type MockReply } from '@/test/utils'
 import MatchPage from './MatchPage'
 
-// The page also asks for the match's demo, highlights and clips. Every test gets the answers of a match without a
-// demo, for each id a test uses, next to the routes it sets up itself.
+// The page also asks for the match's demo, highlights, clips and breakdown. Every test gets the answers of a match
+// without a demo, for each id a test uses, next to the routes it sets up itself.
 function mockFetchRoutes(routes: Parameters<typeof mockRoutes>[0]) {
   const extra: Parameters<typeof mockRoutes>[0] = {}
   for (const id of ['m1', 'a%20b']) {
     extra[`/api/v1/matches/${id}/demo`] = { body: { code: 'DEMO_NOT_FOUND', message: 'x' }, status: 404 }
     extra[`/api/v1/matches/${id}/highlights`] = { body: [] }
     extra[`/api/v1/matches/${id}/clips`] = { body: [] }
+    extra[`/api/v1/matches/${id}/breakdown`] = { body: { matchId: id, rounds: [], players: [] } }
   }
   return mockRoutes({ ...extra, ...routes })
 }
@@ -84,9 +85,10 @@ describe('MatchPage', () => {
     expect(screen.getByRole('table', { name: /Vitality/ })).toBeInTheDocument()
     expect(screen.getAllByRole('table')).toHaveLength(2)
     expect(screen.getByRole('heading', { level: 1, name: 'Match' })).toBeInTheDocument()
-    expect(screen.getByText('de_mirage')).toBeInTheDocument()
+    expect(screen.getByText('Mirage')).toBeInTheDocument()
     expect(screen.getByText('01 Oct 2026')).toHaveAttribute('datetime', '2026-10-01T10:00:00Z')
-    expect(screen.getByText('FINISHED')).toBeInTheDocument()
+    // A match that is over has no word for it in the header; any other state is said (see the ONGOING match below).
+    expect(screen.queryByText('FINISHED')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 's1mple' })).toHaveAttribute('href', '/players/p1')
     expect(screen.getByRole('link', { name: 'ZywOo' })).toHaveAttribute('href', '/players/p2')
   })
@@ -95,8 +97,8 @@ describe('MatchPage', () => {
     mockFetchRoutes({ [MATCH_URL]: { body: match }, [STATS_URL]: { body: stats } })
     renderMatchPage()
     await screen.findAllByRole('table')
-    expect(screen.getAllByText('de_mirage')).toHaveLength(1)
-    expect(screen.getAllByText(/de_mirage/)).toHaveLength(1)
+    expect(screen.getAllByText('Mirage')).toHaveLength(1)
+    expect(screen.getAllByText(/mirage/i)).toHaveLength(1)
   })
 
   it('marks the winning team only', async () => {
@@ -133,7 +135,7 @@ describe('MatchPage', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
 
     matchAnswer.resolve({ body: match })
-    expect(await screen.findByText('de_mirage')).toBeInTheDocument()
+    expect(await screen.findByText('Mirage')).toBeInTheDocument()
     expect(screen.getByText('Loading stats…')).toBeInTheDocument()
     expect(screen.queryByText('Loading match…')).not.toBeInTheDocument()
 
@@ -170,7 +172,7 @@ describe('MatchPage', () => {
 
       const notice = await screen.findByText('Stats are not available for this match yet.')
       expect(notice.closest('[aria-live="polite"]')).not.toBeNull()
-      expect(screen.getByText('de_mirage')).toBeInTheDocument()
+      expect(screen.getByText('Mirage')).toBeInTheDocument()
       expect(screen.getByText('ONGOING')).toBeInTheDocument()
       expect(screen.queryByText('Match not found')).not.toBeInTheDocument()
       expect(screen.queryByRole('table')).not.toBeInTheDocument()
@@ -187,7 +189,7 @@ describe('MatchPage', () => {
       mockFetchRoutes({ [MATCH_URL]: { body: match }, [STATS_URL]: UNAVAILABLE })
       renderMatchPage()
       expect(await screen.findByText('FACEIT is temporarily unavailable. Try again later.')).toBeInTheDocument()
-      expect(screen.getByText('de_mirage')).toBeInTheDocument()
+      expect(screen.getByText('Mirage')).toBeInTheDocument()
       expect(screen.queryByText('Stats are not available for this match yet.')).not.toBeInTheDocument()
       expect(screen.queryByRole('table')).not.toBeInTheDocument()
     })

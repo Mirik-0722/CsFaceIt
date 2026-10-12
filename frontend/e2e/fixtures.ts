@@ -1,7 +1,8 @@
 // API responses for the E2E flow, typed with the frontend's own interfaces. The values mirror the backend test fixtures
 // (backend/src/test/resources/faceit): s1mple, ELO 3500, level 10; match 1-aaaa... won 13 : 9 on de_mirage.
-// The values are chosen for Playwright's strict locators: `25` is in exactly one stats cell, and `de_mirage` and
-// `ELO 3500` appear once on their pages.
+// The values are chosen for Playwright's strict locators: `25` is in exactly one stats cell (no figure of the breakdown
+// reads `25` either), and `ELO 3500` appears once on its page.
+import type { BreakdownRound, MatchBreakdownResponse, RoundSide } from '../src/api/breakdownTypes.ts'
 import type {
   PlayerMatchPageResponse,
   PlayerMatchResponse,
@@ -130,6 +131,79 @@ export const statsFixture: MatchStatsResponse = {
     },
   ],
 }
+
+// The rounds team_A won, of the 22 of the won match (13 : 9): seven of the first twelve, which it played as CT, and six
+// of the ten after the change of sides, the last of them the round that ended the match. They agree with the highlights
+// below: the round of each highlight that only the winner of a round can have (a clutch, a defuse) is its player's.
+const TEAM_A_ROUNDS = [1, 2, 3, 5, 7, 9, 11, 13, 14, 16, 18, 20, 22]
+const HALF = 12
+
+/** The rounds of the won match, the winners of each named by the ids `players` gives the two teams. */
+function roundsFixture(players: [teamA: string[], teamB: string[]]): BreakdownRound[] {
+  return Array.from({ length: 22 }, (_, index): BreakdownRound => {
+    const number = index + 1
+    const wonByA = TEAM_A_ROUNDS.includes(number)
+    // team_A starts as CT; the side that wins a round is the side its winner is on in that half.
+    const sideOfA: RoundSide = number <= HALF ? 'CT' : 'T'
+    const sideOfB: RoundSide = number <= HALF ? 'T' : 'CT'
+    return { number, winnerSide: wonByA ? sideOfA : sideOfB, winnerPlayerIds: players[wonByA ? 0 : 1] }
+  })
+}
+
+/** What the demo analysis computed for a player: KAST, entry kills, trade kills, clutches won and tried. */
+type Figures = [kast: number, entryKills: number, tradeKills: number, clutchWins: number, clutchAttempts: number]
+
+/**
+ * The breakdown of the won match: its 22 rounds with the rosters of the stats as winners, and the figures of nine of
+ * the ten players. playerA5 never stood alone (no clutch to show) and playerB5 has no entry at all, as a player the
+ * analysis could not follow has none.
+ */
+export const breakdownFixture: MatchBreakdownResponse = {
+  matchId: WON_MATCH_ID,
+  rounds: roundsFixture([
+    statsFixture.teams[0].players.map((player) => player.playerId),
+    statsFixture.teams[1].players.map((player) => player.playerId),
+  ]),
+  players: (
+    [
+      [77.3, 5, 3, 1, 2],
+      [72.7, 3, 4, 0, 1],
+      [68.2, 2, 2, 1, 1],
+      [63.6, 1, 3, 0, 2],
+      [59.1, 1, 1, 0, 0],
+      [68.2, 4, 2, 1, 3],
+      [63.6, 2, 3, 0, 1],
+      [59.1, 2, 1, 0, 2],
+      [54.5, 1, 2, 0, 1],
+    ] satisfies Figures[]
+  ).map(([kast, entryKills, tradeKills, clutchWins, clutchAttempts], index) => ({
+    playerId: statsFixture.teams.flatMap((team) => team.players)[index].playerId,
+    kast,
+    entryKills,
+    tradeKills,
+    clutchWins,
+    clutchAttempts,
+  })),
+}
+
+/**
+ * The same match when the players of its demo are not linked to the roster: every id is a `steam:` one that the stats do
+ * not have, so no round can be given to a team and no figure to a row.
+ */
+export const unlinkedBreakdownFixture: MatchBreakdownResponse = {
+  matchId: WON_MATCH_ID,
+  rounds: roundsFixture([
+    [1, 2, 3, 4, 5].map((player) => `steam:7656119800000000${player}`),
+    [6, 7, 8, 9, 0].map((player) => `steam:7656119800000000${player}`),
+  ]),
+  players: breakdownFixture.players.map((player, index) => ({
+    ...player,
+    playerId: `steam:7656119800000000${(index + 1) % 10}`,
+  })),
+}
+
+/** The breakdown of a match whose demo has not been analyzed (or that the site does not know): both lists empty. */
+export const emptyBreakdownFixture: MatchBreakdownResponse = { matchId: WON_MATCH_ID, rounds: [], players: [] }
 
 /** s1mple over twelve stored matches, five of them with an analyzed demo. */
 export const playerStatsFixture: PlayerAggregateStatsResponse = {

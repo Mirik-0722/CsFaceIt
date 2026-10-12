@@ -50,7 +50,7 @@ export default function HighlightCard({ highlight, showMatch, action }: Highligh
   const locale = useLocale()
   const sideClass = highlight.side ? SIDE_CLASS[highlight.side] : undefined
   return (
-    <article className="flex h-full flex-col gap-3 border border-border bg-card p-4">
+    <article className="flex h-full flex-col gap-3.5 border border-border bg-card p-4.5">
       <div className="flex items-center gap-3">
         {/* The labels are written as they are shown (`1v3 CLUTCH`), so the tag leaves their case alone. */}
         <Badge variant={highlight.type === 'ACE' ? 'default' : 'outline'} className="normal-case">
@@ -75,20 +75,23 @@ export default function HighlightCard({ highlight, showMatch, action }: Highligh
         </h3>
         <p className="text-[13px] text-muted-foreground">{describeHighlight(highlight, t)}</p>
       </div>
-      <KillTimeline
-        start={highlight.roundStartTick}
-        end={highlight.roundEndTick}
-        windowStart={highlight.tickStart}
-        windowEnd={highlight.tickEnd}
-        marks={highlight.kills.map((kill) => kill.tick)}
-      />
+      {/* The line of the round keeps 3px of air above and below its 16px window, as the design draws it. */}
+      <div className="py-[3px]">
+        <KillTimeline
+          start={highlight.roundStartTick}
+          end={highlight.roundEndTick}
+          windowStart={highlight.tickStart}
+          windowEnd={highlight.tickEnd}
+          marks={highlight.kills.map((kill) => kill.tick)}
+        />
+      </div>
       {action && <div className="mt-auto flex min-h-11 min-w-0 items-center gap-3">{action}</div>}
       {showMatch && (
         // The last row of the card, edge to edge; without an action row above it, it is what is pushed to the bottom.
         <Link
           to={`/matches/${encodeURIComponent(highlight.matchId)}`}
           className={cn(
-            '-mx-4 -mb-4 flex min-h-11 items-center gap-3 border-t border-border px-4 text-[13px] text-muted-foreground -outline-offset-2 hover:bg-secondary',
+            '-mx-4.5 -mb-4.5 flex min-h-11 items-center gap-3 border-t border-border px-4.5 text-[13px] text-muted-foreground -outline-offset-2 hover:bg-secondary',
             !action && 'mt-auto',
           )}
         >

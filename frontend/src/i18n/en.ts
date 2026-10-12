@@ -124,6 +124,42 @@ export const en = {
     statsUnavailable: 'Stats are not available for this match yet.',
     loading: 'Loading match…',
     loadingStats: 'Loading stats…',
+    breadcrumb: 'Breadcrumb',
+    sections: 'Sections of the match',
+    scoreboard: 'Scoreboard',
+    minutes: (count: number) => `${count} min`,
+    roundCount: (count: number) => (count === 1 ? '1 round' : `${count} rounds`),
+    // The sides a team played on, in order, for a screen reader: the page shows them as `CT → T`.
+    sides: (first: string, then: string) => `${first} first, then ${then}`,
+    // The tag on the visitor's own row of the scoreboard; shown in upper case.
+    you: 'You',
+    rounds: 'Rounds',
+    // What the squares of one round of the strip show, in words: who won it, on which side, and whether it has a
+    // highlight.
+    roundSummary: (round: number, winner: string | null, side: string | null, highlight: boolean) => {
+      const won = winner
+        ? side
+          ? `${winner} won as ${side}`
+          : `${winner} won`
+        : side
+          ? `${side} won`
+          : 'winner unknown'
+      return `Round ${round}: ${won}${highlight ? ', has a highlight' : ''}`
+    },
+    // The key under the round strip; shown in upper case.
+    legend: {
+      ct: 'CT won',
+      t: 'T won',
+      highlight: 'Has a highlight',
+    },
+    // The columns of the scoreboard beyond those of `stats`; game terms, the same in every language.
+    columns: {
+      headshotShare: 'HS%',
+      kast: 'KAST',
+      entry: 'Entry',
+      trade: 'Trade',
+      clutch: 'Clutch',
+    },
   },
   stats: {
     team: 'Team',
@@ -232,11 +268,13 @@ export const en = {
     noKills: 'No kills',
     filterLabel: 'Kind of highlight',
     groupAll: 'All',
+    groupMine: 'Mine',
     groupMulti: 'Multi-kill',
     groupClutch: 'Clutch',
     groupSpecial: 'Special',
     typeLabel: 'Type',
     anyType: 'All types',
+    showMore: (count: number) => (count === 1 ? 'Show 1 more highlight' : `Show ${count} more highlights`),
   },
   demo: {
     title: 'Demo',

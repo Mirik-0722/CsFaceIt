@@ -1,6 +1,7 @@
 import type { UseQueryResult } from '@tanstack/react-query'
-import { useId, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Fragment, type ReactNode, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { useMatchBreakdown } from '@/api/breakdown'
 import { useDemo, useMatch, useMatchClips, useMatchHighlights, useMatchStats } from '@/api/queries'
 import ClipButton from '@/components/ClipButton'
 import ClipList from '@/components/ClipList'
@@ -11,114 +12,334 @@ import MapTile from '@/components/MapTile'
 import MatchScore from '@/components/MatchScore'
 import RecDot from '@/components/RecDot'
 import RecorderBanner from '@/components/RecorderBanner'
+import RoundStrip from '@/components/RoundStrip'
 import StatsTable from '@/components/StatsTable'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useT } from '@/i18n'
 import { clipFor, compilationFor } from '@/lib/clips'
 import { errorMessage } from '@/lib/errorMessage'
-import { formatDate } from '@/lib/formatDate'
+import { formatClock, formatDate, formatMatchDay } from '@/lib/formatDate'
 import { hasLost } from '@/lib/hasLost'
 import { highlightGroup, highlightLabel, type HighlightGroup } from '@/lib/highlightLabels'
 import { mapLabel } from '@/lib/mapTint'
+import { byNumber, startingSides } from '@/lib/matchRounds'
+import { cn } from '@/lib/utils'
+import { useViewerPlayerId } from '@/lib/viewer'
 import type { ApiError } from '@/api/client'
 import type { MatchResponse, MatchStatsResponse, TeamStatsResponse } from '@/api/types'
 
+// Where every match of the site comes from: the first fact of the header's line.
+const SOURCE = 'FACEIT'
+
+/** How long the match took in whole minutes, or null when one of its two times is missing or they make no span. */
+function minutesPlayed(match: MatchResponse): number | null {
+  if (!match.startedAt || !match.finishedAt) {
+    return null
+  }
+  const span = Date.parse(match.finishedAt) - Date.parse(match.startedAt)
+  return span > 0 ? Math.round(span / 60_000) : null
+}
+
 /**
- * The map, the start date and the status of a match, each left out while FACEIT has not published it, and the score
- * of the two teams once the stats have arrived.
+ * Whether the visitor's player won or lost the match; null when the player is in neither team, or nobody has won yet.
  */
-function MatchHeader({ match, teams }: { match: MatchResponse; teams: TeamStatsResponse[] | undefined }) {
+function resultFor(match: MatchResponse, viewerPlayerId: string | null): 'won' | 'lost' | null {
+  if (!viewerPlayerId || !match.winner) {
+    return null
+  }
+  const own = match.teams.find((team) => team.players.some((player) => player.playerId === viewerPlayerId))
+  if (!own) {
+    return null
+  }
+  return own.factionId === match.winner ? 'won' : 'lost'
+}
+
+/**
+ * The way back to the visitor's matches, and where the visitor is: `Matches / Mirage · 10 Oct`. It is there for a
+ * visitor who has a player only: nobody else has a list of matches for the first step to lead to.
+ */
+function Breadcrumb({ viewerPlayerId, match }: { viewerPlayerId: string; match: MatchResponse | undefined }) {
   const t = useT()
   const locale = useLocale()
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-6">
-        <div className="flex items-center gap-4">
-          <MapTile mapName={match.mapName} />
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <CardTitle className="truncate text-[26px] leading-[1.2] tracking-[-0.02em]">
-              {mapLabel(match.mapName) ?? t.match.unknownMap}
-            </CardTitle>
-            {(match.mapName || match.startedAt || match.status) && (
-              // The raw map name, the date and the status are separate elements: each is one fact of its own. The
-              // status is upper case by CSS, so its look does not depend on the case FACEIT sends.
-              <div className="flex flex-wrap gap-x-3 font-mono text-xs text-subtle">
-                {match.mapName && <span>{match.mapName}</span>}
-                {match.startedAt && <time dateTime={match.startedAt}>{formatDate(match.startedAt, locale)}</time>}
-                {match.status && (
-                  <span data-slot="match-status" className="uppercase">
-                    {match.status}
-                  </span>
-                )}
-              </div>
-            )}
+    <nav aria-label={t.match.breadcrumb}>
+      <ol className="flex min-h-11 items-center gap-2.5 text-sm">
+        <li>
+          <Link
+            to={`/players/${encodeURIComponent(viewerPlayerId)}/matches`}
+            className="inline-flex min-h-11 items-center text-muted-foreground hover:text-foreground"
+          >
+            {t.matches.title}
+          </Link>
+        </li>
+        {match && (
+          <li aria-current="page" className="flex min-w-0 items-center gap-2.5">
+            <span aria-hidden="true" className="text-subtle">
+              /
+            </span>
+            <span className="truncate">
+              {[mapLabel(match.mapName) ?? t.match.unknownMap, match.startedAt && formatMatchDay(match.startedAt, locale)]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          </li>
+        )}
+      </ol>
+    </nav>
+  )
+}
+
+interface MatchHeaderProps {
+  match: MatchResponse
+  /** The stats of the match, once they have arrived: the score, the number of rounds and the rosters of the strip. */
+  stats: MatchStatsResponse | undefined
+  viewerPlayerId: string | null
+}
+
+/**
+ * The panel of the match (spec 4, screen 3): the map with a line of facts under it (where the match is from, when it
+ * started, how long it took, how many rounds), the result for the visitor's own player, the two teams with the score
+ * and their sides, and the strip of rounds. Every part is left out while nobody knows it: the facts while FACEIT has
+ * not published them, the sides and the strip without an analyzed demo (or when its answer fails).
+ */
+function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
+  const t = useT()
+  const locale = useLocale()
+  const matchId = match.matchId
+  const breakdown = useMatchBreakdown(matchId)
+  const highlights = useMatchHighlights(matchId)
+  // The breakdown is computed from the demo. When the demo moves on while the page is open (an analysis has finished),
+  // it is asked for again; the first sight of the demo is not a change.
+  const demoStatus = useDemo(matchId).data?.status
+  const statusSeen = useRef(demoStatus)
+  const refetchBreakdown = breakdown.refetch
+  useEffect(() => {
+    if (statusSeen.current !== undefined && statusSeen.current !== demoStatus) {
+      void refetchBreakdown({ cancelRefetch: false })
+    }
+    statusSeen.current = demoStatus
+  }, [demoStatus, refetchBreakdown])
+
+  const teams = stats?.teams
+  const rounds = byNumber(breakdown.data?.rounds ?? [])
+  const minutes = minutesPlayed(match)
+  const result = resultFor(match, viewerPlayerId)
+  // Each fact is an element of its own; a match that is over needs no word for it, any other state is said.
+  const facts: ReactNode[] = [<span key="source">{SOURCE}</span>]
+  if (match.startedAt) {
+    facts.push(
+      <span key="started" className="whitespace-nowrap">
+        <time dateTime={match.startedAt}>{formatDate(match.startedAt, locale)}</time>
+        {`, ${formatClock(match.startedAt)}`}
+      </span>,
+    )
+  }
+  if (minutes !== null) {
+    facts.push(
+      <span key="minutes" className="whitespace-nowrap">
+        {t.match.minutes(minutes)}
+      </span>,
+    )
+  }
+  if (stats && stats.rounds > 0) {
+    facts.push(
+      <span key="rounds" className="whitespace-nowrap">
+        {t.match.roundCount(stats.rounds)}
+      </span>,
+    )
+  }
+  if (match.status && match.status.toUpperCase() !== 'FINISHED') {
+    facts.push(
+      // Upper case by CSS, so its look does not depend on the case FACEIT sends.
+      <span key="status" data-slot="match-status" className="uppercase">
+        {match.status}
+      </span>,
+    )
+  }
+  return (
+    <Card className="py-7">
+      <CardContent className="flex flex-col gap-6 px-[clamp(16px,3vw,32px)]">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <MapTile mapName={match.mapName} />
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <CardTitle className="truncate text-[26px] leading-[1.2] tracking-[-0.02em]">
+                {mapLabel(match.mapName) ?? t.match.unknownMap}
+              </CardTitle>
+              <p className="font-mono text-xs text-subtle">
+                {facts.map((fact, index) => (
+                  <Fragment key={index}>
+                    {index > 0 && <span aria-hidden="true"> · </span>}
+                    {fact}
+                  </Fragment>
+                ))}
+              </p>
+            </div>
           </div>
+          {result && (
+            // Always a word, never the colour alone (spec 3, the result mark).
+            <Badge
+              variant={result === 'won' ? 'positive' : 'negative'}
+              className="h-6.5 rounded-none px-2.5 tracking-[0.08em]"
+            >
+              {result === 'won' ? t.matchList.win : t.matchList.loss}
+            </Badge>
+          )}
         </div>
-        {teams && <MatchScore teams={teams} />}
+        {teams && <MatchScore teams={teams} sides={startingSides(rounds, teams)} />}
+        {rounds.length > 0 && (
+          <RoundStrip
+            rounds={rounds}
+            teams={teams}
+            highlightRounds={new Set((highlights.data ?? []).map((highlight) => highlight.roundNumber))}
+          />
+        )}
       </CardContent>
     </Card>
   )
 }
 
-type HighlightFilter = 'all' | HighlightGroup
-
-const HIGHLIGHT_FILTERS: HighlightFilter[] = ['all', 'multi', 'clutch', 'special']
+function subscribeToHash(onChange: () => void) {
+  window.addEventListener('hashchange', onChange)
+  return () => window.removeEventListener('hashchange', onChange)
+}
 
 /**
- * The highlights of the match with a filter by kind above them. The filter works on what is already loaded; each
- * button carries the number of highlights it would show. Every card ends with what can be done about the clip of its
- * highlight: any highlight can be recorded, of whatever kind. A failure stays inside the section.
+ * The sections of the page as a row of tabs (spec 3, tabs): each is a link to its section, the highlights and the
+ * clips with how many there are. The one the address points at is marked, the first one when it points at none. A
+ * match without clips has no clips section, so it has no such tab either.
  */
-function MatchHighlights({ matchId, onOrder }: { matchId: string; onOrder: (order: ClipOrder) => void }) {
+function SectionTabs({ matchId }: { matchId: string }) {
+  const t = useT()
+  const hash = useSyncExternalStore(subscribeToHash, () => window.location.hash)
+  const highlights = useMatchHighlights(matchId).data
+  const clips = useMatchClips(matchId).data
+  const tabs: { id: string; label: string; count?: number }[] = [
+    { id: 'highlights', label: t.highlight.title, count: highlights?.length },
+    { id: 'scoreboard', label: t.match.scoreboard },
+  ]
+  if (clips && clips.length > 0) {
+    tabs.push({ id: 'clips', label: t.clip.listTitle, count: clips.length })
+  }
+  const current = tabs.find((tab) => hash === `#${tab.id}`) ?? tabs[0]
+  return (
+    <nav aria-label={t.match.sections} className="flex flex-wrap gap-1 border-b border-border">
+      {tabs.map((tab) => (
+        // A plain link, not the router's: the browser itself scrolls to the section and moves the focus there.
+        <a
+          key={tab.id}
+          href={`#${tab.id}`}
+          aria-current={tab === current ? 'location' : undefined}
+          className="inline-flex min-h-11 items-center gap-2 px-3.5 text-sm font-medium text-muted-foreground -outline-offset-2 hover:text-foreground aria-[current=location]:text-foreground aria-[current=location]:shadow-[inset_0_-2px_0_var(--foreground)]"
+        >
+          {tab.label}
+          {tab.count !== undefined && (
+            <span className="font-mono text-xs font-normal text-subtle tabular-nums">{tab.count}</span>
+          )}
+        </a>
+      ))}
+    </nav>
+  )
+}
+
+type HighlightFilter = 'all' | 'mine' | HighlightGroup
+
+/** How many highlights the list shows before "show more" is asked for. */
+const VISIBLE_HIGHLIGHTS = 6
+
+interface MatchHighlightsProps {
+  matchId: string
+  viewerPlayerId: string | null
+  onOrder: (order: ClipOrder) => void
+  /** What closes the section, under the list: the compilation panel. */
+  children?: ReactNode
+}
+
+/**
+ * The highlights of the match with a filter by kind above them, and the visitor's own when there are any. The filter
+ * works on what is already loaded; each button carries the number of highlights it would show. The list shows the
+ * first six, and a button under it the rest. Every card ends with what can be done about the clip of its highlight:
+ * any highlight can be recorded, of whatever kind. A failure stays inside the section.
+ */
+function MatchHighlights({ matchId, viewerPlayerId, onOrder, children }: MatchHighlightsProps) {
   const t = useT()
   const highlights = useMatchHighlights(matchId)
   const clips = useMatchClips(matchId)
   const [filter, setFilter] = useState<HighlightFilter>('all')
+  const [expanded, setExpanded] = useState(false)
+  const listRef = useRef<HTMLDivElement>(null)
   const items = highlights.data
   const matchClips = clips.data
   const labels: Record<HighlightFilter, string> = {
     all: t.highlight.groupAll,
+    mine: t.highlight.groupMine,
     multi: t.highlight.groupMulti,
     clutch: t.highlight.groupClutch,
     special: t.highlight.groupSpecial,
   }
   const matching = (kind: HighlightFilter) =>
-    (items ?? []).filter((highlight) => kind === 'all' || highlightGroup(highlight.type) === kind)
+    (items ?? []).filter((highlight) =>
+      kind === 'all'
+        ? true
+        : kind === 'mine'
+          ? highlight.playerId === viewerPlayerId
+          : highlightGroup(highlight.type) === kind,
+    )
+  // "Mine" is offered only to a visitor whose player has a highlight in this match.
+  const filters: HighlightFilter[] =
+    viewerPlayerId && matching('mine').length > 0
+      ? ['all', 'mine', 'multi', 'clutch', 'special']
+      : ['all', 'multi', 'clutch', 'special']
+  const filtered = matching(filter)
+  const shown = expanded ? filtered : filtered.slice(0, VISIBLE_HIGHLIGHTS)
+  const hidden = filtered.length - shown.length
+  // The button that revealed the rest is gone with the click: the focus goes on to the first card it revealed.
+  useEffect(() => {
+    if (expanded) {
+      listRef.current
+        ?.querySelectorAll('ul > li')
+        [VISIBLE_HIGHLIGHTS]?.querySelector<HTMLElement>('a, button')
+        ?.focus()
+    }
+  }, [expanded])
   return (
-    <section className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-1">
-        <h2 className="heading-section">{t.highlight.title}</h2>
-        {items && items.length > 0 && (
-          // Toggle buttons that look like tabs (spec 3): 44px tall, a 2px light line under the chosen one.
-          <div role="group" aria-label={t.highlight.filterLabel} className="-mx-3 flex flex-wrap">
-            {HIGHLIGHT_FILTERS.map((kind) => (
+    <section id="highlights" className="flex scroll-mt-4 flex-col gap-5">
+      {/* The tab above already says "Highlights" to the eye; the section keeps its heading for the outline. */}
+      <h2 className="sr-only">{t.highlight.title}</h2>
+      {items && items.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+          <div role="group" aria-label={t.highlight.filterLabel} className="flex flex-wrap gap-2">
+            {filters.map((kind) => (
               <button
                 key={kind}
                 type="button"
                 aria-pressed={filter === kind}
                 onClick={() => setFilter(kind)}
-                className="inline-flex min-h-11 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-semibold text-muted-foreground hover:text-foreground aria-pressed:border-foreground aria-pressed:text-foreground"
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-line-strong px-3.5 text-sm font-medium text-foreground transition-colors aria-[pressed=false]:hover:bg-secondary aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:font-semibold aria-pressed:text-background"
               >
                 {labels[kind]}
-                <span className="font-mono text-xs font-normal text-subtle tabular-nums">{matching(kind).length}</span>
+                <span className={cn('font-mono text-xs tabular-nums', filter !== kind && 'text-subtle')}>
+                  {matching(kind).length}
+                </span>
               </button>
             ))}
           </div>
-        )}
-      </div>
-      <div aria-live="polite" className="flex flex-col gap-2">
+          <RecorderBanner />
+        </div>
+      )}
+      <div ref={listRef} aria-live="polite" className="flex flex-col gap-2 empty:hidden">
         {highlights.isPending && (
           <>
             <p className="label-mono">{t.highlight.loading}</p>
             <Skeleton className="h-40 w-full" />
           </>
         )}
-        {items && items.length > 0 && <RecorderBanner />}
         {items && (
           <HighlightList
-            items={matching(filter)}
+            items={shown}
             showMatch={false}
             // Until the clips of the match are known, a card cannot say whether its highlight has one. While they are
             // on their way the row is kept free, so that the cards do not grow under the reader when they arrive.
@@ -148,6 +369,12 @@ function MatchHighlights({ matchId, onOrder }: { matchId: string; onOrder: (orde
           <p className="text-sm text-destructive">{errorMessage(clips.error, t)}</p>
         )}
       </div>
+      {hidden > 0 && (
+        <Button type="button" variant="outline" className="self-center" onClick={() => setExpanded(true)}>
+          {t.highlight.showMore(hidden)}
+        </Button>
+      )}
+      {children}
     </section>
   )
 }
@@ -240,7 +467,7 @@ function MatchClips({ matchId }: { matchId: string }) {
     return null
   }
   return (
-    <section className="flex flex-col gap-4">
+    <section id="clips" className="flex scroll-mt-4 flex-col gap-4 pt-5">
       <h2 className="heading-section">{t.clip.listTitle}</h2>
       <ClipList items={clips.data} />
     </section>
@@ -261,15 +488,42 @@ function StatsSkeleton() {
   )
 }
 
-/** One table per team, or the reason there is none. Stats that are already loaded win over a failed refetch. */
-function MatchStats({ stats }: { stats: UseQueryResult<MatchStatsResponse, ApiError> }) {
+interface MatchStatsProps {
+  matchId: string
+  stats: UseQueryResult<MatchStatsResponse, ApiError>
+  viewerPlayerId: string | null
+}
+
+/**
+ * One table per team, or the reason there is none. Stats that are already loaded win over a failed refetch. The
+ * tables take the sides of the teams and the figures of the demo analysis from the breakdown of the match; while it
+ * has none of them for a player of these teams (no analyzed demo, unlinked players, a failed answer) the tables keep
+ * to the columns of the match stats.
+ */
+function MatchStats({ matchId, stats, viewerPlayerId }: MatchStatsProps) {
   const t = useT()
+  const breakdown = useMatchBreakdown(matchId).data
   if (stats.data) {
     const teams = stats.data.teams
     if (teams.length === 0) {
       return <p className="text-sm text-muted-foreground">{t.match.statsUnavailable}</p>
     }
-    return teams.map((team) => <StatsTable key={team.teamId} team={team} lost={hasLost(team, teams)} />)
+    const sides = startingSides(byNumber(breakdown?.rounds ?? []), teams)
+    const figures = new Map((breakdown?.players ?? []).map((player) => [player.playerId, player]))
+    // Both tables get the columns or neither does, so that the two stay aligned.
+    const analysis = teams.some((team) => team.players.some((player) => figures.has(player.playerId)))
+      ? figures
+      : undefined
+    return teams.map((team, index) => (
+      <StatsTable
+        key={team.teamId}
+        team={team}
+        lost={hasLost(team, teams)}
+        startSide={sides?.[index]}
+        analysis={analysis}
+        viewerPlayerId={viewerPlayerId}
+      />
+    ))
   }
   if (stats.isError) {
     // The backend answers 404 for the stats of a match that is still being played; the match itself exists.
@@ -282,7 +536,7 @@ function MatchStats({ stats }: { stats: UseQueryResult<MatchStatsResponse, ApiEr
   return <StatsSkeleton />
 }
 
-function MatchDetails({ matchId }: { matchId: string }) {
+function MatchDetails({ matchId, viewerPlayerId }: { matchId: string; viewerPlayerId: string | null }) {
   const t = useT()
   const match = useMatch(matchId)
   const stats = useMatchStats(matchId)
@@ -292,32 +546,44 @@ function MatchDetails({ matchId }: { matchId: string }) {
   const matchFailed = match.isError && !match.data
 
   return (
-    // 24px between the header panel and the first scoreboard, as between the scoreboards (spec 2.3: 24–36px between
-    // sections).
-    <div className="flex flex-col gap-6">
-      <div aria-live="polite">
-        {match.isPending && (
-          <>
-            <p className="label-mono mb-2">{t.match.loading}</p>
-            <Skeleton className="h-24 w-full" />
-          </>
-        )}
-        {matchFailed && <p className="text-sm text-destructive">{errorMessage(match.error, t)}</p>}
-        {match.data && <MatchHeader match={match.data} teams={stats.data?.teams} />}
+    // 28px between the parts of the page, as the design draws them (spec 2.3: 24–36px between sections); the
+    // scoreboard and the clips, which start with a heading of their own, keep 20px more above them.
+    <div className="flex flex-col gap-7">
+      <div className="flex flex-col gap-3">
+        {viewerPlayerId && <Breadcrumb viewerPlayerId={viewerPlayerId} match={match.data} />}
+        <div aria-live="polite">
+          {match.isPending && (
+            <>
+              <p className="label-mono mb-2">{t.match.loading}</p>
+              <Skeleton className="h-24 w-full" />
+            </>
+          )}
+          {matchFailed && <p className="text-sm text-destructive">{errorMessage(match.error, t)}</p>}
+          {match.data && <MatchHeader match={match.data} stats={stats.data} viewerPlayerId={viewerPlayerId} />}
+        </div>
       </div>
       {/* The demo and what was found in it belong to a match that exists: they wait for the header. */}
       {match.data && <DemoPanel matchId={matchId} />}
-      {match.data && <MatchHighlights matchId={matchId} onOrder={setOrder} />}
+      {match.data && <SectionTabs matchId={matchId} />}
       {match.data && (
-        <Compilation matchId={matchId} mapName={match.data.mapName} teams={stats.data?.teams} onOrder={setOrder} />
+        <MatchHighlights matchId={matchId} viewerPlayerId={viewerPlayerId} onOrder={setOrder}>
+          <Compilation matchId={matchId} mapName={match.data.mapName} teams={stats.data?.teams} onOrder={setOrder} />
+        </MatchHighlights>
       )}
-      {match.data && <MatchClips matchId={matchId} />}
       {!matchFailed && (
         // The tables follow the header, so a match that then turns out to be missing never flashes them.
-        <div aria-live="polite" className="flex flex-col gap-6">
-          {match.data ? <MatchStats stats={stats} /> : <StatsSkeleton />}
-        </div>
+        <section id="scoreboard" className="flex scroll-mt-4 flex-col gap-4 pt-5">
+          <h2 className="heading-section">{t.match.scoreboard}</h2>
+          <div aria-live="polite" className="flex flex-col gap-6">
+            {match.data ? (
+              <MatchStats matchId={matchId} stats={stats} viewerPlayerId={viewerPlayerId} />
+            ) : (
+              <StatsSkeleton />
+            )}
+          </div>
+        </section>
       )}
+      {match.data && <MatchClips matchId={matchId} />}
       <ClipOrderDialog order={order} onClose={() => setOrder(null)} />
     </div>
   )
@@ -326,15 +592,19 @@ function MatchDetails({ matchId }: { matchId: string }) {
 export default function MatchPage() {
   const t = useT()
   const { matchId } = useParams()
+  const viewerPlayerId = useViewerPlayerId()
   return (
-    // The map name in the header is the page's big title, so the h1 is a small label above it.
-    <main className="container-page flex flex-col gap-4 pt-9 pb-18">
-      <h1 className="label-mono">{t.match.title}</h1>
+    // The breadcrumb, where there is one, starts 20px under the top bar, as the design draws it; without it the panel
+    // keeps the 36px every page starts at.
+    <main className={cn('container-page flex flex-col gap-4 pb-18', matchId && viewerPlayerId ? 'pt-5' : 'pt-9')}>
+      {/* The map name in the header is the page's big title, so the h1 only names the page: to a screen reader when
+          the header is there, as a small label above the one message when there is no match to ask for. */}
+      <h1 className={matchId ? 'sr-only' : 'label-mono'}>{t.match.title}</h1>
       {matchId ? (
         // Keyed by the match: what the panel, the filter and the clip order remember (a chosen file, a typed key, a
         // message, the chosen kind, an open dialog) must not follow the visitor to another match when only the id in
         // the URL changes.
-        <MatchDetails key={matchId} matchId={matchId} />
+        <MatchDetails key={matchId} matchId={matchId} viewerPlayerId={viewerPlayerId} />
       ) : (
         <p className="text-sm text-destructive">{t.errors.matchNotFound}</p>
       )}
