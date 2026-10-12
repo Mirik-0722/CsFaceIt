@@ -9,7 +9,6 @@ import io.csfaceit.backend.common.api.NotFoundException;
 import io.csfaceit.backend.common.api.TooManyRequestsException;
 import io.csfaceit.backend.demo.Demo;
 import io.csfaceit.backend.demo.DemoRepository;
-import io.csfaceit.backend.demo.DemoStatus;
 import io.csfaceit.backend.match.Match;
 import io.csfaceit.backend.match.MatchRepository;
 import io.csfaceit.backend.player.Player;
@@ -145,7 +144,7 @@ public class ClipService {
      */
     private int tickRateOfRecordableDemo(Match match, Player player) {
         Demo demo = demos.findByMatchId(match.getId())
-                .filter(ClipService::hasStoredFile)
+                .filter(ClipFacts::hasStoredFile)
                 .orElseThrow(() -> new ConflictException(DEMO_NOT_AVAILABLE,
                         "The demo file of match " + match.getFaceitMatchId() + " is not stored (any more)"));
         if (player.getSteamId() == null || player.getSteamId().isBlank()) {
@@ -153,11 +152,6 @@ public class ClipService {
                     + " is not known, so he cannot be followed in a demo");
         }
         return ClipFacts.tickRate(demo.getTickRate());
-    }
-
-    private static boolean hasStoredFile(Demo demo) {
-        return demo.getStorageKey() != null
-                && (demo.getStatus() == DemoStatus.PARSED || demo.getStatus() == DemoStatus.ANALYZED);
     }
 
     private void rejectIfTooLong(List<ClipSegment> segments, int tickRate) {

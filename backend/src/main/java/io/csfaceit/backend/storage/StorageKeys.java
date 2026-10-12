@@ -42,6 +42,18 @@ final class StorageKeys {
         return prefix;
     }
 
+    /**
+     * A range of an object is read from a non-negative {@code offset}, for a positive {@code length}; anything else is a
+     * mistake of the caller, not something the storage failed at.
+     *
+     * @throws IllegalArgumentException the offset is negative or the length is not positive
+     */
+    static void requireValidRange(long offset, long length) {
+        if (offset < 0 || length <= 0) {
+            throw new IllegalArgumentException("Invalid range: offset " + offset + ", length " + length);
+        }
+    }
+
     private static boolean containsControlCharacter(String key) {
         return key.chars().anyMatch(Character::isISOControl);
     }

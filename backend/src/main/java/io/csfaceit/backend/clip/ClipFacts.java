@@ -1,6 +1,8 @@
 package io.csfaceit.backend.clip;
 
 import io.csfaceit.backend.analysis.AnalysisPersistence;
+import io.csfaceit.backend.demo.Demo;
+import io.csfaceit.backend.demo.DemoStatus;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -70,6 +72,15 @@ public class ClipFacts {
      */
     public static int tickRate(Integer demoTickRate) {
         return demoTickRate != null && demoTickRate > 0 ? demoTickRate : AnalysisPersistence.DEFAULT_TICK_RATE;
+    }
+
+    /**
+     * Whether a recorder can be given the file of the demo: the file is stored (the retention job clears the key of a
+     * demo whose file it removed) and the demo has been parsed, so that the player and the ticks are known.
+     */
+    public static boolean hasStoredFile(Demo demo) {
+        return demo.getStorageKey() != null
+                && (demo.getStatus() == DemoStatus.PARSED || demo.getStatus() == DemoStatus.ANALYZED);
     }
 
     /**

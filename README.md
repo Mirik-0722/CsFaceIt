@@ -89,7 +89,8 @@ Then edit `.env`:
 | Variable | Meaning | Default in `.env.example` |
 | --- | --- | --- |
 | `FACEIT_API_KEY` | **Required.** Your FACEIT Data API key. The backend refuses to start when it is empty. | empty |
-| `APP_API_KEY` | **Required.** Secret that clients send in the `X-API-Key` header. Everything except `GET`/`HEAD` on `/api/v1/**`, `/actuator/health` and `/actuator/prometheus` requires it. Choose a long random value, for example `openssl rand -hex 32`. While it is empty the backend logs a warning and rejects every protected request. | empty |
+| `APP_API_KEY` | **Required.** Secret that clients send in the `X-API-Key` header. Everything except `GET`/`HEAD` on `/api/v1/**`, `/actuator/health` and `/actuator/prometheus` requires it, and `/api/worker/**`, which takes the worker token instead (`CLIP_WORKER_TOKEN`). Choose a long random value, for example `openssl rand -hex 32`. While it is empty the backend logs a warning and rejects every protected request. | empty |
+| `CLIP_WORKER_TOKEN` | The secret the recorder sends in the `X-Worker-Token` header (see [Worker API](#worker-api-the-recorder)). It opens `/api/worker/**` and nothing else, and the admin key does not open that. Choose a long random value, for example `openssl rand -hex 32`, and give the same one to the recorder. While it is empty the backend logs a warning and rejects every request of a recorder. The fake-FACEIT mode sets `dev-worker-token`. | empty |
 | `FACEIT_BASE_URL` | FACEIT Data API address; override it only to point the backend at a fake FACEIT. Commented out in `.env.example`. | `https://open.faceit.com/data/v4` |
 | `FACEIT_HISTORY_LOOKBACK` | How far back a player's match history reaches (`faceit.history-lookback`). FACEIT itself returns only the last month unless the request names a start time, so the backend always sends one. Commented out in `.env.example`. | `365d` |
 | `DB_URL` | JDBC URL of PostgreSQL. | `jdbc:postgresql://localhost:5432/csfaceit` |
@@ -108,6 +109,9 @@ Then edit `.env`:
 | `DEMO_UPLOAD_MAX_SIZE` | The most a manual demo upload may be, and the most a gzip upload may expand to: a size with a unit such as `1GB` or `512MB`. Nginx accepts 1 GB for the upload path (`frontend/nginx.conf`); raise both to allow more. | `1GB` |
 | `DEMO_RETENTION_DAYS` | Stored demo files older than this many days are deleted once a day; the parsed facts and the demo's status stay. `0` keeps the files forever. | `30` |
 | `DEMO_RETENTION_CRON` | When that clean-up runs: Spring's six cron fields (second minute hour day month weekday), server time. Normally left alone. Commented out in `.env.example`; keep the quotes there, the value has spaces and asterisks. | `0 0 4 * * *` |
+| `CLIP_UPLOAD_MAX_SIZE` | The most a recorder may upload for one clip (the video and the thumbnail each): a size with a unit such as `1GB` or `512MB`. Nginx accepts 1 GB for the upload path (`frontend/nginx.conf`); raise both to allow more. | `1GB` |
+| `CLIP_RETENTION_DAYS` | A finished clip is kept this many days (`clip.retention-days`); `0` keeps every clip. | `30` |
+| `CLIP_RETENTION_CRON` | When the clean-up of old clips runs: Spring's six cron fields, server time. Normally left alone. Commented out in `.env.example`; keep the quotes there. | `0 30 4 * * *` |
 | `PARSER_MAX_DEMO_BYTES` | The most a demo may be once the parser has decompressed it, in bytes. A larger demo is marked `FAILED` as too large. | `2147483648` (2 GiB) |
 | `GRAFANA_ADMIN_PASSWORD` | Password of the Grafana user `admin`. Needed only with `--profile observability`; there is no default and the `grafana` service stops with a message while it is empty. | empty |
 
@@ -148,7 +152,8 @@ docker compose -f docker-compose.yml -f docker-compose.fake.yml up -d --build --
 ```
 
 Open <http://localhost:3000> and search for `s1mple`. The admin key for protected requests is `dev-admin-key`
-(`X-API-Key` header); because it is public, this mode publishes the web port on `127.0.0.1` only. Stop it with
+(`X-API-Key` header) and the worker token of a recorder `dev-worker-token` (`X-Worker-Token` header, see
+[Worker API](#worker-api-the-recorder)); because they are public, this mode publishes the web port on `127.0.0.1` only. Stop it with
 `docker compose -f docker-compose.yml -f docker-compose.fake.yml down`.
 The fake ids, what it serves and how to serve a real demo file are described in
 [`dev/fake-faceit/README.md`](dev/fake-faceit/README.md). The override needs Docker Compose 2.24.4 or newer, and the
@@ -232,12 +237,13 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | Status | `code` | When |
 | --- | --- | --- |
 | 400 | `VALIDATION_ERROR` | A nickname, id, highlight `type` or paging parameter is malformed; for the upload also a bad file name, an empty or corrupt file, or a multipart body that is malformed or was cut off. |
-| 401 | `UNAUTHORIZED` | A protected request is missing a valid `X-API-Key` header. |
+| 401 | `UNAUTHORIZED` | A protected request is missing a valid `X-API-Key` header; a request to the recorder's API (`/api/worker/**`) a valid `X-Worker-Token` header. |
+| 403 | `FORBIDDEN` | The request has a valid credential that its path does not accept: the admin key on the recorder's API. |
 | 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND`, `DEMO_NOT_FOUND` | FACEIT does not know the player or match, or the match has no demo record yet. |
 | 404 | `HIGHLIGHT_NOT_FOUND`, `CLIP_NOT_FOUND` | There is no such highlight (or its demo is not `ANALYZED`) or clip; see [Video clips](#video-clips). |
 | 409 | `DEMO_URL_UNAVAILABLE`, `DEMO_NOT_PARSED` | A demo import was requested but FACEIT has no demo for the match (yet); or an analysis was requested but the demo is not `PARSED` or `ANALYZED`. |
 | 409 | `DEMO_NOT_AVAILABLE`, `PLAYER_STEAM_ID_UNKNOWN`, `CLIP_TOO_LONG` | A new clip was requested but the demo file is not stored, the player's SteamID is unknown, or the clip would be longer than allowed; see [Video clips](#video-clips). |
-| 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip file expands beyond it). |
+| 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip file expands beyond it), or a recorder's video or thumbnail is larger than `CLIP_UPLOAD_MAX_SIZE`. |
 | 429 | `CLIP_QUEUE_FULL` | A new clip was requested but the queue of clips is full; see [Video clips](#video-clips). |
 | 502 | `FACEIT_UNAVAILABLE` | FACEIT failed or timed out after retries, or refused the request (for example a rejected `FACEIT_API_KEY`, which is not retried), and no cached copy exists. |
 
@@ -606,7 +612,8 @@ numbers, `0.0` for a player without a stored row (and `hsPercent` for one withou
 
 A clip is a video of a moment of a match, cut from the stored demo of the match. Asking for the clip of a highlight puts
 a row in the `clips` table with the status `QUEUED` and the **segments** of the demo the video is made of; a recorder
-takes the queued clips one at a time. The endpoints below are the request and the reads. The `POST` needs the admin key
+takes the queued clips one at a time (see [Worker API](#worker-api-the-recorder)). The endpoints below are the request
+and the reads. The `POST` needs the admin key
 in the `X-API-Key` header, the reads are open and answer from the database only (nothing is asked of FACEIT or of the
 storage). The examples use the Compose address; `<highlightId>` is the `id` of an item of
 `GET /api/v1/matches/{matchId}/highlights`.
@@ -618,6 +625,7 @@ storage). The examples use the Compose address; `<highlightId>` is the `id` of a
 | `GET /api/v1/matches/{matchId}/clips` | An array of the clips of the match, whatever their status, the newest first. Empty for a match the database does not know. |
 | `GET /api/v1/players/{playerId}/clips?offset=0&limit=20` | `{"items": [...], "offset": 0, "limit": 20}`: a page of the clips of the player over all his matches, whatever their status, the newest first. `offset` 0-10000, `limit` 1-100. Empty for a player the database does not know. |
 | `GET /api/v1/clips?offset=0&limit=20` | The same page, of the clips that are `DONE` only, the most recently finished first. |
+| `GET /api/v1/recorder/status` | `{"online": true, "lastSeenAt": "...", "queued": 2, "active": 1}`: whether a recorder is there to take the clips that wait. `online` is true when some recorder was seen (it claimed, reported or sent a heartbeat) within `clip.worker-online-within`; `lastSeenAt` is the latest sighting, `null` if there never was one; `queued` clips are `QUEUED`, `active` ones are `RECORDING`, `ENCODING` or `UPLOADING`. |
 
 ```bash
 curl -X POST -H 'X-API-Key: dev-admin-key' -H 'Content-Type: application/json' -d '{"quality": "1080p"}' \
@@ -626,6 +634,7 @@ curl http://localhost:3000/api/v1/clips/<clipId>
 curl http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/clips
 curl "http://localhost:3000/api/v1/players/<playerId>/clips?offset=0&limit=20"
 curl "http://localhost:3000/api/v1/clips?limit=10"
+curl http://localhost:3000/api/v1/recorder/status
 ```
 
 A clip, here a queued one of a `K3` (ids shortened):
@@ -691,10 +700,15 @@ of the player; the queue; and last the length of the segments.
 | `clip.merge-gap-seconds` | 4 | Segments less than this far apart are one. |
 | `clip.max-duration-seconds` | 300 | The most the segments of one clip may add up to. |
 | `clip.max-queued` | 50 | How many clips may wait in the queue. |
+| `clip.max-attempts` | 3 | How many times a clip is recorded before it is given up (`FAILED`). |
+| `clip.stale-after` | 3m | An active clip whose recorder has reported nothing for this long is taken back. |
+| `clip.worker-online-within` | 90s | A recorder seen this recently counts as online. |
+| `clip.upload-max-size` (`CLIP_UPLOAD_MAX_SIZE`) | 1GB | The most a recorder may upload for one clip (the video and the thumbnail each). |
 | `clip.retention-days` (`CLIP_RETENTION_DAYS`) | 30 | Days a finished clip is kept; `expiresAt` is worked out from it. `0` keeps every clip. |
+| `clip.worker-token` (`CLIP_WORKER_TOKEN`) | empty | The secret of the recorder's API; see [Worker API](#worker-api-the-recorder). |
 
-The other `clip.*` settings in `application.yml` (`worker-token`, `max-attempts`, `stale-after`, `worker-online-within`,
-`retention-cron`, `upload-max-size`) belong to the recorder side of the pipeline.
+`clip.retention-cron` (`CLIP_RETENTION_CRON`, six cron fields, server time) is when the clean-up of old clips runs; it is
+normally left alone.
 
 **Do not change `analysis.clip.pre-seconds` or `analysis.clip.post-seconds` once a clip exists.** A clip finds its
 highlight by the first tick of the highlight's window (`tick_start`), and that tick is worked out from `pre-seconds`
@@ -703,6 +717,84 @@ before no longer find theirs, and a request for the same event queues a second c
 end of every highlight's window, so the clips made before would have been cut to another window than their highlight
 has now. Change them before the first clip is made. If they have to change later, the highlight must first get the ticks
 of the event itself (a new migration), and the clip's key has to move to them.
+
+### Worker API (the recorder)
+
+The recorder is a separate program on a PC that can run the game; it sits behind NAT, so it never takes a connection, it
+only calls this API. It knows nothing else of the backend: everything it does is a request to `/api/worker/v1/**`, and
+every request carries the header `X-Worker-Token: <CLIP_WORKER_TOKEN>`. The paths below are relative to
+`/api/worker/v1`; the examples use the fake stack's token, `dev-worker-token`, and its address.
+
+**Access.** The token opens the worker API and nothing else, and the admin key does not open the worker API. Every
+method of it needs the token, `GET`s included.
+
+| Request | Answer |
+| --- | --- |
+| A worker path with no token, or a wrong one (also while `CLIP_WORKER_TOKEN` is empty: nothing matches then) | `401 UNAUTHORIZED` |
+| A worker path with the admin key (`X-API-Key`) and no valid token | `403 FORBIDDEN` |
+| `/api/v1/**` with the worker token (a `POST` there needs the admin key) | `401 UNAUTHORIZED` |
+
+**The conversation.** A recorder asks for work with `POST /claim` until it gets a job (`200`; on `204` it waits a few
+seconds and asks again). For the job it downloads the demo (`GET .../demo`; the file can be kept under the job's
+`demoVersion` and reused for the next clip of the same match), records the `segments` one after the other, encodes the
+video, uploads it (`PUT .../video`) and a thumbnail (`PUT .../thumbnail`), and finishes with `POST .../complete`. Or it
+gives the clip up with `POST .../fail`. All through, it reports with `POST .../progress`.
+
+**A clip is the recorder's only while it reports.** The progress report is the sign of life: send one at most every 10
+seconds in every stage, while downloading the demo, recording, encoding and uploading too (an upload is one long
+request, so the reports go out on a timer of their own). A clip that has had no report for `clip.stale-after` (3 minutes)
+is taken back by a job that runs every 30 seconds: it goes back to the queue with the error "The recorder stopped
+responding", or is `FAILED` with it when it has had `clip.max-attempts` attempts. An attempt is counted when the clip is
+claimed. **A `409 CLIP_NOT_CLAIMED` to any request about a clip means: stop working on it.** The clip is not held by that
+`worker` (it was taken back, finished, failed or deleted, or there is no such clip); whatever the recorder has done for
+it is thrown away, and a late request changes nothing.
+
+| Method and path | Request | Success | Errors |
+| --- | --- | --- | --- |
+| `POST /claim` | JSON `{"worker": "pc-1", "version": "1.0", "mode": "game", "qualities": ["720p", "1080p"]}`. `worker` is the name of the recorder (required, at most 64 characters), `version` (at most 32) and `mode` (at most 16) are for the operator, `qualities` are the qualities it can record (left out or empty: every quality). | `200` and the job (below): the oldest waiting clip of those qualities, now `RECORDING` with `progress` 0, held by `worker`, one more attempt counted. `204`, no body, when none is waiting. | `400 VALIDATION_ERROR` |
+| `POST /clips/{clipId}/progress` | JSON `{"worker": "pc-1", "stage": "RECORDING", "progress": 40}`. `stage` is `RECORDING`, `ENCODING` or `UPLOADING` (the clip takes it as its status, so an earlier stage is possible too), `progress` the percent done, 0 to 100. | `204`. The clip shows the stage and percent in `GET /api/v1/clips/{clipId}`. | `400 VALIDATION_ERROR`, `409 CLIP_NOT_CLAIMED` |
+| `GET /clips/{clipId}/demo?worker=pc-1` | The name of the recorder in the query. | `200`, `Content-Type: application/zstd`, `Content-Length` of the job's `demoSizeBytes`: the demo as it is stored, compressed with zstd (`zstd -d` gives the `.dem`). Streamed. | `400 VALIDATION_ERROR` (no `worker`), `409 CLIP_NOT_CLAIMED`, `410 DEMO_NOT_AVAILABLE` (the file is not stored any more, or the demo is not parsed) |
+| `PUT /clips/{clipId}/video?worker=pc-1` | The MP4 file as the raw body, `Content-Type: video/mp4`; not empty, and not larger than `CLIP_UPLOAD_MAX_SIZE` (a `Content-Length` above it is refused before the body is read). | `204`. The video is stored as `clips/{clipId}.mp4`, the clip becomes `UPLOADING` with `sizeBytes`. A video that is sent again replaces the first. | `400 VALIDATION_ERROR` (empty body, or cut off), `409 CLIP_NOT_CLAIMED` (also when the clip was taken back while the file was on its way: nothing is recorded then), `413 PAYLOAD_TOO_LARGE`, `415 UNSUPPORTED_MEDIA_TYPE` |
+| `PUT /clips/{clipId}/thumbnail?worker=pc-1` | The JPEG file as the raw body, `Content-Type: image/jpeg`; the same limits. | `204`. Stored as `clips/{clipId}.jpg`; the status of the clip stays. | As for the video |
+| `POST /clips/{clipId}/complete` | JSON `{"worker": "pc-1", "durationMs": 14500, "width": 1280, "height": 720}`; all three numbers are positive. | `204`. The clip is `DONE`, `progress` 100, with `durationMs`, and `videoUrl` is set. | `400 VALIDATION_ERROR`, `409 CLIP_NOT_CLAIMED`, `409 CLIP_VIDEO_MISSING` (no video was uploaded in this attempt) |
+| `POST /clips/{clipId}/fail` | JSON `{"worker": "pc-1", "error": "The game crashed", "retryable": true}`. `error` is kept on the clip (cut to 2000 characters). | `204`. With `retryable` true and fewer than `clip.max-attempts` attempts so far the clip goes back to the queue (`QUEUED`, the claim, the progress and the uploaded files forgotten, the `error` kept until it is claimed again); otherwise it is `FAILED` with the `error`. | `400 VALIDATION_ERROR`, `409 CLIP_NOT_CLAIMED` |
+| `POST /heartbeat` | JSON `{"worker": "pc-1", "version": "1.0", "mode": "game", "state": "IDLE", "clipId": null}`. `state` is `IDLE` or `WORKING`; `clipId` is the clip it works on, if any. | `204`. The recorder counts as seen (`GET /api/v1/recorder/status`). It does not keep a clip alive; progress reports do. | `400 VALIDATION_ERROR` |
+
+`claim` and `progress` count as a sighting of the recorder too, so a recorder that asks for work every few seconds
+needs no heartbeat while it is idle.
+
+The job that `claim` answers with:
+
+```json
+{"clipId": 7, "kind": "HIGHLIGHT", "matchId": "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "mapName": "de_mirage",
+ "focusSteamId": "76561198000000008", "tickRate": 64,
+ "segments": [{"startTick": 33246, "endTick": 33566}, {"startTick": 34604, "endTick": 35467}],
+ "width": 1280, "height": 720, "fps": 60, "demoSizeBytes": 412345678, "demoVersion": "1791760220485"}
+```
+
+`segments` are the stretches of the demo to record, in ticks (the demo runs at `tickRate` per second), both ends
+included, one after the other in the order of the list; the video is all of them joined. `focusSteamId` is the player to
+follow. `width`, `height` and `fps` are what the clip is recorded at. `demoVersion` names this version of the demo file
+(the time it was last changed in the database, in epoch milliseconds, as a string): a file kept under it is the one to
+use again, and a new version means the demo was uploaded or imported again.
+
+A clip that cannot be recorded is never given out. At the moment of the claim a clip whose demo has no stored file
+(or is not parsed), or whose player's SteamID is not known, is set to `FAILED` ("The demo file is no longer stored",
+"The player's Steam ID is not known"; not retried), and the next waiting clip is taken instead. The same happens to a
+clip whose file is named by the database but is missing in the storage. Several recorders may ask at the same moment: a
+clip goes to exactly one of them, the others get the next one, or `204`.
+
+```bash
+H='X-Worker-Token: dev-worker-token'
+curl -X POST -H "$H" -H 'Content-Type: application/json' -d '{"worker": "pc-1"}' http://localhost:3000/api/worker/v1/claim
+curl -H "$H" -o demo.dem.zst "http://localhost:3000/api/worker/v1/clips/7/demo?worker=pc-1"
+curl -X POST -H "$H" -H 'Content-Type: application/json' -d '{"worker": "pc-1", "stage": "RECORDING", "progress": 40}' \
+  http://localhost:3000/api/worker/v1/clips/7/progress
+curl -X PUT -H "$H" -H 'Content-Type: video/mp4' -T clip.mp4 "http://localhost:3000/api/worker/v1/clips/7/video?worker=pc-1"
+curl -X PUT -H "$H" -H 'Content-Type: image/jpeg' -T thumb.jpg "http://localhost:3000/api/worker/v1/clips/7/thumbnail?worker=pc-1"
+curl -X POST -H "$H" -H 'Content-Type: application/json' -d '{"worker": "pc-1", "durationMs": 14500, "width": 1280, "height": 720}' \
+  http://localhost:3000/api/worker/v1/clips/7/complete
+```
 
 ### Retention
 
@@ -762,7 +854,7 @@ on all interfaces (`"${WEB_PORT:-3000}:80"`), and `docker-compose.fake.yml`, who
 
 | What | Address | Published on | Login |
 | --- | --- | --- | --- |
-| Web UI and API | <http://localhost:3000> | all interfaces (default stack), `127.0.0.1` (fake mode) | `X-API-Key` for `POST` |
+| Web UI and API | <http://localhost:3000> | all interfaces (default stack), `127.0.0.1` (fake mode) | `X-API-Key` for `POST`; `X-Worker-Token` for `/api/worker/**` |
 | RabbitMQ management | <http://localhost:15672> | `127.0.0.1` | `RABBITMQ_USER` / `RABBITMQ_PASSWORD` (`guest` / `guest`) |
 | MinIO console (S3 API on `9000`) | <http://localhost:9001> | `127.0.0.1` | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` (`minioadmin` / `minioadmin`) |
 | Prometheus (profile `observability`) | <http://localhost:9090> | `127.0.0.1` | none; targets under Status -> Targets |

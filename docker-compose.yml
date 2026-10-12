@@ -107,6 +107,14 @@ services:
       DEMO_RETENTION_DAYS: ${DEMO_RETENTION_DAYS:-30}
       # When that clean-up runs: six fields (second minute hour day month weekday), server time. Normally left alone.
       DEMO_RETENTION_CRON: "${DEMO_RETENTION_CRON:-0 0 4 * * *}"
+      # The secret a recorder sends in X-Worker-Token. Empty by default, and then every request of a recorder is refused.
+      CLIP_WORKER_TOKEN: ${CLIP_WORKER_TOKEN:-}
+      # A finished clip is deleted with its files after this many days; 0 keeps it forever.
+      CLIP_RETENTION_DAYS: ${CLIP_RETENTION_DAYS:-30}
+      # When that clean-up runs: six fields (second minute hour day month weekday), server time. Normally left alone.
+      CLIP_RETENTION_CRON: "${CLIP_RETENTION_CRON:-0 30 4 * * *}"
+      # The most a recorder may upload for one clip (a size such as 1GB). Nginx limits the upload path to 1 GB, see frontend/nginx.conf.
+      CLIP_UPLOAD_MAX_SIZE: ${CLIP_UPLOAD_MAX_SIZE:-1GB}
       # Required. Empty by default only so that `docker compose up postgres redis` works without a .env;
       # the backend refuses to start with an empty FACEIT_API_KEY.
       FACEIT_API_KEY: ${FACEIT_API_KEY:-}

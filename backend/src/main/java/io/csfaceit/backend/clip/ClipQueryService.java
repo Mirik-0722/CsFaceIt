@@ -8,13 +8,16 @@ import io.csfaceit.backend.clip.ClipFacts.KillRow;
 import io.csfaceit.backend.clip.dto.ClipKill;
 import io.csfaceit.backend.clip.dto.ClipPageResponse;
 import io.csfaceit.backend.clip.dto.ClipResponse;
+import io.csfaceit.backend.clip.dto.RecorderStatusResponse;
 import io.csfaceit.backend.common.api.NotFoundException;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,8 +31,8 @@ import org.springframework.stereotype.Service;
 
 /**
  * Reads clips for the REST API, as {@code HighlightQueryService} reads highlights: one clip, the clips of a match, of
- * a player, and the finished ones. It only reads the database: nothing here changes a clip, talks to FACEIT or
- * touches the storage.
+ * a player, and the finished ones; and the state of the recorder, which is read from the same tables. It only reads the
+ * database: nothing here changes a clip, talks to FACEIT or touches the storage.
  *
  * <p>A clip, and a whole list of clips, is read with one statement that joins in the match, the map and the player,
  * so nothing here asks for the same thing once for each clip; only the page of one clip adds a statement for its
@@ -71,6 +74,18 @@ public class ClipQueryService {
             JOIN players p ON p.id = c.player_id
             LEFT JOIN demos d ON d.match_id = c.match_id""";
 
+    /**
+     * When the latest recorder was seen, and how many clips wait for one and how many are held by one. A sub-select
+     * for each, so that one statement answers it whatever the tables hold.
+     */
+    private static final String RECORDER_STATUS_SQL = """
+            SELECT (SELECT max(last_seen_at) FROM clip_workers) AS last_seen_at,
+                   (SELECT count(*) FROM clips WHERE status = :queued) AS queued,
+                   (SELECT count(*) FROM clips WHERE status IN (:active)) AS active""";
+
+    private static final List<String> ACTIVE_STATUS_NAMES = Arrays.stream(ClipStatus.values())
+            .filter(ClipStatus::isActive).map(ClipStatus::name).toList();
+
     private static final String BY_ID = " WHERE c.id = :clipId";
 
     private static final String BY_MATCH = " WHERE m.faceit_match_id = :matchId ORDER BY c.created_at DESC, c.id DESC";
@@ -86,12 +101,15 @@ public class ClipQueryService {
     private final ClipFacts facts;
     private final ClipProperties properties;
     private final ObjectMapper mapper;
+    private final Clock clock;
 
-    public ClipQueryService(JdbcClient jdbc, ClipFacts facts, ClipProperties properties, ObjectMapper mapper) {
+    public ClipQueryService(JdbcClient jdbc, ClipFacts facts, ClipProperties properties, ObjectMapper mapper,
+                            Clock clock) {
         this.jdbc = jdbc;
         this.facts = facts;
         this.properties = properties;
         this.mapper = mapper;
+        this.clock = clock;
     }
 
     /**
@@ -136,6 +154,24 @@ public class ClipQueryService {
         List<Row> rows = select(FINISHED_PAGE,
                 Map.of("done", ClipStatus.DONE.name(), "offset", offset, "limit", limit));
         return new ClipPageResponse(responses(rows), offset, limit);
+    }
+
+    /**
+     * Whether a recorder is there to take the clips that wait: some recorder was seen within
+     * {@code clip.worker-online-within}. With the time it was last seen, and the clips waiting and being recorded.
+     */
+    public RecorderStatusResponse recorderStatus() {
+        return jdbc.sql(RECORDER_STATUS_SQL)
+                .param("queued", ClipStatus.QUEUED.name())
+                .param("active", ACTIVE_STATUS_NAMES)
+                .query((rs, rowNumber) -> {
+                    OffsetDateTime seen = rs.getObject("last_seen_at", OffsetDateTime.class);
+                    Instant lastSeenAt = seen == null ? null : seen.toInstant();
+                    boolean online = lastSeenAt != null
+                            && lastSeenAt.isAfter(clock.instant().minus(properties.workerOnlineWithin()));
+                    return new RecorderStatusResponse(online, lastSeenAt, rs.getInt("queued"), rs.getInt("active"));
+                })
+                .single();
     }
 
     private Row find(long clipId) {

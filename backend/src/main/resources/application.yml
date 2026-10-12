@@ -117,6 +117,7 @@ clip:
   # A finished clip (done or failed) is removed with its files after this many days; 0 keeps every clip. The cron
   # expression (Spring's six fields, server time) is normally left alone.
   retention-days: ${CLIP_RETENTION_DAYS:30}
-  retention-cron: "0 30 4 * * *"
-  # The most a recorder may upload for one clip.
+  retention-cron: ${CLIP_RETENTION_CRON:0 30 4 * * *}
+  # The most a recorder may upload for one clip (the video and the thumbnail each). Nginx has a limit of its own for the
+  # upload path (frontend/nginx.conf); keep the two in step.
   upload-max-size: ${CLIP_UPLOAD_MAX_SIZE:1GB}

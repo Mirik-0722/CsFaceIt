@@ -13,7 +13,8 @@ docker compose -f docker-compose.yml -f docker-compose.fake.yml up -d --build --
 ```
 
 - Web UI and API: <http://localhost:3000>. The admin key is `dev-admin-key` (header `X-API-Key`); set `APP_API_KEY` to
-  use another one.
+  use another one. The recorder's API (`/api/worker/v1`) takes another credential, the worker token `dev-worker-token`
+  (header `X-Worker-Token`); set `CLIP_WORKER_TOKEN` to use another one.
 - The fake itself: <http://localhost:8089> (published on `127.0.0.1` only). Inside the stack it is
   `http://fake-faceit:8080`, which is the address the backend and the demo URLs use. `GET /__admin/mappings` on the
   published port lists every stub.

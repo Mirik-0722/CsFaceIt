@@ -27,6 +27,8 @@ services:
       FACEIT_API_KEY: fake
       # Admin key of the demo stack (the X-API-Key header); override it by setting APP_API_KEY.
       APP_API_KEY: ${APP_API_KEY:-dev-admin-key}
+      # Worker token of the demo stack (the X-Worker-Token header of a recorder); override it by setting CLIP_WORKER_TOKEN.
+      CLIP_WORKER_TOKEN: ${CLIP_WORKER_TOKEN:-dev-worker-token}
     depends_on:
       fake-faceit:
         condition: service_healthy

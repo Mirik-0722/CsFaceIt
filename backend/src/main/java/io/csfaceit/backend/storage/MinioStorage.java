@@ -35,7 +35,8 @@ public class MinioStorage implements StorageService, InitializingBean, AutoClose
     private static final long CONNECT_TIMEOUT_MS = 5_000;
     private static final long TRANSFER_TIMEOUT_MS = 120_000;
 
-    private static final String CONTENT_TYPE = "application/zstd";
+    /** What every object is stored as unless its key says otherwise: a demo, compressed with zstd. */
+    private static final String DEMO_CONTENT_TYPE = "application/zstd";
 
     /** Error codes of a missing object, as MinIO and other S3 servers report them. */
     private static final Set<String> NO_SUCH_OBJECT = Set.of("NoSuchKey", "NoSuchObject", "NotFound");
@@ -73,7 +74,7 @@ public class MinioStorage implements StorageService, InitializingBean, AutoClose
         ensureBucket();
         try {
             client.uploadObject(UploadObjectArgs.builder()
-                    .bucket(bucket).object(key).filename(file.toString()).contentType(CONTENT_TYPE).build());
+                    .bucket(bucket).object(key).filename(file.toString()).contentType(contentTypeOf(key)).build());
         } catch (Exception e) {
             throw new StorageException("Could not store " + key, e);
         }
@@ -89,6 +90,35 @@ public class MinioStorage implements StorageService, InitializingBean, AutoClose
             throw new StorageException(isMissing(e) ? "No such object: " + key : "Could not read " + key, e);
         } catch (Exception e) {
             throw new StorageException("Could not read " + key, e);
+        }
+    }
+
+    /** The range is asked of the server ({@code Range: bytes=offset-(offset+length-1)}); only those bytes travel. */
+    @Override
+    public InputStream get(String key, long offset, long length) {
+        StorageKeys.requireValid(key);
+        StorageKeys.requireValidRange(offset, length);
+        ensureBucket();
+        try {
+            return client.getObject(GetObjectArgs.builder().bucket(bucket).object(key).offset(offset).length(length)
+                    .build());
+        } catch (ErrorResponseException e) {
+            throw new StorageException(isMissing(e) ? "No such object: " + key : "Could not read " + key, e);
+        } catch (Exception e) {
+            throw new StorageException("Could not read " + key, e);
+        }
+    }
+
+    @Override
+    public long size(String key) {
+        StorageKeys.requireValid(key);
+        ensureBucket();
+        try {
+            return client.statObject(StatObjectArgs.builder().bucket(bucket).object(key).build()).size();
+        } catch (ErrorResponseException e) {
+            throw new StorageException(isMissing(e) ? "No such object: " + key : "Could not look up " + key, e);
+        } catch (Exception e) {
+            throw new StorageException("Could not look up " + key, e);
         }
     }
 
@@ -170,6 +200,17 @@ public class MinioStorage implements StorageService, InitializingBean, AutoClose
                 throw e;
             }
         }
+    }
+
+    /** The media type the object is stored with: the files of a clip have their own, the rest are demos. */
+    private static String contentTypeOf(String key) {
+        if (key.endsWith(".mp4")) {
+            return "video/mp4";
+        }
+        if (key.endsWith(".jpg")) {
+            return "image/jpeg";
+        }
+        return DEMO_CONTENT_TYPE;
     }
 
     private static boolean isMissing(ErrorResponseException e) {

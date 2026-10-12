@@ -9,6 +9,7 @@ import io.csfaceit.backend.clip.ClipService.ClipCreation;
 import io.csfaceit.backend.clip.dto.ClipPageResponse;
 import io.csfaceit.backend.clip.dto.ClipRequest;
 import io.csfaceit.backend.clip.dto.ClipResponse;
+import io.csfaceit.backend.clip.dto.RecorderStatusResponse;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
@@ -25,10 +26,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Asking for the clip of a highlight, and reading clips. The request is a {@code POST} and needs the admin key like
- * every other write; the reads are open and answer from the database only: an id the database does not know gives an
- * empty list, not a 404 (a single clip that does not exist is a 404). A {@code quality} that is not one of the
- * {@link ClipQuality} labels is a 400.
+ * Asking for the clip of a highlight, and reading clips and the state of the recorder. The request is a {@code POST}
+ * and needs the admin key like every other write; the reads are open and answer from the database only: an id the
+ * database does not know gives an empty list, not a 404 (a single clip that does not exist is a 404). A
+ * {@code quality} that is not one of the {@link ClipQuality} labels is a 400.
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -72,6 +73,12 @@ public class ClipController {
             @RequestParam(defaultValue = "0") @Min(0) @Max(MAX_OFFSET) int offset,
             @RequestParam(defaultValue = "20") @Min(1) @Max(MAX_LIMIT) int limit) {
         return queries.forPlayer(playerId, offset, limit);
+    }
+
+    /** Whether a recorder is online to take the clips that wait, and how many wait and are being recorded. */
+    @GetMapping("/recorder/status")
+    public RecorderStatusResponse getRecorderStatus() {
+        return queries.recorderStatus();
     }
 
     /** The clips that are done, the most recently finished first. */

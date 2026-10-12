@@ -1,11 +1,15 @@
 package io.csfaceit.backend.storage;
 
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,6 +58,51 @@ public class LocalStorage implements StorageService {
             throw new StorageException("No such object: " + key, e);
         } catch (IOException e) {
             throw new StorageException("Could not read " + key, e);
+        }
+    }
+
+    /** The file is positioned through a channel, so a read from the middle of a large file does not read its start. */
+    @Override
+    public InputStream get(String key, long offset, long length) {
+        StorageKeys.requireValidRange(offset, length);
+        Path file = resolve(key);
+        if (!Files.isRegularFile(file)) {
+            throw new StorageException("No such object: " + key);
+        }
+        FileChannel channel = null;
+        try {
+            channel = FileChannel.open(file, StandardOpenOption.READ);
+            long size = channel.size();
+            if (offset >= size) {
+                throw new StorageException(
+                        "The range of " + key + " starts at " + offset + ", beyond its end at " + size);
+            }
+            channel.position(offset);
+            InputStream range = new LimitedInputStream(Channels.newInputStream(channel),
+                    Math.min(length, size - offset));
+            channel = null;
+            return range;
+        } catch (NoSuchFileException e) {
+            throw new StorageException("No such object: " + key, e);
+        } catch (IOException e) {
+            throw new StorageException("Could not read " + key, e);
+        } finally {
+            closeQuietly(channel);
+        }
+    }
+
+    @Override
+    public long size(String key) {
+        Path file = resolve(key);
+        if (!Files.isRegularFile(file)) {
+            throw new StorageException("No such object: " + key);
+        }
+        try {
+            return Files.size(file);
+        } catch (NoSuchFileException e) {
+            throw new StorageException("No such object: " + key, e);
+        } catch (IOException e) {
+            throw new StorageException("Could not look up " + key, e);
         }
     }
 
@@ -111,6 +160,69 @@ public class LocalStorage implements StorageService {
             Files.deleteIfExists(file);
         } catch (IOException ignored) {
             // A stray temp file is harmless and skipped by listings.
+        }
+    }
+
+    private static void closeQuietly(FileChannel channel) {
+        if (channel == null) {
+            return;
+        }
+        try {
+            channel.close();
+        } catch (IOException ignored) {
+            // The channel was opened for reading only, so there is nothing to lose with it.
+        }
+    }
+
+    /** Reads at most {@code remaining} bytes of the stream it wraps; closing it closes the wrapped stream. */
+    private static final class LimitedInputStream extends FilterInputStream {
+
+        private long remaining;
+
+        LimitedInputStream(InputStream in, long limit) {
+            super(in);
+            this.remaining = limit;
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (remaining <= 0) {
+                return -1;
+            }
+            int value = super.read();
+            if (value >= 0) {
+                remaining--;
+            }
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            if (remaining <= 0) {
+                return -1;
+            }
+            int read = super.read(buffer, offset, (int) Math.min(length, remaining));
+            if (read > 0) {
+                remaining -= read;
+            }
+            return read;
+        }
+
+        @Override
+        public long skip(long count) throws IOException {
+            long skipped = super.skip(Math.min(count, remaining));
+            remaining -= skipped;
+            return skipped;
+        }
+
+        @Override
+        public int available() throws IOException {
+            return (int) Math.min(super.available(), remaining);
+        }
+
+        @Override
+        public boolean markSupported() {
+            return false;
         }
     }
 }
