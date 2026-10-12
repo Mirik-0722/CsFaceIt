@@ -2,6 +2,7 @@ package io.csfaceit.backend.clip;
 
 import io.csfaceit.backend.analysis.highlight.HighlightType;
 import io.csfaceit.backend.clip.ClipQueryService.ClipMedia;
+import io.csfaceit.backend.common.api.ApiError;
 import io.csfaceit.backend.common.api.NotFoundException;
 import io.csfaceit.backend.common.api.RangeNotSatisfiableException;
 import io.csfaceit.backend.storage.StorageException;
@@ -21,6 +22,8 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -50,13 +53,15 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>The files of a finished clip never change, so every answer that carries one (the {@code 200} and the {@code 206}
  * of the video, with or without {@code download}, the thumbnail, and {@code HEAD} for either) says
  * {@code Cache-Control: public, max-age=86400}; an error answer keeps the {@code no-store} that Spring Security gives
- * every answer that sets no caching of its own.
+ * every answer that sets no caching of its own. A storage that cannot be asked for a file is a
+ * {@code 503 STORAGE_UNAVAILABLE}, see {@link #handleStorageFailure}.
  */
 @RestController
 @RequestMapping("/api/v1/clips")
 public class ClipMediaController {
 
     private static final String CLIP_NOT_FOUND = "CLIP_NOT_FOUND";
+    private static final String STORAGE_UNAVAILABLE = "STORAGE_UNAVAILABLE";
 
     private static final String VIDEO_MP4 = "video/mp4";
     private static final String IMAGE_JPEG = "image/jpeg";
@@ -153,6 +158,31 @@ public class ClipMediaController {
         } catch (IOException e) {
             log.debug("The storage stream of the thumbnail of clip {} could not be closed: {}", clipId, e.toString());
         }
+    }
+
+    /**
+     * The storage could not be asked for a file, or failed for a reason other than the file being gone (a file that is
+     * simply missing is a 404, which {@link #missingOrFailed} decides before this is reached): 503
+     * {@code STORAGE_UNAVAILABLE} in the shared error shape, with a fixed text, so that a player or a page can tell an
+     * outage from a clip that is gone. The log gets one line without a stack trace, since an outage would otherwise be
+     * a 500 and an error with a stack trace for every request of an open endpoint. This handler is the controller's
+     * own, so the rest of the application keeps its answer for a storage failure.
+     *
+     * <p>When the response has already started, no status can be given any more: the exception is then thrown on, as
+     * the recorder's API does, and the container breaks the connection. The storage is asked for the size and for the
+     * stream before the first header is set, and a stream that breaks after it is only noted (see {@link #transfer}),
+     * so with the code as it is no response that has started gets here; this is for one that would.
+     */
+    @ExceptionHandler(StorageException.class)
+    ResponseEntity<ApiError> handleStorageFailure(StorageException ex, HttpServletResponse response) {
+        if (response.isCommitted()) {
+            throw ex;
+        }
+        Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+        log.warn("The storage failed a request for a file of a clip, answering 503: {} ({})", ex.getMessage(),
+                cause.toString());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ApiError(STORAGE_UNAVAILABLE, "The storage is not available, try again later"));
     }
 
     /** The clip, provided it is {@code DONE}: the only status in which it has files. */
