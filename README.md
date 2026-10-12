@@ -36,18 +36,34 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
 
 - `/` - search for a player by FACEIT nickname.
 - `/players/{playerId}` - the profile: the statistics over the stored matches as eight tiles (K/D, HS%, ADR, KAST,
-  entry and trade kills per match, clutch %, win rate), the six newest highlights and the match history. A figure
-  without data behind it is a dash; the four that come from demos say so until one of the player's demos is analyzed.
+  entry and trade kills per match, clutch %, win rate), the six newest highlights, the player's clips and the match
+  history. A figure without data behind it is a dash; the four that come from demos say so until one of the player's
+  demos is analyzed.
 - `/players/{playerId}/highlights` - every highlight of the player, newest match first, with a filter by type that the
   server answers.
 - `/matches/{matchId}` - the score, the demo panel, the highlights of the match with a filter by kind (multi-kill,
-  clutch, special) and a scoreboard per team.
+  clutch, special), each with the state of its clip, the compilation panel, the clips of the match and a scoreboard
+  per team.
+- `/clips` - whether a recorder is online and how long the queue is, and the finished clips of every player, newest
+  first.
+- `/clips/{clipId}` - one clip: the video, a line under it with a mark per kill (a click on a mark takes the video
+  there), what the clip shows, download, copy link, the list of its kills (a row takes the video to its kill), the
+  facts of the clip and the other clips of its match. Until there is a video the page shows the state of the clip in
+  its place.
 
 The demo panel shows the status of the match's demo to everyone. Behind "Manage" it has the requests that need the
 admin key (`X-API-Key`): import from FACEIT (not offered for a parsed or analyzed demo, for which the backend
 ignores it; for a queued or stored one it revives a demo that has stood still for ten minutes), upload a file, and analyze (offered for a `PARSED` demo, as "Re-analyze" for an
 `ANALYZED` one). The key is typed once and kept in the memory of the page only - never in `localStorage`,
 `sessionStorage` or a cookie - so reloading the page forgets it, and a key the backend rejects is forgotten at once.
+
+Every highlight card of the match page ends with a row about its clip. "Record clip" opens the order: the quality
+(720p or 1080p), the length of the queue, and a field for the admin key while the page holds none. A clip on its way
+shows its place in the queue, or the stage and the percentage of the recording; a finished one links to its page; a
+failed one says why and offers another attempt. The compilation panel orders one video of every kill of a chosen
+player in the same way. Recording needs the admin key, as every write does; watching does not. While a clip is
+unfinished the page asks for its state again every three seconds. On the page of a clip, "Delete" is offered only
+while the page holds the admin key.
 
 ## Prerequisites
 
