@@ -12,6 +12,37 @@ export const en = {
     label: 'Main',
     clips: 'Clips',
   },
+  // Signing in (spec 6): the sign-in and the account menu of the top bar, the sign-in dialog, the notice of an account
+  // that has no FACEIT player.
+  auth: {
+    signIn: 'Sign in',
+    close: 'Close',
+    intro:
+      'You do not need a separate account: you sign in with your own Steam or FACEIT account. We never see your password.',
+    steamSignIn: 'Sign in with Steam',
+    faceitSignIn: 'Sign in with FACEIT',
+    comingSoon: 'Coming soon',
+    steps: [
+      "You confirm the sign-in on Steam's page.",
+      'Your FACEIT account is found by your Steam ID.',
+      'Your matches and statistics open.',
+    ],
+    disclaimer: 'Not affiliated with Valve, Steam or FACEIT.',
+    sectionsLabel: 'Sections',
+    howItWorks: 'How it works',
+    clipKinds: 'Clip kinds',
+    statistics: 'Statistics',
+    matches: 'Matches',
+    searchLabel: 'Find a player',
+    searchPlaceholder: 'Player name',
+    accountMenu: (nickname: string) => `Account menu: ${nickname}`,
+    myStatistics: 'My statistics',
+    signOut: 'Sign out',
+    orByNickname: 'Or without signing in, by nickname',
+    signInFailed: 'The sign-in did not work. Try again.',
+    unlinkedTag: 'FACEIT not found',
+    unlinked: 'No FACEIT account is linked to this Steam account. You can search by nickname.',
+  },
   home: {
     eyebrow: 'CS2 demo analysis · highlight clips',
     title: 'Every ace deserves a clip.',
@@ -63,7 +94,7 @@ export const en = {
     statistics: {
       label: 'Statistics',
       title: 'Beyond clips: your game in numbers',
-      text: 'Every demo is analysed round by round. The figures FACEIT does not give are here too.',
+      text: 'Every demo is analyzed round by round. The figures FACEIT does not give are here too.',
       bullets: ['K/D, ADR, HS% and KAST', 'Entry and trade kills', 'Clutch attempts and wins'],
     },
     closing: {

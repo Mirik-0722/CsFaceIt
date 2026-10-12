@@ -1,4 +1,5 @@
 import { test, type Page } from '@playwright/test'
+import type { AuthProvidersResponse, MeResponse } from '../src/api/authTypes.ts'
 import type { PlayerMatchPageResponse, PlayerOverviewResponse } from '../src/api/overviewTypes.ts'
 import type {
   ClipResponse,
@@ -73,6 +74,10 @@ interface Backend {
    */
   clips: ClipResponse[]
   recorder: RecorderStatusResponse
+  /** The signed-in visitor; `null`: nobody is signed in (the backend answers 401 UNAUTHENTICATED). */
+  me: MeResponse | null
+  /** Which ways of signing in the backend has turned on. */
+  providers: AuthProvidersResponse
 }
 
 interface ShotPage {
@@ -81,11 +86,14 @@ interface ShotPage {
   path: string
   /**
    * Presses of Tab, from the top of the page, that put the focus on an element of the page's own content (the `focus`
-   * scenario photographs it). The top bar takes the first four stops (the logo, the clips link, UZ and EN), so the
-   * content starts at the fifth: count again when a page gains or loses a focusable element before the one that is
-   * photographed.
+   * scenario photographs it). The top bar of a visitor who is not signed in takes six stops (the logo, the clips link,
+   * the search, UZ, EN and "Sign in"), and seven on the home page (the logo, the three anchors, UZ, EN and "Sign in":
+   * it has no search), so the content starts at the seventh or the eighth: count again when a page gains or loses a
+   * focusable element before the one that is photographed.
    */
   tabs: number
+  /** Only a signed-in visitor sees it (the account menu): scenarios without one leave it out. */
+  signedIn?: true
   /** Takes the page from `path` to the state that is photographed, when opening the URL is not enough. */
   open?: (page: Page, backend: Backend) => Promise<void>
 }
@@ -122,19 +130,24 @@ const RECORDING_CLIP_ID = 5
 
 // `tabs` is explained on ShotPage; the comment on each row names the element the `focus` scenario lands on.
 const PAGES = [
-  { name: 'home', path: '/', tabs: 5 }, // the nickname field
-  { name: 'result', path: '/', open: searchFor, tabs: 7 }, // the link around the player card (after field and button)
-  { name: 'player', path: `/players/${PLAYER_ID}`, tabs: 5 }, // the player of the first highlight card
-  { name: 'highlights', path: `/players/${PLAYER_ID}/highlights`, tabs: 6 }, // the type filter (after the player card)
-  { name: 'matches', path: `/players/${PLAYER_ID}/matches`, tabs: 5 }, // the link to the profile, beside the title
-  { name: 'match', path: `/matches/${WON_MATCH_ID}`, tabs: 6 }, // the first filter button (after "Manage")
+  { name: 'home', path: '/', tabs: 9 }, // the nickname field (after the Steam button; the FACEIT one is not pressable yet)
+  { name: 'result', path: '/', open: searchFor, tabs: 11 }, // the link around the player card (after field and button)
+  { name: 'player', path: `/players/${PLAYER_ID}`, tabs: 7 }, // the player of the first highlight card
+  { name: 'highlights', path: `/players/${PLAYER_ID}/highlights`, tabs: 8 }, // the type filter (after the player card)
+  { name: 'matches', path: `/players/${PLAYER_ID}/matches`, tabs: 7 }, // the link to the profile, beside the title
+  { name: 'match', path: `/matches/${WON_MATCH_ID}`, tabs: 8 }, // the first filter button (after "Manage")
   // The order of a clip: the dialog that the first "Record clip" button of the match page opens. Its focus picture is
   // of what one Tab reaches from where the dialog put the focus when it opened.
   { name: 'order', path: `/matches/${WON_MATCH_ID}`, open: openClipOrder, tabs: 1 },
-  { name: 'clips', path: '/clips', tabs: 5 }, // the first clip card
-  { name: 'clip', path: `/clips/${READY_CLIP_ID}`, tabs: 5 }, // the video
-  { name: 'clip-recording', path: `/clips/${RECORDING_CLIP_ID}`, tabs: 5 }, // the link to the match
-  { name: 'notfound', path: '/there-is-no-such-page', tabs: 5 }, // the link back to the search
+  { name: 'clips', path: '/clips', tabs: 7 }, // the first clip card
+  { name: 'clip', path: `/clips/${READY_CLIP_ID}`, tabs: 7 }, // the video
+  { name: 'clip-recording', path: `/clips/${RECORDING_CLIP_ID}`, tabs: 7 }, // the link to the match
+  { name: 'notfound', path: '/there-is-no-such-page', tabs: 7 }, // the link back to the search
+  // The sign-in: the dialog that "Sign in" of the top bar opens over the home page. Its focus picture is of what one
+  // Tab reaches from where the dialog put the focus (the close button): the Steam button.
+  { name: 'signin', path: '/', open: openSignIn, tabs: 1 },
+  // The account menu of a signed-in visitor, opened over an inner page (the clips: the line under "Clips" shows).
+  { name: 'menu', path: '/clips', open: openAccountMenu, tabs: 1, signedIn: true },
 ] as const satisfies readonly ShotPage[]
 
 type PageName = (typeof PAGES)[number]['name']
@@ -200,6 +213,26 @@ const DEFAULT_BACKEND: Backend = {
   demo: demoFixture,
   clips: DEFAULT_CLIPS,
   recorder: recorderStatusFixture,
+  me: null,
+  providers: { steam: true, faceit: false },
+}
+
+/** A visitor signed in with Steam whose FACEIT player was found: the nav has the player's pages. */
+const LINKED_USER: MeResponse = {
+  id: 1,
+  nickname: playerFixture.nickname,
+  avatarUrl: null,
+  role: 'USER',
+  steamId: '76561198000000001',
+  playerId: PLAYER_ID,
+}
+
+/** A visitor signed in with Steam for whom FACEIT has no player: no player pages, and the notice under the top bar. */
+const UNLINKED_USER: MeResponse = {
+  ...LINKED_USER,
+  nickname: 'Steam 000001',
+  steamId: '76561198000000002',
+  playerId: null,
 }
 
 /** A player without a stored match: every figure is a dash. */
@@ -378,6 +411,13 @@ const SCENARIOS: Scenario[] = [
       clips: EDGE_CLIPS,
     },
   },
+  // Signed in with a FACEIT player: the home page without the sign-in buttons, the nav with the player's pages, the
+  // account menu (on the clips, so that the line under "Clips" shows), the player's own page.
+  { name: 'signedin', pages: ['home', 'player', 'clips', 'menu'], backend: { me: LINKED_USER } },
+  // Signed in, but FACEIT has no player for the Steam account: the notice, the short nav and the short menu.
+  { name: 'unlinked', pages: ['home', 'clips', 'menu'], backend: { me: UNLINKED_USER } },
+  // FACEIT turned on in the backend: its sign-in button is a button now, in the hero and in the dialog.
+  { name: 'faceit', pages: ['home', 'signin'], backend: { providers: { steam: true, faceit: true } } },
   // The demo panel opened: the admin key field and the three requests it guards.
   { name: 'manage', pages: ['match'], before: openDemoControls },
   // The first scoreboard scrolled to its right end, on a phone: the player column and the team header stay in place.
@@ -421,6 +461,13 @@ function answersFor(backend: Backend): Map<string, Reply> {
     [`GET /api/v1/players/${PLAYER_ID}/clips?offset=0&limit=12`, { body: { items: ownClips, offset: 0, limit: 12 } }],
     ['GET /api/v1/clips?offset=0&limit=12', { body: { items: finishedClips, offset: 0, limit: 12 } }],
     ['GET /api/v1/recorder/status', { body: backend.recorder }],
+    [
+      'GET /api/v1/auth/me',
+      backend.me
+        ? { body: backend.me }
+        : { status: 401, body: { code: 'UNAUTHENTICATED', message: 'Not signed in' } },
+    ],
+    ['GET /api/v1/auth/providers', { body: backend.providers }],
     ...backend.clips.map((clip): [string, Reply] => {
       const source = highlightOf(clip, backend.highlights)
       return [`GET /api/v1/clips/${clip.id}`, { body: source ? clipDetailFixture(clip, source) : clip }]
@@ -510,9 +557,22 @@ async function openClipOrder(page: Page) {
   await page.locator('[data-slot="dialog-content"]').waitFor()
 }
 
-/** Opens the controls of the demo panel: the one button on the page that says it has something to expand. */
+/** Opens the sign-in dialog: the one button of the top bar that is not a language button. */
+async function openSignIn(page: Page) {
+  await page.locator('header button:not([aria-pressed])').click()
+  await page.locator('[data-slot="dialog-content"]').waitFor()
+}
+
+/** Opens the account menu: the one button of the top bar that says it has something to expand. */
+async function openAccountMenu(page: Page) {
+  await page.locator('header button[aria-expanded]').click()
+  await page.getByRole('dialog').waitFor()
+}
+
+/** Opens the controls of the demo panel: the one button of the page's content that says it has something to expand. */
 async function openDemoControls(page: Page) {
-  await page.locator('button[aria-expanded="false"]').first().click()
+  // Not the whole page: the avatar of a signed-in visitor, in the top bar, says it as well.
+  await page.locator('main button[aria-expanded="false"]').first().click()
 }
 
 /** Scrolls the first scoreboard's box to its right end; a table that fits in its box does not move. */
@@ -526,7 +586,10 @@ async function scrollScoreboard(page: Page) {
 function defineShots() {
   for (const scenario of SCENARIOS) {
     const backend: Backend = { ...DEFAULT_BACKEND, ...scenario.backend }
-    const pages = PAGES.filter(({ name }) => !scenario.pages || scenario.pages.includes(name))
+    const pages = PAGES.filter(
+      (shotPage) =>
+        (!scenario.pages || scenario.pages.includes(shotPage.name)) && (!('signedIn' in shotPage) || backend.me !== null),
+    )
 
     for (const language of scenario.languages ?? ['uz']) {
       test.describe(`${scenario.name} in ${language}`, () => {

@@ -1,7 +1,26 @@
 import { useLayoutEffect } from 'react'
 import { Outlet, useLocation, useNavigationType } from 'react-router-dom'
+import { useMe } from '@/api/auth'
 import Footer from '@/components/Footer'
 import TopBar from '@/components/TopBar'
+import UnlinkedNotice from '@/components/UnlinkedNotice'
+
+/**
+ * Under the bar of a signed-in visitor whose Steam account has no FACEIT player: the notice that says so, on every page
+ * (spec 6). The home page says it in its hero, in place of the sign-in buttons, so it is not said twice there.
+ */
+function UnlinkedStrip() {
+  const me = useMe()
+  const { pathname } = useLocation()
+  if (!me.data || me.data.playerId !== null || pathname === '/') {
+    return null
+  }
+  return (
+    <div className="container-page pt-7">
+      <UnlinkedNotice />
+    </div>
+  )
+}
 
 /**
  * The frame around every page: the top bar, the page, which takes the free height, and the footer at the bottom. A
@@ -20,6 +39,7 @@ export default function AppLayout() {
   return (
     <div className="flex min-h-dvh flex-col">
       <TopBar />
+      <UnlinkedStrip />
       {/* A plain block, not a flex container, so a page's own `<main>` keeps its block layout (auto margins centre it). */}
       <div className="flex-1">
         <Outlet />

@@ -36,7 +36,7 @@ function KindCard({ label, title, text, children }: KindCardProps) {
 export default function ClipKindsSection() {
   const t = useT()
   return (
-    <section aria-labelledby={TITLE_ID} className="border-t border-border">
+    <section id="kinds" aria-labelledby={TITLE_ID} className="border-t border-border">
       <div className="container-page flex flex-col gap-10 pt-18 pb-20">
         <SectionTitle id={TITLE_ID}>{t.home.kinds.title}</SectionTitle>
         <div className="grid gap-6 lg:grid-cols-2">
@@ -47,7 +47,7 @@ export default function ClipKindsSection() {
           >
             <KillTimeline {...ROUND} />
             {/* Every type the product finds, in the order of the filter on the match page. */}
-            <ul className="flex flex-wrap gap-2">
+            <ul role="list" className="flex flex-wrap gap-2">
               {HIGHLIGHT_TYPES.map((type) => (
                 <li key={type}>
                   <Badge variant={type === 'ACE' ? 'default' : 'outline'} className="normal-case">

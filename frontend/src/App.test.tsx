@@ -12,7 +12,9 @@ describe('App routing', () => {
     render(<App />)
     expect(screen.getByRole('heading', { level: 1, name: 'Every ace deserves a clip.' })).toBeInTheDocument()
     expect(screen.getByLabelText('nickname')).toBeInTheDocument()
-    expect(fetch).not.toHaveBeenCalled()
+    // The top bar asks who is signed in; the home page itself asks for nothing.
+    const requested = vi.mocked(fetch).mock.calls.map(([url]) => url)
+    expect(requested.filter((url) => url !== '/api/v1/auth/me')).toEqual([])
   })
 
   it('renders the player page for /players/:playerId and passes the id on', () => {

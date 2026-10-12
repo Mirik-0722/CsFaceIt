@@ -1,8 +1,34 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { PlayerResponse } from '@/api/types'
-import { deferred, mockFetchOnce, mockFetchRoutes, renderWithProviders, type MockReply } from '@/test/utils'
+import {
+  deferred,
+  mockFetchOnce as stubFetchOnce,
+  mockFetchRoutes as stubFetchRoutes,
+  renderWithProviders,
+  type MockReply,
+} from '@/test/utils'
 import SearchPage from './SearchPage'
+
+/**
+ * The page asks who is signed in and which ways of signing in there are. These tests are about the search, so those two
+ * requests get their answers here (a visitor who is not signed in) and never reach the mock that a test asserts on.
+ */
+function answerSignInRequests<T extends (url: string, init?: RequestInit) => unknown>(fetchMock: T): T {
+  vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+    if (url === '/api/v1/auth/me') {
+      return Promise.resolve(new Response(JSON.stringify({ code: 'UNAUTHENTICATED', message: 'x' }), { status: 401 }))
+    }
+    if (url === '/api/v1/auth/providers') {
+      return Promise.resolve(new Response(JSON.stringify({ steam: true, faceit: false })))
+    }
+    return fetchMock(url, init)
+  })
+  return fetchMock
+}
+
+const mockFetchOnce = (body: unknown, status = 200) => answerSignInRequests(stubFetchOnce(body, status))
+const mockFetchRoutes = (routes: Parameters<typeof stubFetchRoutes>[0]) => answerSignInRequests(stubFetchRoutes(routes))
 
 const s1mple: PlayerResponse = {
   playerId: 'p1',

@@ -25,7 +25,7 @@ interface StepProps {
   number: string
   title: string
   text: string
-  /** Stands at the right of the number: what the visitor has to know about the step before reading it. */
+  /** Stands at the right of the number, level with it: what the visitor has to know about the step. */
   mark?: ReactNode
   /** An example of what the step is about, drawn: hidden from assistive technology. */
   example: ReactNode
@@ -33,29 +33,29 @@ interface StepProps {
 
 function Step({ number, title, text, mark, example }: StepProps) {
   return (
-    <li className="flex flex-col gap-3 border-t border-line-strong pt-5">
+    <li className="relative flex flex-col gap-3 border-t border-line-strong pt-5">
       {/* As high as a tag, so that the titles of the steps start at one height whether a step has a mark or not. */}
-      <div className="flex min-h-5.5 items-center justify-between gap-3">
-        <span aria-hidden="true" className="label-mono">
-          {number}
-        </span>
-        {mark}
-      </div>
+      <span aria-hidden="true" className="label-mono flex min-h-5.5 items-center">
+        {number}
+      </span>
       <h3 className="text-xl leading-[1.3] font-semibold">{title}</h3>
+      {/* After the title in the document, so that a screen reader reads it with its step and not before it; by
+          position it stands at the top right, level with the figure. */}
+      {mark && <div className="absolute top-5 right-0">{mark}</div>}
       <p className="text-pretty text-muted-foreground">{text}</p>
       <div aria-hidden="true">{example}</div>
     </li>
   )
 }
 
-/** "From demo to clip in three steps": the demo is analysed, the highlights are found, the clip is recorded. */
+/** "From demo to clip in three steps": the demo is analyzed, the highlights are found, the clip is recorded. */
 export default function StepsSection() {
   const t = useT()
   return (
-    <section aria-labelledby={TITLE_ID} className="border-t border-border">
+    <section id="steps" aria-labelledby={TITLE_ID} className="border-t border-border">
       <div className="container-page flex flex-col gap-10 pt-18 pb-20">
         <SectionTitle id={TITLE_ID}>{t.home.steps.title}</SectionTitle>
-        <ol className="grid gap-8 md:grid-cols-3">
+        <ol role="list" className="grid gap-8 md:grid-cols-3">
           <Step
             number="01"
             title={t.home.steps.demo.title}

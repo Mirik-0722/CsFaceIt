@@ -9,9 +9,8 @@ export default function LanguageSwitch() {
   const t = useT()
   const locale = useLocale()
   return (
-    // `ml-auto` keeps the buttons on the right when the top bar wraps them onto a row of their own. The glyphs sit in
-    // 44px targets, so the group is pulled out by 12px (`-mr-3`) to put the last glyph on the page column's edge.
-    <div role="group" aria-label={t.language.label} className="-mr-3 ml-auto flex items-center">
+    // The glyphs sit in 44px targets with 2px between them; where the group stands is the top bar's business.
+    <div role="group" aria-label={t.language.label} className="flex items-center gap-0.5">
       {LOCALES.map((code) => (
         <Button
           key={code}
@@ -20,7 +19,7 @@ export default function LanguageSwitch() {
           size="icon"
           aria-pressed={code === locale}
           onClick={() => setLocale(code)}
-          className="font-mono text-xs font-normal tracking-[0.08em] text-muted-foreground hover:text-foreground aria-pressed:font-semibold aria-pressed:text-foreground"
+          className="font-mono text-xs font-normal text-subtle hover:text-foreground aria-pressed:font-semibold aria-pressed:text-foreground"
         >
           {code.toUpperCase()}
         </Button>
