@@ -621,6 +621,7 @@ storage). The examples use the Compose address; `<highlightId>` is the `id` of a
 | Endpoint | Answer |
 | --- | --- |
 | `POST /api/v1/highlights/{highlightId}/clips` | Queues the clip of the highlight. The body is `{"quality": "720p"}` or `{"quality": "1080p"}`; no body, or `{}`, is 720p. `201` and the clip when this request queued it, `200` and the clip that already stands for the highlight at that quality when there is one. |
+| `POST /api/v1/matches/{matchId}/clips` | Queues the compilation of a player's kills in the match: one video of every kill of an enemy he made, round by round (see **A compilation** below). The body is `{"playerId": "...", "quality": "720p"}`; `playerId` is required, `quality` is as above. `201` and the clip (its `kind` is `COMPILATION`) when this request queued it, `200` and the one that already stands for the player at that quality when there is one. |
 | `GET /api/v1/clips/{clipId}` | One clip, with the `kills` its video shows. `404 CLIP_NOT_FOUND`. |
 | `GET /api/v1/matches/{matchId}/clips` | An array of the clips of the match, whatever their status, the newest first. Empty for a match the database does not know. |
 | `GET /api/v1/players/{playerId}/clips?offset=0&limit=20` | `{"items": [...], "offset": 0, "limit": 20}`: a page of the clips of the player over all his matches, whatever their status, the newest first. `offset` 0-10000, `limit` 1-100. Empty for a player the database does not know. |
@@ -630,6 +631,9 @@ storage). The examples use the Compose address; `<highlightId>` is the `id` of a
 ```bash
 curl -X POST -H 'X-API-Key: dev-admin-key' -H 'Content-Type: application/json' -d '{"quality": "1080p"}' \
   http://localhost:3000/api/v1/highlights/<highlightId>/clips
+curl -X POST -H 'X-API-Key: dev-admin-key' -H 'Content-Type: application/json' \
+  -d '{"playerId": "<playerId>", "quality": "720p"}' \
+  http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/clips
 curl http://localhost:3000/api/v1/clips/<clipId>
 curl http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/clips
 curl "http://localhost:3000/api/v1/players/<playerId>/clips?offset=0&limit=20"
@@ -678,18 +682,42 @@ whole. A kill of an enemy is a kill where the player is the killer, did not kill
 on the same side. Seconds become ticks with the tick rate of the demo (64 when it does not say). The segments are kept
 in `clips.segments` as `[{"startTick": ..., "endTick": ...}, ...]`.
 
+**A compilation.** `POST /api/v1/matches/{matchId}/clips` asks for the second kind of clip: one video of every kill of an
+enemy that one player made in the match, not of one moment. `<playerId>` in the example above is the `playerId` of a
+player of `GET /api/v1/matches/{matchId}/stats` or of an item of `GET /api/v1/matches/{matchId}/highlights`. It is
+required, and is a FACEIT player id or `steam:<SteamID>` (1 to 20 digits) for a player the backend knows only from a demo:
+the id travels in the body, so the colon that the id rule of a URL path does not allow is no obstacle here. `quality` is
+as for a highlight, 720p when left out. There is one compilation per match, player and quality, and it is told apart like
+the clip of a highlight: a second request, also at the same moment from another browser, finds the one that is there and
+answers `200` with it, and a compilation that ended `FAILED` does not count.
+
+The segments are worked out round by round. In every round in which the player made a kill of an enemy, in the order of
+the rounds, each kill gets a segment as above, cut to its round (from the first tick of the round to its last) and merged
+with the others of that round; nothing is merged from one round into the next. A round in which he made no kill adds
+nothing (a window with no kill is shown whole only for a highlight). The video is the segments one after the other, so its
+length is their sum, and `GET /api/v1/clips/{clipId}` places every kill on its timeline. The demo only has to be parsed
+(`PARSED` or `ANALYZED`): the kills are the facts of the parser, and no highlight is read.
+
+A compilation is checked in this order, and the first check that fails ends the request: the match and then the player,
+in the database only (`404 MATCH_NOT_FOUND`, `404 PLAYER_NOT_FOUND`; FACEIT is not asked); the compilation that is there
+already (answered with `200`, whatever became of the demo file and however long the queue is); the demo file; the SteamID
+of the player; that he made a kill of an enemy in the match (`409 NO_KILLS`); the queue; and last the length of the
+segments.
+
 | Status | `code` | When |
 | --- | --- | --- |
-| 400 | `VALIDATION_ERROR` | The `quality` is not `"720p"` or `"1080p"`, the body cannot be read, or an id or paging parameter is malformed. A player known only from a demo has the id `steam:<SteamID>`, whose colon the id rule does not allow, so `GET /api/v1/players/{playerId}/clips` cannot name him (as for his highlights); his clips are in the list of the match. |
+| 400 | `VALIDATION_ERROR` | The `quality` is not `"720p"` or `"1080p"`, the body cannot be read, the `playerId` of a compilation is missing or is neither a FACEIT player id nor `steam:<SteamID>`, or an id or paging parameter is malformed. A player known only from a demo has the id `steam:<SteamID>`, whose colon the id rule does not allow, so `GET /api/v1/players/{playerId}/clips` cannot name him (as for his highlights); his clips are in the list of the match. |
 | 401 | `UNAUTHORIZED` | The `POST` is missing a valid `X-API-Key` header. |
 | 404 | `HIGHLIGHT_NOT_FOUND` | There is no highlight with that id, or the demo of its match is not `ANALYZED` (a highlight is served only then, see [Highlights and statistics](#highlights-and-statistics)). |
+| 404 | `MATCH_NOT_FOUND`, `PLAYER_NOT_FOUND` | A compilation was requested for a match or a player the database does not know. |
 | 404 | `CLIP_NOT_FOUND` | There is no clip with that id. |
 | 409 | `DEMO_NOT_AVAILABLE` | A clip would have to be queued, but the demo file of the match is not in storage (the retention job removed it, see [Retention](#retention); upload the demo again) or the demo is not `PARSED` or `ANALYZED`. A request for a clip that exists is answered with that clip all the same. |
 | 409 | `PLAYER_STEAM_ID_UNKNOWN` | The backend does not know the SteamID of the player, and a recorder follows a player by it. |
+| 409 | `NO_KILLS` | A compilation was requested for a player who made no kill of an enemy in the match (he did not play in it, or got none). |
 | 409 | `CLIP_TOO_LONG` | The segments add up to more than `clip.max-duration-seconds`. |
 | 429 | `CLIP_QUEUE_FULL` | `clip.max-queued` clips are waiting already. Ask again later. The limit is soft: two requests at the same moment may both get in. |
 
-The `POST` checks in this order, and the first that fails ends the request: the highlight; the clip that is there
+The `POST` for a highlight checks in this order, and the first that fails ends the request: the highlight; the clip that is there
 already (answered with `200`, whatever became of the demo file and however long the queue is); the demo file; the SteamID
 of the player; the queue; and last the length of the segments.
 

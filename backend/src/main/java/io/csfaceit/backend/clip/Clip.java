@@ -165,6 +165,15 @@ public class Clip {
         return clip;
     }
 
+    /**
+     * A new compilation of the kills of {@code player} in {@code match}, waiting in the queue. It is made for no
+     * highlight and no window, so the fields of those stay {@code null}.
+     */
+    public static Clip compilation(Match match, Player player, ClipQuality quality, int fps,
+                                   List<ClipSegment> segments) {
+        return new Clip(match, player, ClipKind.COMPILATION, quality, fps, segments);
+    }
+
     @PrePersist
     void onCreate() {
         Instant now = now();

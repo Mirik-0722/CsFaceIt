@@ -13,9 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link ClipService} reads facts and computes with no transaction open and calls in here for each short step.
  *
  * <p>When a concurrent request inserts the same clip first, PostgreSQL fails the insert with a unique violation
- * ({@code uq_clips_highlight}), which aborts the whole transaction and surfaces as a
- * {@link org.springframework.dao.DataIntegrityViolationException}; nothing is recovered in here. The caller looks for
- * the clip again, and finds the other request's.
+ * ({@code uq_clips_highlight}, or {@code uq_clips_compilation} for a compilation), which aborts the whole transaction
+ * and surfaces as a {@link org.springframework.dao.DataIntegrityViolationException}; nothing is recovered in here. The
+ * caller looks for the clip again, and finds the other request's.
  */
 @Component
 public class ClipPersistence {
@@ -26,6 +26,13 @@ public class ClipPersistence {
      */
     public record HighlightKey(long matchRowId, long playerRowId, HighlightType type, int roundNumber, int tickStart,
                                ClipQuality quality) {
+    }
+
+    /**
+     * What tells the compilation of a player's kills apart from every other clip: the match, the player and the
+     * quality. The ids are those of the rows, not FACEIT's.
+     */
+    public record CompilationKey(long matchRowId, long playerRowId, ClipQuality quality) {
     }
 
     private final ClipRepository clips;
@@ -63,6 +70,25 @@ public class ClipPersistence {
         Clip clip = Clip.highlight(matches.getReferenceById(key.matchRowId()),
                 players.getReferenceById(key.playerRowId()), key.type(), key.roundNumber(), key.tickStart(), tickEnd,
                 key.quality(), fps, segments);
+        return clips.saveAndFlush(clip).getId();
+    }
+
+    /** The id of the compilation that already stands for the key, if there is one that is not FAILED. */
+    @Transactional(readOnly = true)
+    public Optional<Long> findLiveCompilation(CompilationKey key) {
+        return clips.findLiveCompilationClipId(key.matchRowId(), key.playerRowId(), key.quality());
+    }
+
+    /**
+     * Puts the compilation of a player's kills in a match in the queue, as {@code QUEUED}, and returns its id.
+     *
+     * @param fps the frames per second the clip is to be recorded at
+     * @param segments the stretches of the demo the video is made of, round after round
+     */
+    @Transactional
+    public long queueCompilation(CompilationKey key, int fps, List<ClipSegment> segments) {
+        Clip clip = Clip.compilation(matches.getReferenceById(key.matchRowId()),
+                players.getReferenceById(key.playerRowId()), key.quality(), fps, segments);
         return clips.saveAndFlush(clip).getId();
     }
 }

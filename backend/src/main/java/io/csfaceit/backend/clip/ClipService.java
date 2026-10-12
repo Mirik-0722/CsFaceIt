@@ -2,6 +2,8 @@ package io.csfaceit.backend.clip;
 
 import io.csfaceit.backend.analysis.api.HighlightQueryService;
 import io.csfaceit.backend.analysis.api.dto.HighlightResponse;
+import io.csfaceit.backend.clip.ClipFacts.RoundKills;
+import io.csfaceit.backend.clip.ClipPersistence.CompilationKey;
 import io.csfaceit.backend.clip.ClipPersistence.HighlightKey;
 import io.csfaceit.backend.clip.dto.ClipResponse;
 import io.csfaceit.backend.common.api.ConflictException;
@@ -13,6 +15,7 @@ import io.csfaceit.backend.match.Match;
 import io.csfaceit.backend.match.MatchRepository;
 import io.csfaceit.backend.player.Player;
 import io.csfaceit.backend.player.PlayerRepository;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -29,6 +32,9 @@ import org.springframework.stereotype.Service;
  * {@link HighlightQueryService#find}, which knows when a highlight may be served (while the demo of its match is
  * {@code ANALYZED}); the clip is tied to it by the highlight's natural key and not by its id, so a new analysis of the
  * demo does not cut the clip off from its highlight.
+ *
+ * <p>A compilation is requested for a player and a quality in a match and is made of every kill of the player in the
+ * match, round by round. No highlight is behind it, so the demo is read from the parser's facts alone.
  */
 @Service
 public class ClipService {
@@ -42,6 +48,9 @@ public class ClipService {
     private static final String PLAYER_STEAM_ID_UNKNOWN = "PLAYER_STEAM_ID_UNKNOWN";
     private static final String CLIP_QUEUE_FULL = "CLIP_QUEUE_FULL";
     private static final String CLIP_TOO_LONG = "CLIP_TOO_LONG";
+    private static final String MATCH_NOT_FOUND = "MATCH_NOT_FOUND";
+    private static final String PLAYER_NOT_FOUND = "PLAYER_NOT_FOUND";
+    private static final String NO_KILLS = "NO_KILLS";
 
     private static final Logger log = LoggerFactory.getLogger(ClipService.class);
 
@@ -105,10 +114,7 @@ public class ClipService {
         }
 
         int tickRate = tickRateOfRecordableDemo(match, player);
-        if (persistence.countQueued() >= properties.maxQueued()) {
-            throw new TooManyRequestsException(CLIP_QUEUE_FULL,
-                    "The clip queue is full (" + properties.maxQueued() + " clips are waiting), try again later");
-        }
+        rejectIfQueueFull();
         List<Integer> killTicks = facts.killTicks(match.getId(), player.getId(), highlight.roundNumber(),
                 highlight.tickStart(), highlight.tickEnd());
         List<ClipSegment> segments = SegmentBuilder.build(killTicks, highlight.tickStart(), highlight.tickEnd(),
@@ -133,6 +139,90 @@ public class ClipService {
                 quality.label(), highlightId, highlight.type(), highlight.matchId(), highlight.roundNumber(),
                 segments.size(), SegmentBuilder.totalTicks(segments));
         return new ClipCreation(queries.summary(clipId), true);
+    }
+
+    /**
+     * Queues the compilation of a player's kills in a match at a quality, or answers with the compilation that already
+     * stands for them: one video of every kill of an enemy the player made in the match, round by round. The checks
+     * come in this order, and the first that fails ends the request:
+     * <ol>
+     *   <li>the match, and then the player, are known to the database (FACEIT is not asked)
+     *   <li>a compilation of this match, player and quality that is not {@code FAILED} exists: it is the answer,
+     *       whatever became of the demo file since and however long the queue is
+     *   <li>the file of the demo is stored, and the player's SteamID is known, as for the clip of a highlight; the demo
+     *       need only be {@code PARSED}, since the kills are the parser's facts and no highlight is read
+     *   <li>the player made a kill of an enemy in the match
+     *   <li>the queue has room
+     *   <li>the segments, worked out round by round from his kills, are not longer than
+     *       {@code clip.max-duration-seconds}
+     * </ol>
+     * Repeating a request, also in parallel, therefore leaves one compilation. The queue limit is soft, as for a
+     * highlight.
+     *
+     * @throws NotFoundException {@code MATCH_NOT_FOUND} or {@code PLAYER_NOT_FOUND}
+     * @throws ConflictException {@code DEMO_NOT_AVAILABLE}, {@code PLAYER_STEAM_ID_UNKNOWN}, {@code NO_KILLS} or
+     *         {@code CLIP_TOO_LONG}
+     * @throws TooManyRequestsException {@code CLIP_QUEUE_FULL}
+     */
+    public ClipCreation requestCompilation(String faceitMatchId, String faceitPlayerId, ClipQuality quality) {
+        Match match = matches.findByFaceitMatchId(faceitMatchId)
+                .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND, "Match not found: " + faceitMatchId));
+        Player player = players.findByFaceitId(faceitPlayerId)
+                .orElseThrow(() -> new NotFoundException(PLAYER_NOT_FOUND, "Player not found: " + faceitPlayerId));
+
+        CompilationKey key = new CompilationKey(match.getId(), player.getId(), quality);
+        Optional<Long> existing = persistence.findLiveCompilation(key);
+        if (existing.isPresent()) {
+            return new ClipCreation(queries.summary(existing.get()), false);
+        }
+
+        int tickRate = tickRateOfRecordableDemo(match, player);
+        List<ClipSegment> segments = compilationSegments(facts.killTicksByRound(match.getId(), player.getId()),
+                tickRate);
+        if (segments.isEmpty()) {
+            throw new ConflictException(NO_KILLS, "Player " + faceitPlayerId + " made no kill of an enemy in match "
+                    + faceitMatchId + ", so there is nothing to compile");
+        }
+        rejectIfQueueFull();
+        rejectIfTooLong(segments, tickRate);
+
+        long clipId;
+        try {
+            clipId = persistence.queueCompilation(key, properties.fps(), segments);
+        } catch (DataIntegrityViolationException e) {
+            // A concurrent request queued the same compilation between the look above and the insert, and the unique
+            // index let only one of them in. The loser's transaction is aborted; the clip it was after is the winner's.
+            Optional<Long> winner = persistence.findLiveCompilation(key);
+            if (winner.isEmpty()) {
+                throw e;
+            }
+            log.info("Lost a concurrent request for the compilation of {} in match {} at {}, answering with clip {}",
+                    faceitPlayerId, faceitMatchId, quality.label(), winner.get());
+            return new ClipCreation(queries.summary(winner.get()), false);
+        }
+        log.info("Queued clip {} at {} for the compilation of {} in match {}: {} segment(s), {} ticks", clipId,
+                quality.label(), faceitPlayerId, faceitMatchId, segments.size(), SegmentBuilder.totalTicks(segments));
+        return new ClipCreation(queries.summary(clipId), true);
+    }
+
+    /**
+     * The segments of a compilation: those of the player's kills in every round that has one, in the order of the
+     * rounds. Each round is a window of its own, so a segment never runs from one round into the next. A round in
+     * which he made no kill is left out, and so is one whose kills all lie outside the round: {@link SegmentBuilder}
+     * shows a window with no kill in it whole, which is right for a highlight (a clutch won without a kill) and would
+     * put a whole round that has nothing of the player into the video.
+     */
+    private List<ClipSegment> compilationSegments(List<RoundKills> rounds, int tickRate) {
+        List<ClipSegment> segments = new ArrayList<>();
+        for (RoundKills round : rounds) {
+            boolean killInRound = round.ticks().stream()
+                    .anyMatch(tick -> tick >= round.startTick() && tick <= round.endTick());
+            if (killInRound) {
+                segments.addAll(SegmentBuilder.build(round.ticks(), round.startTick(), round.endTick(), tickRate,
+                        properties));
+            }
+        }
+        return segments;
     }
 
     /**
@@ -161,6 +251,13 @@ public class ClipService {
             long seconds = (long) Math.ceil((double) ticks / tickRate);
             throw new ConflictException(CLIP_TOO_LONG, "The clip would be " + seconds
                     + " seconds long; the longest allowed is " + properties.maxDurationSeconds() + " seconds");
+        }
+    }
+
+    private void rejectIfQueueFull() {
+        if (persistence.countQueued() >= properties.maxQueued()) {
+            throw new TooManyRequestsException(CLIP_QUEUE_FULL,
+                    "The clip queue is full (" + properties.maxQueued() + " clips are waiting), try again later");
         }
     }
 

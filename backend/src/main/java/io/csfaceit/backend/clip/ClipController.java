@@ -9,7 +9,9 @@ import io.csfaceit.backend.clip.ClipService.ClipCreation;
 import io.csfaceit.backend.clip.dto.ClipPageResponse;
 import io.csfaceit.backend.clip.dto.ClipRequest;
 import io.csfaceit.backend.clip.dto.ClipResponse;
+import io.csfaceit.backend.clip.dto.CompilationRequest;
 import io.csfaceit.backend.clip.dto.RecorderStatusResponse;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
@@ -53,6 +55,19 @@ public class ClipController {
                                                              @RequestBody(required = false) ClipRequest request) {
         ClipQuality quality = (request == null ? new ClipRequest(null) : request).quality();
         ClipCreation creation = clips.requestHighlightClip(highlightId, quality);
+        return ResponseEntity.status(creation.created() ? HttpStatus.CREATED : HttpStatus.OK).body(creation.clip());
+    }
+
+    /**
+     * 201 for the compilation of a player's kills in the match that this request queued, 200 for the one that already
+     * stood for the player at that quality. The body names the player and is required: a request without one, or with
+     * a malformed player id, is a 400.
+     */
+    @PostMapping("/matches/{matchId}/clips")
+    public ResponseEntity<ClipResponse> requestCompilation(
+            @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId,
+            @Valid @RequestBody CompilationRequest request) {
+        ClipCreation creation = clips.requestCompilation(matchId, request.playerId(), request.quality());
         return ResponseEntity.status(creation.created() ? HttpStatus.CREATED : HttpStatus.OK).body(creation.clip());
     }
 
