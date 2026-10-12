@@ -7,8 +7,12 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { ApiError, apiGet, apiPost } from './client'
+import { isFinished } from '@/lib/clips'
+import { ApiError, apiDelete, apiGet, apiPost } from './client'
 import type {
+  ClipPageResponse,
+  ClipQuality,
+  ClipResponse,
   DemoResponse,
   HighlightPageResponse,
   HighlightResponse,
@@ -18,6 +22,7 @@ import type {
   MatchStatsResponse,
   PlayerAggregateStatsResponse,
   PlayerResponse,
+  RecorderStatusResponse,
 } from './types'
 
 /** A 4xx answer will not change on a repeat; any other failure (5xx, network, unexpected) is retried once. */
@@ -239,5 +244,120 @@ export function usePlayerStats(playerId: string) {
     queryKey: ['player-stats', playerId],
     queryFn: () => apiGet<PlayerAggregateStatsResponse>(`/players/${playerId}/stats`),
     retry: retryUnlessClientError,
+  })
+}
+
+/** How often clips are asked for again while one of them is still on its way to a video. */
+const CLIP_POLL_MS = 3000
+
+/** How often the recorder is asked about: it counts as offline only after a minute and a half of silence. */
+const RECORDER_POLL_MS = 60_000
+
+/** How many clips the backend returns per page of a clip list. */
+const CLIPS_PAGE_SIZE = 12
+
+/** A clip that is neither done nor failed will change by itself, so a list that holds one is asked for again. */
+function pollWhileUnfinished(clips: ClipResponse[] | undefined): number | false {
+  return clips?.some((clip) => !isFinished(clip.status)) ? CLIP_POLL_MS : false
+}
+
+/** Every clip of a match, in whatever state, newest first; an empty list for a match without clips. */
+export function useMatchClips(matchId: string) {
+  return useQuery<ClipResponse[], ApiError>({
+    queryKey: ['match-clips', matchId],
+    queryFn: () => apiGet<ClipResponse[]>(`/matches/${matchId}/clips`),
+    refetchInterval: (query) => pollWhileUnfinished(query.state.data),
+    retry: retryUnlessClientError,
+  })
+}
+
+/**
+ * A player's clips, in whatever state, newest first, one page of `limit` at a time, as {@link usePlayerHistory} pages
+ * the history.
+ */
+export function usePlayerClips(playerId: string, limit = CLIPS_PAGE_SIZE) {
+  return useInfiniteQuery<ClipPageResponse, ApiError, InfiniteData<ClipPageResponse, number>, QueryKey, number>({
+    queryKey: ['player-clips', playerId, limit],
+    queryFn: ({ pageParam }) =>
+      apiGet<ClipPageResponse>(`/players/${playerId}/clips`, { offset: pageParam, limit }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+      lastPage.items.length < limit ? undefined : lastPageParam + limit,
+    refetchInterval: (query) => pollWhileUnfinished(query.state.data?.pages.flatMap((page) => page.items)),
+    retry: retryUnlessClientError,
+  })
+}
+
+/** The finished clips of every player, newest first, paged like {@link usePlayerClips}. */
+export function useRecentClips(limit = CLIPS_PAGE_SIZE) {
+  return useInfiniteQuery<ClipPageResponse, ApiError, InfiniteData<ClipPageResponse, number>, QueryKey, number>({
+    queryKey: ['recent-clips', limit],
+    queryFn: ({ pageParam }) => apiGet<ClipPageResponse>('/clips', { offset: pageParam, limit }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+      lastPage.items.length < limit ? undefined : lastPageParam + limit,
+    retry: retryUnlessClientError,
+  })
+}
+
+/** One clip with its kills; asked for again every three seconds until it is done or failed. */
+export function useClip(clipId: number) {
+  return useQuery<ClipResponse, ApiError>({
+    queryKey: ['clip', clipId],
+    queryFn: () => apiGet<ClipResponse>(`/clips/${clipId}`),
+    refetchInterval: (query) => pollWhileUnfinished(query.state.data && [query.state.data]),
+    retry: retryUnlessClientError,
+  })
+}
+
+/** Whether a recorder is online and how long the queue is, asked for again every minute. */
+export function useRecorderStatus() {
+  return useQuery<RecorderStatusResponse, ApiError>({
+    queryKey: ['recorder-status'],
+    queryFn: () => apiGet<RecorderStatusResponse>('/recorder/status'),
+    refetchInterval: RECORDER_POLL_MS,
+    retry: retryUnlessClientError,
+  })
+}
+
+/** Every list a clip can be in, and the queue it changes: asked for again when a clip was requested or deleted. */
+function invalidateClipLists(queryClient: QueryClient, matchId: string) {
+  void queryClient.invalidateQueries({ queryKey: ['match-clips', matchId] })
+  void queryClient.invalidateQueries({ queryKey: ['player-clips'] })
+  void queryClient.invalidateQueries({ queryKey: ['recent-clips'] })
+  void queryClient.invalidateQueries({ queryKey: ['recorder-status'] })
+}
+
+/**
+ * Asks for the clip of a highlight. The answer is the clip as it is now (a new one in the queue, or the one that
+ * already exists for that highlight and quality); it goes into the list of its match at once, so the page shows it
+ * before the list has been asked for again.
+ */
+export function useRequestHighlightClip() {
+  const queryClient = useQueryClient()
+  return useMutation<ClipResponse, ApiError, { apiKey: string; highlightId: number; quality: ClipQuality }>({
+    mutationFn: ({ apiKey, highlightId, quality }) =>
+      apiPost<ClipResponse>(`/highlights/${highlightId}/clips`, { apiKey, body: { quality } }),
+    // The variables hold the admin key: see useDemoAction.
+    gcTime: 0,
+    onSuccess: (clip) => {
+      queryClient.setQueryData<ClipResponse[]>(['match-clips', clip.matchId], (clips) =>
+        clips ? [clip, ...clips.filter((other) => other.id !== clip.id)] : clips,
+      )
+      invalidateClipLists(queryClient, clip.matchId)
+    },
+  })
+}
+
+/** Deletes a clip and its files. A clip that is being recorded cannot be deleted (409 `CLIP_IN_PROGRESS`). */
+export function useDeleteClip() {
+  const queryClient = useQueryClient()
+  return useMutation<void, ApiError, { apiKey: string; clip: ClipResponse }>({
+    mutationFn: ({ apiKey, clip }) => apiDelete(`/clips/${clip.id}`, { apiKey }),
+    gcTime: 0,
+    onSuccess: (_nothing, { clip }) => {
+      queryClient.removeQueries({ queryKey: ['clip', clip.id] })
+      invalidateClipLists(queryClient, clip.matchId)
+    },
   })
 }

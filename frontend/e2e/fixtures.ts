@@ -3,6 +3,8 @@
 // The values are chosen for Playwright's strict locators: `25` is in exactly one stats cell, and `de_mirage` and
 // `ELO 3500` appear once on their pages.
 import type {
+  ClipResponse,
+  ClipStatus,
   DemoResponse,
   HighlightPageResponse,
   HighlightResponse,
@@ -12,6 +14,7 @@ import type {
   MatchStatsResponse,
   PlayerAggregateStatsResponse,
   PlayerResponse,
+  RecorderStatusResponse,
 } from '../src/api/types.ts'
 
 export const PLAYER_ID = '11111111-1111-1111-1111-111111111111'
@@ -217,4 +220,68 @@ export const playerHighlightsFixture: HighlightPageResponse = {
   items: matchHighlightsFixture.filter((highlight) => highlight.playerId === PLAYER_ID),
   offset: 0,
   limit: 6,
+}
+
+/** A recorder that is online, with one clip being recorded and one waiting. */
+export const recorderStatusFixture: RecorderStatusResponse = {
+  online: true,
+  lastSeenAt: '2023-11-14T23:30:00Z',
+  queued: 1,
+  active: 1,
+}
+
+/**
+ * The clip of a highlight as the backend would describe it in a list, in the given state: a finished clip has its
+ * length, size and video address, a queued one its place in the queue. `thumbnailUrl` stays null also for a finished
+ * clip, so that the browser asks for nothing outside the mocked API; the frame then shows the scene of the map.
+ */
+export function clipFixture(
+  id: number,
+  highlight: HighlightResponse,
+  status: ClipStatus,
+  overrides: Partial<ClipResponse> = {},
+): ClipResponse {
+  const done = status === 'DONE'
+  return {
+    id,
+    kind: 'HIGHLIGHT',
+    status,
+    progress: done ? 100 : 0,
+    matchId: highlight.matchId,
+    mapName: highlight.mapName,
+    playerId: highlight.playerId,
+    nickname: highlight.nickname,
+    highlightType: highlight.type,
+    roundNumber: highlight.roundNumber,
+    tickStart: highlight.tickStart,
+    quality: '1080p',
+    fps: 60,
+    durationMs: done ? highlight.durationSeconds * 1000 : null,
+    sizeBytes: done ? highlight.durationSeconds * 1_400_000 : null,
+    error: null,
+    queuePosition: status === 'QUEUED' ? 1 : null,
+    videoUrl: done ? `/api/v1/clips/${id}/video` : null,
+    thumbnailUrl: null,
+    createdAt: '2023-11-14T23:20:00Z',
+    finishedAt: done || status === 'FAILED' ? '2023-11-14T23:24:00Z' : null,
+    expiresAt: done ? '2023-12-14T23:24:00Z' : null,
+    kills: [],
+    ...overrides,
+  }
+}
+
+/**
+ * A clip as `GET /api/v1/clips/{id}` answers it: with the kills of its highlight on the timeline of the video, which
+ * starts where the clip window starts.
+ */
+export function clipDetailFixture(clip: ClipResponse, highlight: HighlightResponse): ClipResponse {
+  return {
+    ...clip,
+    kills: highlight.kills.map((kill) => ({
+      offsetMs: Math.round(((kill.tick - highlight.tickStart) / TICK_RATE) * 1000),
+      weapon: kill.weapon,
+      headshot: kill.headshot,
+      victimNickname: kill.victimNickname,
+    })),
+  }
 }

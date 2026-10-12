@@ -1,5 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
-import { usePlayer, usePlayerHighlights, usePlayerHistory, usePlayerStats } from '@/api/queries'
+import { usePlayer, usePlayerClips, usePlayerHighlights, usePlayerHistory, usePlayerStats } from '@/api/queries'
+import ClipList from '@/components/ClipList'
 import HighlightList from '@/components/HighlightList'
 import MatchList from '@/components/MatchList'
 import PlayerHeader from '@/components/PlayerHeader'
@@ -69,6 +70,41 @@ function LatestHighlights({ playerId }: { playerId: string }) {
   )
 }
 
+/** The player's clips, in whatever state, newest first, a page at a time. A failure stays inside the section. */
+function PlayerClips({ playerId }: { playerId: string }) {
+  const t = useT()
+  const clips = usePlayerClips(playerId)
+  // Offset paging can return the same clip on two pages (each page is cached on its own), so keep the first.
+  const items = clips.data?.pages
+    .flatMap((page) => page.items)
+    .filter((item, index, all) => all.findIndex((other) => other.id === item.id) === index)
+  return (
+    <section className="flex flex-col gap-4 pt-3">
+      <h2 className="heading-section">{t.clip.listTitle}</h2>
+      <div aria-live="polite" className="flex flex-col gap-2">
+        {clips.isPending && (
+          <>
+            <p className="label-mono">{t.clip.loadingList}</p>
+            <Skeleton className="h-40 w-full" />
+          </>
+        )}
+        {items && <ClipList items={items} />}
+        {clips.isError && <p className="text-sm text-destructive">{errorMessage(clips.error, t)}</p>}
+      </div>
+      {clips.hasNextPage && (
+        <Button
+          variant="outline"
+          className="self-center"
+          disabled={clips.isFetchingNextPage}
+          onClick={() => clips.fetchNextPage()}
+        >
+          {t.player.loadMore}
+        </Button>
+      )}
+    </section>
+  )
+}
+
 function PlayerProfile({ playerId }: { playerId: string }) {
   const t = useT()
   const player = usePlayer(playerId)
@@ -94,6 +130,7 @@ function PlayerProfile({ playerId }: { playerId: string }) {
       </div>
       {!playerFailed && <PlayerStats playerId={playerId} />}
       {!playerFailed && <LatestHighlights playerId={playerId} />}
+      {!playerFailed && <PlayerClips playerId={playerId} />}
       {!playerFailed && (
         <section className="flex flex-col gap-4 pt-3">
           <h2 className="heading-section">{t.player.history}</h2>

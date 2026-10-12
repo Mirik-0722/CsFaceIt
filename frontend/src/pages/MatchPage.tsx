@@ -1,22 +1,27 @@
 import type { UseQueryResult } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { useMatch, useMatchHighlights, useMatchStats } from '@/api/queries'
+import { useMatch, useMatchClips, useMatchHighlights, useMatchStats } from '@/api/queries'
+import ClipButton from '@/components/ClipButton'
+import ClipList from '@/components/ClipList'
+import ClipOrderDialog from '@/components/ClipOrderDialog'
 import DemoPanel from '@/components/DemoPanel'
 import HighlightList from '@/components/HighlightList'
 import MapTile from '@/components/MapTile'
 import MatchScore from '@/components/MatchScore'
+import RecorderBanner from '@/components/RecorderBanner'
 import StatsTable from '@/components/StatsTable'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useT } from '@/i18n'
+import { clipFor } from '@/lib/clips'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/formatDate'
 import { hasLost } from '@/lib/hasLost'
 import { highlightGroup, type HighlightGroup } from '@/lib/highlightLabels'
 import { mapLabel } from '@/lib/mapTint'
 import type { ApiError } from '@/api/client'
-import type { MatchResponse, MatchStatsResponse, TeamStatsResponse } from '@/api/types'
+import type { HighlightResponse, MatchResponse, MatchStatsResponse, TeamStatsResponse } from '@/api/types'
 
 /**
  * The map, the start date and the status of a match, each left out while FACEIT has not published it, and the score
@@ -61,13 +66,18 @@ const HIGHLIGHT_FILTERS: HighlightFilter[] = ['all', 'multi', 'clutch', 'special
 
 /**
  * The highlights of the match with a filter by kind above them. The filter works on what is already loaded; each
- * button carries the number of highlights it would show. A failure stays inside the section.
+ * button carries the number of highlights it would show. Every card ends with what can be done about the clip of its
+ * highlight: any highlight can be recorded, of whatever kind. A failure stays inside the section.
  */
 function MatchHighlights({ matchId }: { matchId: string }) {
   const t = useT()
   const highlights = useMatchHighlights(matchId)
+  const clips = useMatchClips(matchId)
   const [filter, setFilter] = useState<HighlightFilter>('all')
+  // The highlight whose clip is being ordered; the dialog is open while there is one.
+  const [ordering, setOrdering] = useState<HighlightResponse | null>(null)
   const items = highlights.data
+  const matchClips = clips.data
   const labels: Record<HighlightFilter, string> = {
     all: t.highlight.groupAll,
     multi: t.highlight.groupMulti,
@@ -105,11 +115,46 @@ function MatchHighlights({ matchId }: { matchId: string }) {
             <Skeleton className="h-40 w-full" />
           </>
         )}
-        {items && <HighlightList items={matching(filter)} showMatch={false} />}
+        {items && items.length > 0 && <RecorderBanner />}
+        {items && (
+          <HighlightList
+            items={matching(filter)}
+            showMatch={false}
+            // Until the clips of the match are known, a card cannot say whether its highlight has one: no row yet.
+            action={
+              matchClips &&
+              ((highlight) => (
+                <ClipButton clip={clipFor(highlight, matchClips)} onOrder={() => setOrdering(highlight)} />
+              ))
+            }
+          />
+        )}
         {highlights.isError && !items && (
           <p className="text-sm text-destructive">{errorMessage(highlights.error, t)}</p>
         )}
+        {items && items.length > 0 && clips.isError && !matchClips && (
+          <p className="text-sm text-destructive">{errorMessage(clips.error, t)}</p>
+        )}
       </div>
+      <ClipOrderDialog highlight={ordering} open={ordering !== null} onClose={() => setOrdering(null)} />
+    </section>
+  )
+}
+
+/**
+ * The clips of the match, in whatever state, newest first. A match without clips has no such section: the way to the
+ * first clip is the button on a highlight.
+ */
+function MatchClips({ matchId }: { matchId: string }) {
+  const t = useT()
+  const clips = useMatchClips(matchId)
+  if (!clips.data || clips.data.length === 0) {
+    return null
+  }
+  return (
+    <section className="flex flex-col gap-4">
+      <h2 className="heading-section">{t.clip.listTitle}</h2>
+      <ClipList items={clips.data} />
     </section>
   )
 }
@@ -173,6 +218,7 @@ function MatchDetails({ matchId }: { matchId: string }) {
       {/* The demo and what was found in it belong to a match that exists: they wait for the header. */}
       {match.data && <DemoPanel matchId={matchId} />}
       {match.data && <MatchHighlights matchId={matchId} />}
+      {match.data && <MatchClips matchId={matchId} />}
       {!matchFailed && (
         // The tables follow the header, so a match that then turns out to be missing never flashes them.
         <div aria-live="polite" className="flex flex-col gap-6">
@@ -191,8 +237,9 @@ export default function MatchPage() {
     <main className="container-page flex flex-col gap-4 pt-9 pb-18">
       <h1 className="label-mono">{t.match.title}</h1>
       {matchId ? (
-        // Keyed by the match: what the panel and the filter remember (a chosen file, a typed key, a message, the
-        // chosen kind) must not follow the visitor to another match when only the id in the URL changes.
+        // Keyed by the match: what the panel, the filter and the clip order remember (a chosen file, a typed key, a
+        // message, the chosen kind, an open dialog) must not follow the visitor to another match when only the id in
+        // the URL changes.
         <MatchDetails key={matchId} matchId={matchId} />
       ) : (
         <p className="text-sm text-destructive">{t.errors.matchNotFound}</p>

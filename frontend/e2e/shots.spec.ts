@@ -1,5 +1,6 @@
 import { test, type Page } from '@playwright/test'
 import type {
+  ClipResponse,
   DemoResponse,
   HighlightResponse,
   MatchHistoryResponse,
@@ -8,10 +9,13 @@ import type {
   MatchSummary,
   PlayerAggregateStatsResponse,
   PlayerResponse,
+  RecorderStatusResponse,
 } from '../src/api/types.ts'
 import {
   PLAYER_ID,
   WON_MATCH_ID,
+  clipDetailFixture,
+  clipFixture,
   demoFixture,
   highlightFixture,
   historyFixture,
@@ -19,6 +23,7 @@ import {
   matchHighlightsFixture,
   playerFixture,
   playerStatsFixture,
+  recorderStatusFixture,
   statsFixture,
 } from './fixtures.ts'
 
@@ -55,6 +60,12 @@ interface Backend {
   highlights: HighlightResponse[]
   /** `null`: the match has no demo (the backend answers 404 DEMO_NOT_FOUND). */
   demo: DemoResponse | null
+  /**
+   * The clips of the match, newest first. The player's own are also the clips of the profile, the finished ones the
+   * clips page, and each has a page of its own, with the kills of the highlight it was recorded from.
+   */
+  clips: ClipResponse[]
+  recorder: RecorderStatusResponse
 }
 
 interface ShotPage {
@@ -63,8 +74,9 @@ interface ShotPage {
   path: string
   /**
    * Presses of Tab, from the top of the page, that put the focus on an element of the page's own content (the `focus`
-   * scenario photographs it). The top bar takes the first three stops (the logo, UZ and EN), so the content starts
-   * at the fourth: count again when a page gains or loses a focusable element before the one that is photographed.
+   * scenario photographs it). The top bar takes the first four stops (the logo, the clips link, UZ and EN), so the
+   * content starts at the fifth: count again when a page gains or loses a focusable element before the one that is
+   * photographed.
    */
   tabs: number
   /** Takes the page from `path` to the state that is photographed, when opening the URL is not enough. */
@@ -97,14 +109,24 @@ const DEFAULT_VIEWPORTS = [DESKTOP, PHONE]
 // needs a DOM to load and this file runs in Node.
 const LANGUAGE_KEY = 'csfaceit.lang'
 
+// The clips of the default backend that have a page among PAGES.
+const READY_CLIP_ID = 1
+const RECORDING_CLIP_ID = 5
+
 // `tabs` is explained on ShotPage; the comment on each row names the element the `focus` scenario lands on.
 const PAGES = [
-  { name: 'home', path: '/', tabs: 4 }, // the nickname field
-  { name: 'result', path: '/', open: searchFor, tabs: 6 }, // the link around the player card (after field and button)
-  { name: 'player', path: `/players/${PLAYER_ID}`, tabs: 4 }, // the player of the first highlight card
-  { name: 'highlights', path: `/players/${PLAYER_ID}/highlights`, tabs: 5 }, // the type filter (after the player card)
-  { name: 'match', path: `/matches/${WON_MATCH_ID}`, tabs: 5 }, // the first filter button (after "Manage")
-  { name: 'notfound', path: '/there-is-no-such-page', tabs: 4 }, // the link back to the search
+  { name: 'home', path: '/', tabs: 5 }, // the nickname field
+  { name: 'result', path: '/', open: searchFor, tabs: 7 }, // the link around the player card (after field and button)
+  { name: 'player', path: `/players/${PLAYER_ID}`, tabs: 5 }, // the player of the first highlight card
+  { name: 'highlights', path: `/players/${PLAYER_ID}/highlights`, tabs: 6 }, // the type filter (after the player card)
+  { name: 'match', path: `/matches/${WON_MATCH_ID}`, tabs: 6 }, // the first filter button (after "Manage")
+  // The order of a clip: the dialog that the first "Record clip" button of the match page opens. Its focus picture is
+  // of the first thing in the dialog, wherever the dialog puts the focus when it opens.
+  { name: 'order', path: `/matches/${WON_MATCH_ID}`, open: openClipOrder, tabs: 1 },
+  { name: 'clips', path: '/clips', tabs: 5 }, // the first clip card
+  { name: 'clip', path: `/clips/${READY_CLIP_ID}`, tabs: 5 }, // the video
+  { name: 'clip-recording', path: `/clips/${RECORDING_CLIP_ID}`, tabs: 5 }, // the link to the match
+  { name: 'notfound', path: '/there-is-no-such-page', tabs: 5 }, // the link back to the search
 ] as const satisfies readonly ShotPage[]
 
 type PageName = (typeof PAGES)[number]['name']
@@ -113,6 +135,25 @@ const LONG_NICKNAME = 'ThirtyTwo_Characters_Nickname_01'
 const LONG_TEAM_NAMES = [
   'Natus Vincere Academy Under-Twenty Regional Roster',
   'Team_With_An_Unbreakable_Very_Long_Name_2026',
+]
+
+/** The highlight of the default match with that id. */
+function highlight(id: number): HighlightResponse {
+  const found = matchHighlightsFixture.find((candidate) => candidate.id === id)
+  if (!found) {
+    throw new Error(`No highlight ${id} in the fixtures`)
+  }
+  return found
+}
+
+// One clip in every state a clip can be in, each of another highlight of the default match; the highlights that are
+// left have none, so their cards offer to record one.
+const DEFAULT_CLIPS: ClipResponse[] = [
+  clipFixture(RECORDING_CLIP_ID, highlight(3), 'RECORDING', { progress: 45 }),
+  clipFixture(4, highlight(7), 'ENCODING', { progress: 80 }),
+  clipFixture(3, highlight(1), 'QUEUED'),
+  clipFixture(2, highlight(6), 'FAILED', { error: 'The recorder stopped responding' }),
+  clipFixture(READY_CLIP_ID, highlight(5), 'DONE'),
 ]
 
 const DEFAULT_BACKEND: Backend = {
@@ -124,6 +165,8 @@ const DEFAULT_BACKEND: Backend = {
   playerStats: playerStatsFixture,
   highlights: matchHighlightsFixture,
   demo: demoFixture,
+  clips: DEFAULT_CLIPS,
+  recorder: recorderStatusFixture,
 }
 
 /** A player without a stored match: every figure is a dash. */
@@ -165,6 +208,27 @@ const EDGE_HIGHLIGHTS: HighlightResponse[] = [
   ]),
 ]
 
+// What real clips hold that the default ones do not. Their highlights are those of EDGE_HIGHLIGHTS.
+const EDGE_CLIPS: ClipResponse[] = [
+  // A compilation: no highlight behind it, so no type, round or tick, and minutes long.
+  clipFixture(31, EDGE_HIGHLIGHTS[3], 'DONE', {
+    kind: 'COMPILATION',
+    highlightType: null,
+    roundNumber: null,
+    tickStart: null,
+    quality: '720p',
+    durationMs: 137_000,
+    sizeBytes: 171_000_000,
+  }),
+  // Far back in a long queue, of a player who has no profile.
+  clipFixture(32, EDGE_HIGHLIGHTS[0], 'QUEUED', { queuePosition: 12 }),
+  // A failure with a long reason, of a match without a map.
+  clipFixture(33, EDGE_HIGHLIGHTS[1], 'FAILED', {
+    error: 'This demo was recorded on a game version the recorder can no longer play',
+  }),
+  clipFixture(34, EDGE_HIGHLIGHTS[2], 'UPLOADING', { progress: 100 }),
+]
+
 // A 32-character nickname and team names longer than 32 characters (one with spaces, one without).
 const LONG_BACKEND: Partial<Backend> = {
   nickname: LONG_NICKNAME,
@@ -187,6 +251,7 @@ const LONG_BACKEND: Partial<Backend> = {
   highlights: matchHighlightsFixture.map((highlight) =>
     highlight.playerId === PLAYER_ID ? { ...highlight, nickname: LONG_NICKNAME } : highlight,
   ),
+  clips: DEFAULT_CLIPS.map((clip) => (clip.playerId === PLAYER_ID ? { ...clip, nickname: LONG_NICKNAME } : clip)),
 }
 
 /**
@@ -231,6 +296,22 @@ const SCENARIOS: Scenario[] = [
       history: { items: [], offset: 0, limit: 20 },
       playerStats: NO_PLAYER_STATS,
       highlights: [],
+      clips: [],
+    },
+  },
+  // No clip yet and no recorder ever seen: every card offers to record, and the clips page is empty.
+  {
+    name: 'noclips',
+    pages: ['match', 'clips'],
+    backend: { clips: [], recorder: { online: false, lastSeenAt: null, queued: 0, active: 0 } },
+  },
+  // The recording PC went away while clips were waiting.
+  {
+    name: 'offline',
+    pages: ['match', 'order', 'clips'],
+    backend: {
+      clips: DEFAULT_CLIPS.filter((clip) => clip.status === 'QUEUED' || clip.status === 'DONE'),
+      recorder: { online: false, lastSeenAt: '2023-11-14T21:00:00Z', queued: 1, active: 0 },
     },
   },
   {
@@ -243,6 +324,7 @@ const SCENARIOS: Scenario[] = [
       stats: null,
       demo: null,
       highlights: [],
+      clips: [],
     },
   },
   {
@@ -250,7 +332,7 @@ const SCENARIOS: Scenario[] = [
     // row without a score), a match whose second team has an empty roster, stored matches without an analyzed demo,
     // a demo whose analysis failed, and the highlights of EDGE_HIGHLIGHTS.
     name: 'edge',
-    pages: ['player', 'highlights', 'match'],
+    pages: ['player', 'highlights', 'match', 'clips'],
     backend: {
       history: edgeHistory(),
       match: { ...matchFixture, teams: [matchFixture.teams[0], { ...matchFixture.teams[1], players: [] }] },
@@ -258,6 +340,7 @@ const SCENARIOS: Scenario[] = [
       playerStats: { ...NO_PLAYER_STATS, matches: 7, winRate: 42.9, kd: 0.94, hsPercent: 38.5, adr: 71.3 },
       highlights: EDGE_HIGHLIGHTS,
       demo: { ...demoFixture, status: 'PARSED', error: 'Analysis failed: round 7 has no kill rows to order (IllegalStateException)' },
+      clips: EDGE_CLIPS,
     },
   },
   // The demo panel opened: the admin key field and the three requests it guards.
@@ -282,10 +365,36 @@ interface Reply {
   body: unknown
 }
 
+/** The highlight a clip was recorded from: the same player, type, round and start, as the app itself matches them. */
+function highlightOf(clip: ClipResponse, highlights: HighlightResponse[]): HighlightResponse | undefined {
+  return highlights.find(
+    (candidate) =>
+      candidate.playerId === clip.playerId &&
+      candidate.type === clip.highlightType &&
+      candidate.roundNumber === clip.roundNumber &&
+      candidate.tickStart === clip.tickStart,
+  )
+}
+
 /** Every API call the pages make, keyed by method, path and query as the app sends them. */
 function answersFor(backend: Backend): Map<string, Reply> {
   const own = backend.highlights.filter((highlight) => highlight.playerId === PLAYER_ID)
+  const ownClips = backend.clips.filter((clip) => clip.playerId === PLAYER_ID)
+  const finishedClips = backend.clips.filter((clip) => clip.status === 'DONE')
   return new Map<string, Reply>([
+    [`GET /api/v1/matches/${WON_MATCH_ID}/clips`, { body: backend.clips }],
+    [`GET /api/v1/players/${PLAYER_ID}/clips?offset=0&limit=12`, { body: { items: ownClips, offset: 0, limit: 12 } }],
+    ['GET /api/v1/clips?offset=0&limit=12', { body: { items: finishedClips, offset: 0, limit: 12 } }],
+    ['GET /api/v1/recorder/status', { body: backend.recorder }],
+    ...backend.clips.map((clip): [string, Reply] => {
+      const source = highlightOf(clip, backend.highlights)
+      return [`GET /api/v1/clips/${clip.id}`, { body: source ? clipDetailFixture(clip, source) : clip }]
+    }),
+    // There is no video file behind a mocked clip: the player of a finished clip stays an empty frame.
+    ...finishedClips.map((clip): [string, Reply] => [
+      `GET /api/v1/clips/${clip.id}/video`,
+      { status: 404, body: { code: 'CLIP_NOT_FOUND', message: 'Clip not found' } },
+    ]),
     [`GET /api/v1/players?nickname=${backend.nickname}`, { body: backend.player }],
     [`GET /api/v1/players/${PLAYER_ID}`, { body: backend.player }],
     [`GET /api/v1/players/${PLAYER_ID}/history?offset=0&limit=20`, { body: backend.history }],
@@ -353,6 +462,12 @@ async function pressTab(page: Page, { tabs }: ShotPage) {
   for (let press = 0; press < tabs; press++) {
     await page.keyboard.press('Tab')
   }
+}
+
+/** Opens the order of the first highlight that has no clip yet: the first filled button among the highlight cards. */
+async function openClipOrder(page: Page) {
+  await page.locator('article button[data-slot="button"]').first().click()
+  await page.locator('[data-slot="dialog-content"]').waitFor()
 }
 
 /** Opens the controls of the demo panel: the one button on the page that says it has something to expand. */

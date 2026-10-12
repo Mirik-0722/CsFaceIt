@@ -1,5 +1,5 @@
-// Mirrors the backend DTO records one to one (io.csfaceit.backend.player.dto, match.dto, demo.dto, analysis.api.dto
-// and common.api).
+// Mirrors the backend DTO records one to one (io.csfaceit.backend.player.dto, match.dto, demo.dto, analysis.api.dto,
+// clip.dto and common.api).
 // java.time.Instant is serialized as an ISO-8601 string; a boxed or optional upstream value is `| null`.
 
 /** A player's public profile; `elo` and `level` are null when the player has never played CS2. */
@@ -179,6 +179,74 @@ export interface PlayerAggregateStatsResponse {
   clutchPercent: number | null
   clutchAttempts: number
   clutchWins: number
+}
+
+/** What a clip shows: one highlight, or every kill of a player in a match. */
+export type ClipKind = 'HIGHLIGHT' | 'COMPILATION'
+
+/** Where a clip is on its way to a video file. `DONE` and `FAILED` are final. */
+export type ClipStatus = 'QUEUED' | 'RECORDING' | 'ENCODING' | 'UPLOADING' | 'DONE' | 'FAILED'
+
+export type ClipQuality = '720p' | '1080p'
+
+/** One kill of a clip on the timeline of its video: `offsetMs` is where the kill is in the finished file. */
+export interface ClipKill {
+  offsetMs: number
+  weapon: string
+  headshot: boolean
+  victimNickname: string
+}
+
+/**
+ * A clip: a request to record a video and, once it is `DONE`, the video. `matchId` and `playerId` are the FACEIT ids
+ * (`playerId` is `steam:<SteamID>` for a player the backend knows only from the demo). `highlightType`, `roundNumber`
+ * and `tickStart` name the highlight of a `HIGHLIGHT` clip and are null for a `COMPILATION`. `progress` is 0–100.
+ * `queuePosition` is set only while `QUEUED` (the head of the queue is 1); `durationMs`, `sizeBytes`, `videoUrl`,
+ * `thumbnailUrl` and `expiresAt` only once `DONE` (`expiresAt` stays null when clips are kept for good); `error` holds
+ * the reason of a failure or of a retry. `kills` is filled only when one clip is asked for by its id.
+ */
+export interface ClipResponse {
+  id: number
+  kind: ClipKind
+  status: ClipStatus
+  progress: number
+  matchId: string
+  mapName: string | null
+  playerId: string
+  nickname: string
+  highlightType: HighlightType | null
+  roundNumber: number | null
+  tickStart: number | null
+  quality: ClipQuality
+  fps: number
+  durationMs: number | null
+  sizeBytes: number | null
+  error: string | null
+  queuePosition: number | null
+  videoUrl: string | null
+  thumbnailUrl: string | null
+  createdAt: string
+  finishedAt: string | null
+  expiresAt: string | null
+  kills: ClipKill[]
+}
+
+/** A page of clips, newest first; `offset` and `limit` echo the request. */
+export interface ClipPageResponse {
+  items: ClipResponse[]
+  offset: number
+  limit: number
+}
+
+/**
+ * Whether a recorder has been seen lately (`lastSeenAt` is null when none ever was), and how many clips wait in the
+ * queue (`queued`) or are being recorded (`active`).
+ */
+export interface RecorderStatusResponse {
+  online: boolean
+  lastSeenAt: string | null
+  queued: number
+  active: number
 }
 
 /** The body of every error response: a stable machine-readable `code` and a human-readable `message`. */

@@ -9,6 +9,7 @@ import {
   playerFixture,
   playerHighlightsFixture,
   playerStatsFixture,
+  recorderStatusFixture,
   statsFixture,
 } from './fixtures.ts'
 
@@ -22,10 +23,14 @@ const API_RESPONSES = new Map<string, unknown>([
   [`GET /api/v1/players/${PLAYER_ID}/history?offset=0&limit=20`, historyFixture],
   [`GET /api/v1/players/${PLAYER_ID}/stats`, playerStatsFixture],
   [`GET /api/v1/players/${PLAYER_ID}/highlights?offset=0&limit=6`, playerHighlightsFixture],
+  // No clip has been recorded in this flow: both lists are empty, and the recorder is asked about on the match page.
+  [`GET /api/v1/players/${PLAYER_ID}/clips?offset=0&limit=12`, { items: [], offset: 0, limit: 12 }],
   [`GET /api/v1/matches/${WON_MATCH_ID}`, matchFixture],
   [`GET /api/v1/matches/${WON_MATCH_ID}/stats`, statsFixture],
   [`GET /api/v1/matches/${WON_MATCH_ID}/demo`, demoFixture],
   [`GET /api/v1/matches/${WON_MATCH_ID}/highlights`, matchHighlightsFixture],
+  [`GET /api/v1/matches/${WON_MATCH_ID}/clips`, []],
+  ['GET /api/v1/recorder/status', recorderStatusFixture],
 ])
 
 const test = base.extend<{ api: { served: Set<string> } }>({

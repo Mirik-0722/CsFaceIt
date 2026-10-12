@@ -43,8 +43,8 @@ async function toApiError(res: Response): Promise<ApiError> {
     : new ApiError(res.status, 'UNKNOWN', `Request failed with status ${res.status}`)
 }
 
-/** Sends the request and returns the parsed JSON body; every failure is an {@link ApiError}. */
-async function request<T>(url: string, init: RequestInit): Promise<T> {
+/** Sends the request and returns the response once it is a success; every failure is an {@link ApiError}. */
+async function send(url: string, init: RequestInit): Promise<Response> {
   let res: Response
   try {
     res = await fetch(url, init)
@@ -54,6 +54,12 @@ async function request<T>(url: string, init: RequestInit): Promise<T> {
   if (!res.ok) {
     throw await toApiError(res)
   }
+  return res
+}
+
+/** Sends the request and returns the parsed JSON body; every failure is an {@link ApiError}. */
+async function request<T>(url: string, init: RequestInit): Promise<T> {
+  const res = await send(url, init)
   try {
     return (await res.json()) as T
   } catch {
@@ -88,4 +94,9 @@ export async function apiPost<T>(path: string, { apiKey, body }: PostOptions): P
     return request<T>(buildUrl(path), { method: 'POST', headers, body: JSON.stringify(body) })
   }
   return request<T>(buildUrl(path), { method: 'POST', headers })
+}
+
+/** DELETEs `/api/v1{path}` with the admin key. The answer has no body; it fails as {@link apiGet} does. */
+export async function apiDelete(path: string, { apiKey }: { apiKey: string }): Promise<void> {
+  await send(buildUrl(path), { method: 'DELETE', headers: { Accept: 'application/json', 'X-API-Key': apiKey } })
 }

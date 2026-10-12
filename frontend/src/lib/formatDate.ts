@@ -22,3 +22,16 @@ export function formatDate(iso: string, locale: Locale): string {
   }
   return FORMATS[locale](date)
 }
+
+/**
+ * An ISO-8601 instant with its time of day, on the 24-hour clock of spec 5: `01 Oct 2026, 22:14` in English,
+ * `1-okt 2026, 22:14` in Uzbek. A string that is not a date gives an empty string.
+ */
+export function formatDateTime(iso: string, locale: Locale): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+  return `${FORMATS[locale](date)}, ${time}`
+}

@@ -25,6 +25,27 @@ export function errorMessage(error: Error, t: Messages): string {
     if (error.code === 'PAYLOAD_TOO_LARGE') {
       return t.demo.tooLarge
     }
+    if (error.code === 'CLIP_NOT_FOUND') {
+      return t.clip.notFound
+    }
+    if (error.code === 'HIGHLIGHT_NOT_FOUND') {
+      return t.clip.errors.highlightGone
+    }
+    if (error.code === 'DEMO_NOT_AVAILABLE') {
+      return t.clip.errors.demoGone
+    }
+    if (error.code === 'PLAYER_STEAM_ID_UNKNOWN') {
+      return t.clip.errors.steamIdUnknown
+    }
+    if (error.code === 'CLIP_QUEUE_FULL') {
+      return t.clip.errors.queueFull
+    }
+    if (error.code === 'CLIP_TOO_LONG') {
+      return t.clip.errors.tooLong
+    }
+    if (error.code === 'CLIP_IN_PROGRESS') {
+      return t.clip.errors.inProgress
+    }
   }
   return t.errors.generic
 }

@@ -1,4 +1,5 @@
 import { ChevronRight } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import KillTimeline from '@/components/KillTimeline'
 import { Badge } from '@/components/ui/badge'
@@ -6,6 +7,7 @@ import { useLocale, useT } from '@/i18n'
 import { formatDate } from '@/lib/formatDate'
 import { describeHighlight, formatDuration, highlightLabel } from '@/lib/highlightLabels'
 import { mapLabel } from '@/lib/mapTint'
+import { cn } from '@/lib/utils'
 import type { HighlightResponse } from '@/api/types'
 
 // A side is shown as its letters in its own colour, so the colour is never the only sign.
@@ -30,12 +32,20 @@ function PlayerName({ highlight }: { highlight: HighlightResponse }) {
   )
 }
 
+interface HighlightCardProps {
+  highlight: HighlightResponse
+  showMatch: boolean
+  /** The action or the state of the highlight's clip, as a row under the line of the round. */
+  action?: ReactNode
+}
+
 /**
  * One highlight (spec 3): its tag (only ACE is filled), the round and the side, how long the clip would be, who did it
- * and with what, and the round as a line with the clip window and the kills on it. `showMatch` adds a row that links
- * to the match, for lists that span several matches.
+ * and with what, and the round as a line with the clip window and the kills on it. `action` adds a row for what can be
+ * done about the highlight; `showMatch` adds a row that links to the match, for lists that span several matches. The
+ * rows sit at the bottom of the card, also when a neighbour makes the card taller.
  */
-export default function HighlightCard({ highlight, showMatch }: { highlight: HighlightResponse; showMatch: boolean }) {
+export default function HighlightCard({ highlight, showMatch, action }: HighlightCardProps) {
   const t = useT()
   const locale = useLocale()
   const sideClass = highlight.side ? SIDE_CLASS[highlight.side] : undefined
@@ -72,11 +82,15 @@ export default function HighlightCard({ highlight, showMatch }: { highlight: Hig
         windowEnd={highlight.tickEnd}
         marks={highlight.kills.map((kill) => kill.tick)}
       />
+      {action && <div className="mt-auto flex min-h-11 min-w-0 items-center gap-3">{action}</div>}
       {showMatch && (
-        // The last row of the card, edge to edge, pushed to the bottom when a neighbour makes the card taller.
+        // The last row of the card, edge to edge; without an action row above it, it is what is pushed to the bottom.
         <Link
           to={`/matches/${encodeURIComponent(highlight.matchId)}`}
-          className="-mx-4 mt-auto -mb-4 flex min-h-11 items-center gap-3 border-t border-border px-4 text-[13px] text-muted-foreground -outline-offset-2 hover:bg-secondary"
+          className={cn(
+            '-mx-4 -mb-4 flex min-h-11 items-center gap-3 border-t border-border px-4 text-[13px] text-muted-foreground -outline-offset-2 hover:bg-secondary',
+            !action && 'mt-auto',
+          )}
         >
           <span className="min-w-0 truncate">{mapLabel(highlight.mapName) ?? t.match.unknownMap}</span>
           {highlight.startedAt && (

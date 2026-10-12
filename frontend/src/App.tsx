@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import AppLayout from './components/AppLayout'
+import ClipPage from './pages/ClipPage'
+import ClipsPage from './pages/ClipsPage'
 import MatchPage from './pages/MatchPage'
 import NotFoundPage from './pages/NotFoundPage'
 import PlayerHighlightsPage from './pages/PlayerHighlightsPage'
@@ -20,6 +22,8 @@ export default function App() {
             <Route path="/players/:playerId" element={<PlayerPage />} />
             <Route path="/players/:playerId/highlights" element={<PlayerHighlightsPage />} />
             <Route path="/matches/:matchId" element={<MatchPage />} />
+            <Route path="/clips" element={<ClipsPage />} />
+            <Route path="/clips/:clipId" element={<ClipPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
