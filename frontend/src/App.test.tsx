@@ -10,7 +10,7 @@ describe('App routing', () => {
   it('renders the search page for /', () => {
     window.history.pushState({}, '', '/')
     render(<App />)
-    expect(screen.getByRole('heading', { level: 1, name: 'Player search' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Every ace deserves a clip.' })).toBeInTheDocument()
     expect(screen.getByLabelText('nickname')).toBeInTheDocument()
     expect(fetch).not.toHaveBeenCalled()
   })
