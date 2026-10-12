@@ -201,9 +201,11 @@ export interface ClipKill {
  * A clip: a request to record a video and, once it is `DONE`, the video. `matchId` and `playerId` are the FACEIT ids
  * (`playerId` is `steam:<SteamID>` for a player the backend knows only from the demo). `highlightType`, `roundNumber`
  * and `tickStart` name the highlight of a `HIGHLIGHT` clip and are null for a `COMPILATION`. `progress` is 0–100.
- * `queuePosition` is set only while `QUEUED` (the head of the queue is 1); `durationMs`, `sizeBytes`, `videoUrl`,
- * `thumbnailUrl` and `expiresAt` only once `DONE` (`expiresAt` stays null when clips are kept for good); `error` holds
- * the reason of a failure or of a retry. `kills` is filled only when one clip is asked for by its id.
+ * `queuePosition` is set only while `QUEUED` (the head of the queue is 1); `durationMs`, `videoUrl`, `thumbnailUrl`
+ * and `expiresAt` only once `DONE` (the thumbnail only if the recorder uploaded one; `expiresAt` stays null when clips
+ * are kept for good); `sizeBytes` from the upload of the video on; `finishedAt` once `DONE` or `FAILED`. `error` holds
+ * the reason of a failure, or of the last attempt while the clip waits to be recorded again. `kills` is filled only
+ * when one clip is asked for by its id.
  */
 export interface ClipResponse {
   id: number
