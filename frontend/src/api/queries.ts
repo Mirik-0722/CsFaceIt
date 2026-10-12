@@ -333,6 +333,13 @@ function invalidateClipLists(queryClient: QueryClient, matchId: string) {
 }
 
 /**
+ * The requests that change a clip are sent even when the browser thinks it is offline: they then fail at once and
+ * the page says so. Held back until the connection returns (the default), they would leave the order dialog, which
+ * cannot be closed while its request is on its way, and the confirmation of a deletion waiting with it.
+ */
+const SEND_AT_ONCE = { networkMode: 'always' } as const
+
+/**
  * What both requests for a clip do with their answer: the clip goes to the head of the list of its match at once, so
  * the page shows it before the lists have been asked for again.
  */
@@ -355,6 +362,7 @@ export function useRequestHighlightClip() {
       apiPost<ClipResponse>(`/highlights/${highlightId}/clips`, { apiKey, body: { quality } }),
     // The variables hold the admin key: see useDemoAction.
     gcTime: 0,
+    ...SEND_AT_ONCE,
     onSuccess: (clip) => takeInRequestedClip(queryClient, clip),
   })
 }
@@ -373,6 +381,7 @@ export function useRequestCompilation() {
     mutationFn: ({ apiKey, matchId, playerId, quality }) =>
       apiPost<ClipResponse>(`/matches/${matchId}/clips`, { apiKey, body: { playerId, quality } }),
     gcTime: 0,
+    ...SEND_AT_ONCE,
     onSuccess: (clip) => takeInRequestedClip(queryClient, clip),
   })
 }
@@ -383,6 +392,7 @@ export function useDeleteClip() {
   return useMutation<void, ApiError, { apiKey: string; clip: ClipResponse }>({
     mutationFn: ({ apiKey, clip }) => apiDelete(`/clips/${clip.id}`, { apiKey }),
     gcTime: 0,
+    ...SEND_AT_ONCE,
     onSuccess: (_nothing, { clip }) => {
       queryClient.removeQueries({ queryKey: ['clip', clip.id] })
       invalidateClipLists(queryClient, clip.matchId)

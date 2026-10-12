@@ -349,9 +349,12 @@ function ClipView({ clip }: { clip: ClipResponse }) {
               onError={() => setVideoFailed(true)}
               className="aspect-video w-full border border-border bg-black"
             />
-            <p aria-live="polite" className="text-sm text-destructive empty:hidden">
-              {videoFailed && t.clip.page.videoFailed}
-            </p>
+            {/* An alert, so that it is announced although it was not on the page before. */}
+            {videoFailed && (
+              <p role="alert" className="text-sm text-destructive">
+                {t.clip.page.videoFailed}
+              </p>
+            )}
             {clip.durationMs !== null && clip.kills.length > 0 && (
               <KillTimeline
                 start={0}
@@ -418,9 +421,11 @@ function ClipView({ clip }: { clip: ClipResponse }) {
           {adminKey !== null && (isFinished(clip.status) || clip.status === 'QUEUED') && (
             <DeleteControl clip={clip} apiKey={adminKey} onKeyRejected={() => setKeyRejected(true)} />
           )}
-          <p aria-live="polite" className="basis-full text-sm text-destructive empty:hidden">
-            {keyRejected && adminKey === null && t.demo.wrongKey}
-          </p>
+          {keyRejected && adminKey === null && (
+            <p role="alert" className="basis-full text-sm text-destructive">
+              {t.demo.wrongKey}
+            </p>
+          )}
         </div>
         <section className="flex flex-col gap-2.5 pt-2">
           <h3 className="text-lg leading-[1.4] font-semibold">{t.clip.page.kills}</h3>
