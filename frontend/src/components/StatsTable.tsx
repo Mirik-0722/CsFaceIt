@@ -80,7 +80,8 @@ export default function StatsTable({ team, lost = false, startSide, analysis, vi
             </span>
           </div>
         </TableCaption>
-        <TableHeader>
+        {/* The rule above the column labels, as the board draws it under the team's header. */}
+        <TableHeader className="[&_tr]:border-t">
           <TableRow>
             {/* Its own background rather than the row's: a header row has no hover colour to follow. */}
             <TableHead className="sticky left-0 w-full bg-card px-4 font-normal sm:min-w-53">{t.stats.player}</TableHead>

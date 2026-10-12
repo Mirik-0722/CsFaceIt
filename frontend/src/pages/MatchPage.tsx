@@ -111,18 +111,6 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
   const matchId = match.matchId
   const breakdown = useMatchBreakdown(matchId)
   const highlights = useMatchHighlights(matchId)
-  // The breakdown is computed from the demo. When the demo moves on while the page is open (an analysis has finished),
-  // it is asked for again; the first sight of the demo is not a change.
-  const demoStatus = useDemo(matchId).data?.status
-  const statusSeen = useRef(demoStatus)
-  const refetchBreakdown = breakdown.refetch
-  useEffect(() => {
-    if (statusSeen.current !== undefined && statusSeen.current !== demoStatus) {
-      void refetchBreakdown({ cancelRefetch: false })
-    }
-    statusSeen.current = demoStatus
-  }, [demoStatus, refetchBreakdown])
-
   const teams = stats?.teams
   const rounds = byNumber(breakdown.data?.rounds ?? [])
   const minutes = minutesPlayed(match)
@@ -172,7 +160,7 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
               <p className="font-mono text-xs text-subtle">
                 {facts.map((fact, index) => (
                   <Fragment key={index}>
-                    {index > 0 && <span aria-hidden="true"> · </span>}
+                    {index > 0 && <span> · </span>}
                     {fact}
                   </Fragment>
                 ))}

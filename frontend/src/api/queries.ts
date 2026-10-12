@@ -154,6 +154,7 @@ export function useDemo(matchId: string, watching = false) {
 /** Everything that is computed from a demo: asked for again when the demo of a match has changed. */
 export function invalidateDemoResults(queryClient: QueryClient, matchId: string) {
   void queryClient.invalidateQueries({ queryKey: ['match-highlights', matchId] })
+  void queryClient.invalidateQueries({ queryKey: ['match-breakdown', matchId] })
   void queryClient.invalidateQueries({ queryKey: ['player-highlights'] })
   void queryClient.invalidateQueries({ queryKey: ['player-stats'] })
 }

@@ -44,7 +44,7 @@ export function startingSides(
   rounds: BreakdownRound[],
   teams: TeamStatsResponse[] | undefined,
 ): [RoundSide, RoundSide] | null {
-  const first = rounds.length > 0 ? firstTeamSide(rounds[0], rostersOf(teams)) : null
+  const first = rounds.length > 0 && rounds[0].number === 1 ? firstTeamSide(rounds[0], rostersOf(teams)) : null
   return first ? [first, otherSide(first)] : null
 }
 

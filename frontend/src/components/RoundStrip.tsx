@@ -23,16 +23,18 @@ interface RoundStripProps {
 /**
  * The rounds of a match as a strip (spec 3, RoundStrip): a column per round with its number, and a row per team. The
  * square of a round is in the row of the team that won it, in the colour of the winning side; a red dot under the
- * number marks a round that has a highlight, and the strip opens a little where the teams changed sides. When no round
- * can be given to a team (the players of the demo are not linked to the roster) there is one row, coloured by the
- * winning side. The squares are a picture: every round says the same in words to a screen reader. On a narrow screen
+ * number marks a round that has a highlight, and the strip opens a little where the teams changed sides. As soon as
+ * one round cannot be given to a team (the players of the demo are not linked to the roster, or both rosters hold a
+ * winner) there is one row, coloured by the winning side. The squares are a picture: every round says the same in
+ * words to a screen reader. On a narrow screen
  * the strip scrolls inside its box, and the names of the teams stay in place.
  */
 export default function RoundStrip({ rounds, teams, highlightRounds }: RoundStripProps) {
   const t = useT()
   const rosters = rostersOf(teams)
   const winners = rounds.map((round) => roundWinner(round, rosters))
-  const rows = teams && winners.some((winner) => winner !== null) ? teams : null
+  // Two rows only when every round has its team: a blank pair of squares would say that nobody won the round.
+  const rows = teams && winners.length > 0 && winners.every((winner) => winner !== null) ? teams : null
   // The side of the first team round by round: where it differs from the round before, the teams changed sides.
   const changedSides: boolean[] = []
   let sideBefore: RoundSide | null = null
@@ -42,7 +44,8 @@ export default function RoundStrip({ rounds, teams, highlightRounds }: RoundStri
     sideBefore = side ?? sideBefore
   }
   return (
-    <div className="flex flex-col gap-3">
+    // Not announced when it arrives inside a live region: every round is a sentence of its own.
+    <div aria-live="off" className="flex flex-col gap-3">
       {/* Positioned, so that the words only a screen reader hears are clipped with the strip when it scrolls. */}
       <div className="relative overflow-x-auto">
         <div className="mx-auto flex w-max">

@@ -24,8 +24,9 @@ const GROUP_OF: Record<HighlightType, HighlightGroup> = {
 
 export const HIGHLIGHT_TYPES = Object.keys(GROUP_OF) as HighlightType[]
 
+/** The group of a highlight type; a type this build does not know yet counts as special, so that it is never lost. */
 export function highlightGroup(type: HighlightType): HighlightGroup {
-  return GROUP_OF[type]
+  return GROUP_OF[type] ?? 'special'
 }
 
 export function isHighlightType(value: string): value is HighlightType {
