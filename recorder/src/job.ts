@@ -12,6 +12,7 @@ import {
 import type { Config } from './config.js'
 import type { DemoCache } from './demoCache.js'
 import { log } from './log.js'
+import { machineFault } from './machine.js'
 import type { Media } from './media.js'
 import { RecorderError, type Recorder } from './recorders/recorder.js'
 
@@ -187,6 +188,11 @@ function describe(error: unknown): Failure {
   }
   if (error instanceof ApiError) {
     return { ...reasonOf(error), detail: error.message, environment: false }
+  }
+  // A system error of the recorder's own file work that nobody caught on the way (the directory of the clip, say).
+  const fault = machineFault(error)
+  if (fault !== undefined) {
+    return describe(fault)
   }
   if (error instanceof Error && error.stack !== undefined) {
     log.error(`Unexpected error: ${error.stack}`)

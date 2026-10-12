@@ -5,9 +5,10 @@ import { createInterface } from 'node:readline'
 import { videoSeconds, type WorkerJob } from '../api.js'
 import type { Config } from '../config.js'
 import { log } from '../log.js'
+import { childEnvironment, machineFaultInOutput } from '../machine.js'
 import { RecorderError, type Recorder } from './recorder.js'
 
-/** How much of ffmpeg's own complaint is kept for the message of a failure. */
+/** How much of ffmpeg's own complaint is kept as the detail of a failure: it goes to the log, never to the backend. */
 const STDERR_TAIL_LENGTH = 600
 /** The tone under the pattern; the sine is mixed down so that nobody who plays a fake clip is startled. */
 const TONE_HZ = 330
@@ -134,7 +135,11 @@ function runFfmpeg(
       reject(signal.reason)
       return
     }
-    const child = spawn(config.ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    const child = spawn(config.ffmpegPath, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: childEnvironment(),
+    })
     let complaint = ''
     let percent = -1
     const report = (value: number) => {
@@ -179,7 +184,12 @@ function runFfmpeg(
         resolve()
       } else {
         const how = code === null ? `was killed by ${killedBy}` : `exited with code ${code}`
-        reject(new RecorderError(`ffmpeg ${how}`, true, { detail: complaint.trim() }))
+        const output = complaint.trim()
+        // A tool that says the disk is full, or that it may not write, is reporting the machine and not the clip.
+        reject(
+          machineFaultInOutput(output, `ffmpeg ${how}: ${output}`) ??
+            new RecorderError(`ffmpeg ${how}`, true, { detail: output }),
+        )
       }
     })
   })

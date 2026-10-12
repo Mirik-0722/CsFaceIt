@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { access, constants, mkdir, rm } from 'node:fs/promises'
+import { access, constants, mkdir, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { ApiError, createApi, MalformedJobError, type Api, type WorkerJob } from './api.js'
@@ -37,18 +37,50 @@ function createRecorder(config: Config): Recorder {
   }
 }
 
-/** Makes the work directory ready: the demo cache stays as it is, the scratch of a run that was killed goes. */
-async function prepareWorkDir(config: Config): Promise<void> {
-  await mkdir(join(config.workDir, 'demos'), { recursive: true })
+/**
+ * Makes the work directory ready. The demo cache stays as it is, but what a run that was killed left half done goes: the
+ * scratch directories of its clips, and the downloads that were not finished (the files directly in `demos/` that
+ * end in `.part`). The directory belongs to one recorder, so none of them is in use. Returns how many downloads went.
+ */
+async function prepareWorkDir(config: Config): Promise<number> {
+  const demos = join(config.workDir, 'demos')
+  await mkdir(demos, { recursive: true })
+  let unfinished = 0
+  for (const entry of await readdir(demos, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith('.part')) {
+      await rm(join(demos, entry.name), { force: true })
+      unfinished++
+    }
+  }
   await rm(join(config.workDir, 'jobs'), { recursive: true, force: true })
   await mkdir(join(config.workDir, 'jobs'), { recursive: true })
   await access(config.workDir, constants.W_OK)
+  return unfinished
+}
+
+/**
+ * How long the loop takes no new clip after a job that failed. A clip that goes back to the queue keeps its place at
+ * the head of it, so a recorder that asked again at once would take it again at once, and with a fault that does not
+ * go away it would use up the attempts of every clip in the queue before anyone could react. The first failure after
+ * a finished clip (or after the start) therefore waits `POLL_SECONDS`, and each further one in a row twice as long as
+ * the one before, up to `ERROR_BACKOFF_SECONDS`: 5, 10, 20, 40, 80, 160, 300, 300, ... seconds with the defaults. A
+ * failure of the machine itself waits `ERROR_BACKOFF_SECONDS` at once, as the next clip would meet the same fault.
+ * Never less than `POLL_SECONDS`, so that after a failure the loop does not ask sooner than an idle one does.
+ *
+ * @param failures how many jobs in a row have failed, this one included
+ */
+function pauseAfterFailure(failures: number, ofMachine: boolean, config: Config): number {
+  const wanted = ofMachine
+    ? config.errorBackoffSeconds
+    : Math.min(config.pollSeconds * 2 ** (failures - 1), config.errorBackoffSeconds)
+  return Math.max(config.pollSeconds, wanted)
 }
 
 async function main(): Promise<void> {
   const version = packageVersion()
   let config: Config
   let recorder: Recorder
+  let unfinishedDownloads: number
   try {
     if (!zstdAvailable) {
       throw new ConfigError([
@@ -58,7 +90,7 @@ async function main(): Promise<void> {
     }
     config = loadConfig()
     recorder = createRecorder(config)
-    await prepareWorkDir(config)
+    unfinishedDownloads = await prepareWorkDir(config)
   } catch (error) {
     // A start that cannot go on says why in plain words, not with a stack, and does not look like a crash.
     console.error(error instanceof ConfigError ? error.message : `The recorder cannot start: ${String(error)}`)
@@ -76,10 +108,14 @@ async function main(): Promise<void> {
   log.info(
     `Recorder ${version} starts as '${config.workerName}' in mode ${config.mode}: backend ${config.backendUrl}, ` +
       `qualities ${config.qualities.join(',')}, asks for work every ${config.pollSeconds} s, heartbeat every ` +
-      `${config.heartbeatSeconds} s, keeps ${config.demoCacheItems} demos in ${config.workDir}, waits ` +
-      `${config.errorBackoffSeconds} s after an error of its machine` +
+      `${config.heartbeatSeconds} s, keeps ${config.demoCacheItems} demos in ${config.workDir}, after a failed clip ` +
+      `waits ${config.pollSeconds} s, twice as long for each failure in a row, up to ` +
+      `${Math.max(config.pollSeconds, config.errorBackoffSeconds)} s (an error of its machine: that long at once)` +
       `${config.mode === 'fake' ? `, fake speed ${config.fakeSpeed}` : ''} (the worker token is set)`,
   )
+  if (unfinishedDownloads > 0) {
+    log.info(`Removed ${unfinishedDownloads} unfinished download(s) that a run which was stopped left in the demo cache`)
+  }
 
   const stop = new AbortController()
   /** The clip being worked on, for the heartbeat and for what a stop has to give back. */
@@ -104,7 +140,10 @@ async function main(): Promise<void> {
   })
 
   const heartbeat = startHeartbeat(api, config, stop.signal, () => current)
+  // Every wait of the loop ends at once on a stop.
   const rest = (seconds: number) => sleep(seconds * 1000, undefined, { signal: stop.signal }).catch(() => undefined)
+  /** How many jobs in a row have failed: a finished clip puts it back to 0, a lost claim and a stop leave it. */
+  let failures = 0
   while (!stop.signal.aborted) {
     const job = await claim(api, stop.signal)
     if (job === undefined) {
@@ -114,9 +153,16 @@ async function main(): Promise<void> {
     current = job.clipId
     const result = await runJob(deps, job, stop.signal)
     current = undefined
-    if (result.environment && !stop.signal.aborted) {
-      log.warn(`Taking no new clip for ${config.errorBackoffSeconds} s: the failure is of this machine, not the clip's`)
-      await rest(config.errorBackoffSeconds)
+    if (result.outcome === 'done') {
+      failures = 0
+    } else if (result.outcome === 'failed' && !stop.signal.aborted) {
+      failures++
+      const pause = pauseAfterFailure(failures, result.environment, config)
+      const why = result.environment
+        ? "the failure is of this machine, not the clip's"
+        : `${failures} ${failures === 1 ? 'failure' : 'failures'} in a row`
+      log.warn(`Taking no new clip for ${pause} s: ${why}`)
+      await rest(pause)
     }
   }
   clearInterval(heartbeat)

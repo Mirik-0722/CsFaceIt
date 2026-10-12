@@ -9,6 +9,7 @@ import * as zlib from 'node:zlib'
 import { ApiError, type Api, type DemoStream, type WorkerJob } from './api.js'
 import type { Config } from './config.js'
 import { log } from './log.js'
+import { machineFault } from './machine.js'
 import { RecorderError } from './recorders/recorder.js'
 
 export interface DemoCache {
@@ -17,7 +18,7 @@ export interface DemoCache {
    * is downloaded and unpacked first, and the least recently used files beyond `DEMO_CACHE_ITEMS` are removed. Several
    * clips of one match, one after the other, cost one download.
    *
-   * @throws RecorderError the demo cannot be had (it is gone, the download broke off, the disk is full)
+   * @throws RecorderError the demo cannot be had (it is gone, the download broke off, the disk cannot be written)
    */
   ensure(job: WorkerJob, signal?: AbortSignal): Promise<string>
 }
@@ -48,12 +49,18 @@ export function createDemoCache(config: Config, api: Pick<Api, 'openDemo'>): Dem
     const name = `${job.matchId}-${job.demoVersion}.dem`
     const path = join(dir, name)
     await mkdir(dir, { recursive: true })
-    if (await isFile(path)) {
+    const cached = await stat(path).catch(() => undefined)
+    if (cached?.isFile() && cached.size > 0) {
       // The cache gives up the file that was used longest ago, and this one has just been used.
       const now = new Date()
       await utimes(path, now, now)
       log.info(`Demo ${name}: found in the cache, nothing downloaded`)
       return path
+    }
+    if (cached?.isFile()) {
+      // A file with nothing in it is what a crash or a full disk can leave, and it is no demo: it goes.
+      await rm(path, { force: true })
+      log.warn(`Demo ${name}: the file in the cache is empty, removed; the demo is downloaded again`)
     }
     await download(job, name, path, signal)
     await prune(name)
@@ -150,16 +157,12 @@ export function createDemoCache(config: Config, api: Pick<Api, 'openDemo'>): Dem
   return { ensure }
 }
 
-async function isFile(path: string): Promise<boolean> {
-  return (await stat(path).catch(() => undefined))?.isFile() ?? false
-}
-
 /** A value of the job as it goes into a message: cut short and quoted, as it is not known to be harmless. */
 function shown(value: string): string {
   return JSON.stringify(value.length > 80 ? `${value.slice(0, 80)}...` : value)
 }
 
-/** Says what a download that failed means: the caller's own abort, the demo itself, the disk or the connection. */
+/** Says what a download that failed means: the caller's own abort, the demo itself, the machine or the connection. */
 function explain(error: unknown, signal: AbortSignal | undefined): unknown {
   if (signal?.aborted) {
     return signal.reason
@@ -167,14 +170,12 @@ function explain(error: unknown, signal: AbortSignal | undefined): unknown {
   if (error instanceof RecorderError || error instanceof ApiError) {
     return error
   }
+  const fault = machineFault(error)
+  if (fault !== undefined) {
+    return fault
+  }
   const code = (error as NodeJS.ErrnoException | undefined)?.code
   const message = error instanceof Error ? error.message : String(error)
-  if (code === 'ENOSPC') {
-    return new RecorderError('The recorder could not save the demo', true, {
-      environment: true,
-      detail: 'The disk of the recorder is full (ENOSPC)',
-    })
-  }
   if (code?.startsWith('ZSTD_')) {
     return new RecorderError('The stored demo cannot be unpacked', false, { detail: message })
   }

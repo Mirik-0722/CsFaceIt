@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { stat } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { promisify } from 'node:util'
+import { childEnvironment, isMachineCode, machineFaultInOutput } from './machine.js'
 import { RecorderError } from './recorders/recorder.js'
 
 const execFileAsync = promisify(execFile)
@@ -27,7 +28,7 @@ const THUMBNAIL_WIDTH = 640
 const THUMBNAIL_AT_SECONDS = 1
 /** Neither tool has anything to do for more than a moment on a clip; one that hangs is killed. */
 const TOOL_TIMEOUT_MS = 120_000
-/** How much of ffmpeg's complaint is kept for a message. */
+/** How much of a tool's complaint is kept as the detail of a failure: it goes to the log, never to the backend. */
 const STDERR_TAIL_LENGTH = 500
 
 export function createMedia(ffmpegPath: string, ffprobePath: string): Media {
@@ -104,6 +105,7 @@ async function run(command: string, args: string[], signal?: AbortSignal): Promi
       timeout: TOOL_TIMEOUT_MS,
       maxBuffer: 16 * 1024 * 1024,
       windowsHide: true,
+      env: childEnvironment(),
     })
     return stdout
   } catch (error) {
@@ -115,8 +117,9 @@ async function run(command: string, args: string[], signal?: AbortSignal): Promi
 }
 
 /**
- * Says what went wrong with a tool: it is not there (the machine's fault), it hung, or it complained. The message is
- * only the name of the tool and what happened to it; the path of the tool and what it said go in the detail.
+ * Says what went wrong with a tool: it is not there or may not be run, or its output says that the disk is full or may
+ * not be written (the machine's faults), it hung, or it complained. The message is only the name of the tool and what
+ * happened to it; the path of the tool and what it said go in the detail.
  */
 function toolError(command: string, error: unknown): RecorderError {
   const failure = error as NodeJS.ErrnoException & { killed?: boolean; stderr?: string }
@@ -127,12 +130,19 @@ function toolError(command: string, error: unknown): RecorderError {
       detail: `${command} is not there: set FFMPEG_PATH and FFPROBE_PATH, or install ffmpeg`,
     })
   }
+  if (isMachineCode(failure.code)) {
+    // The tool is there, but this machine does not let it run (no permission, say).
+    return new RecorderError(`${tool} could not be started`, true, {
+      environment: true,
+      detail: `${command} could not be run: ${failure.message}`,
+    })
+  }
   if (failure.killed) {
     return new RecorderError(`${tool} did not finish in time`, true, {
       detail: `${command} was killed after ${TOOL_TIMEOUT_MS / 1000} s`,
     })
   }
   const complaint = (failure.stderr ?? failure.message).trim().slice(-STDERR_TAIL_LENGTH)
-  const message = typeof failure.code === 'number' ? `${tool} exited with code ${failure.code}` : `${tool} failed`
-  return new RecorderError(message, true, { detail: complaint })
+  const how = typeof failure.code === 'number' ? `${tool} exited with code ${failure.code}` : `${tool} failed`
+  return machineFaultInOutput(complaint, `${how}: ${complaint}`) ?? new RecorderError(how, true, { detail: complaint })
 }

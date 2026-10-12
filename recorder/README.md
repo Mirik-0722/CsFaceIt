@@ -35,21 +35,22 @@ there is a clip, which is what `GET /api/v1/recorder/status` shows as the record
 ## Settings
 
 All of them are environment variables. A variable that is set but empty counts as not set. A missing or wrong value
-that matters ends the program at start with a message that names every problem.
+that matters ends the program at start with a message that names every problem. A setting in seconds is a whole number
+of at most 86400 (one day): it becomes a timer, and a number that is too large would make Node run it at once.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `BACKEND_URL` | none, required | The address of the backend, such as `http://backend:8080` (Compose) or `https://clips.example.com`. A redirect is an error, not followed: the token would go wherever it points. |
-| `CLIP_WORKER_TOKEN` | none, required | The secret the backend runs with (`CLIP_WORKER_TOKEN` there). It is sent in the `X-Worker-Token` header and is never written to the log. |
+| `CLIP_WORKER_TOKEN` | none, required | The secret the backend runs with (`CLIP_WORKER_TOKEN` there). It is sent in the `X-Worker-Token` header and is never written to the log. ffmpeg and ffprobe are started without it in their environment. |
 | `RECORDER_MODE` | none, required | `fake` or `csdm` (see above). There is no default on purpose: a recorder that was meant to play the game must not quietly make test patterns. |
 | `WORKER_NAME` | the host name | The name of this recorder, 1 to 64 characters. The backend keeps it with the clip it holds, so two recorders need two names. |
 | `WORK_DIR` | `./work` | Where the recorder keeps its files (see below). It must be writable. |
-| `POLL_SECONDS` | `5` | How long it waits before it asks for work again, after `204` or after an error. |
-| `HEARTBEAT_SECONDS` | `30` | How often it says it is there. |
+| `POLL_SECONDS` | `5` | How long it waits before it asks for work again, after `204` or after an error (1 to 86400). It is also the shortest pause after a failed clip. |
+| `HEARTBEAT_SECONDS` | `30` | How often it says it is there (1 to 86400). |
 | `DEMO_CACHE_ITEMS` | `5` | How many unpacked demos are kept; the least recently used go first. A demo is a few hundred megabytes. |
 | `QUALITIES` | `720p,1080p` | The qualities it can record, comma separated. The backend hands it clips of these only. |
 | `FFMPEG_PATH`, `FFPROBE_PATH` | `ffmpeg`, `ffprobe` | The two tools, found on the `PATH` unless a path is given. |
-| `ERROR_BACKOFF_SECONDS` | `300` | After a failure of the machine itself (ffmpeg or the game would not start, the disk is full) the recorder takes no new clip for this long: the next one would fail the same way, and each attempt is one of the few a clip has (`clip.max-attempts`). |
+| `ERROR_BACKOFF_SECONDS` | `300` | The longest pause after failed clips (see [After a failure](#after-a-failure)), and the pause after a failure of the machine itself, which is this long at once (0 to 86400; never less than `POLL_SECONDS`). |
 | `FAKE_SPEED` | `1` | Fake mode only. Seconds of video made per second of wall time: `1` is real time, `2` twice as fast, `0` as fast as ffmpeg goes. A real recording takes its time, and so does this, so that a clip can be watched going from state to state and a recorder that is stopped "while it records" can be caught. |
 
 ## Running the fake mode
@@ -103,7 +104,8 @@ Under `WORK_DIR`, and nowhere else:
 - `demos/<matchId>-<demoVersion>.dem`: the demo cache. `demoVersion` is the version of the file that the backend names
   in the job, so a demo that was uploaded again is a new file. A download goes to a `.part` file first, is checked
   (the bytes received must equal both the `Content-Length` and the size the job names) and is moved into place, so a
-  file that is there is a whole one. A `.part` that a killed run left is removed by the next download.
+  file that is there is a whole one. A `.part` that a killed run left is removed at the next start, and a file of no
+  length, which is what a crash or a full disk can leave, is not a demo: it is removed and the demo is downloaded again.
 - `jobs/<clipId>/`: the scratch directory of the clip being recorded (the MP4, the thumbnail). It is emptied after
   every clip, whatever became of it, and at start.
 
@@ -125,11 +127,41 @@ the cache or was downloaded, each stage, the upload, the end of the clip, and ev
 | `413` for an upload: the file is larger than the backend takes | `fail` with `retryable = false`. |
 | `401` or `403`: the token is wrong | One line on every try that says so, and goes on: it keeps asking every `POLL_SECONDS`, and works as soon as the token is put right. It does not exit. |
 | No answer, or a `5xx` | The same request again after 1, 2, 4, 8 and 16 seconds. Then a `claim` waits for the next poll, and a request about a clip ends the clip with a best-effort `fail` with `retryable = true`. |
-| ffmpeg fails, or the recording is not a video | `fail` with the reason, `retryable = true`. |
+| ffmpeg fails, or the recording is not a video | `fail` with the reason, `retryable = true`; then the pause of [After a failure](#after-a-failure). |
 | `SIGINT` or `SIGTERM` | Stops asking for work, kills ffmpeg, gives the clip back with `fail` and `retryable = true` (the backend queues it again at once), and exits within a few seconds. A second signal exits at once. |
 | The process is killed, or the machine goes to sleep | Nothing can be sent. The backend takes the clip back after `clip.stale-after` and counts the attempt. |
 
 A clip whose attempts are used up (`clip.max-attempts`) ends as `FAILED` with the last reason, which the clip page shows.
+
+### After a failure
+
+A clip that goes back to the queue keeps its place at the head of it, so a recorder that asked again at once would take
+the same clip again at once, and with a fault that does not go away it would use up the attempts of every clip in the
+queue before anyone could look at it. After every clip that failed the recorder therefore takes no new clip for a pause:
+
+- The first failure after a finished clip (or after the start) waits `POLL_SECONDS`, and each further failure in a row
+  waits twice as long as the one before, up to `ERROR_BACKOFF_SECONDS`. With the defaults: 5, 10, 20, 40, 80, 160, 300,
+  300, ... seconds.
+- A finished clip puts the row back to the start. A clip whose claim was lost, and a stop, neither count as a failure nor
+  reset the row.
+- A failure of the machine itself (below) waits `ERROR_BACKOFF_SECONDS` at once, and counts as a failure in the row.
+- The pause is never shorter than `POLL_SECONDS` (`ERROR_BACKOFF_SECONDS` may be 0): after a failure the recorder asks
+  no sooner than an idle one does. A stop ends the pause at once.
+- One log line says it: `Taking no new clip for 20 s: 3 failures in a row`, or, for the machine's own fault,
+  `Taking no new clip for 300 s: the failure is of this machine, not the clip's`.
+
+**What counts as the machine's own failure**, whichever step it happens in (the directory of the clip, its thumbnail,
+the demo cache and its temporary files, ffmpeg and ffprobe), because the next clip would meet the same fault:
+
+- a system error with the code `ENOSPC` (no room left), `EROFS` (a read-only file system), `EACCES` or `EPERM` (no
+  permission) from the recorder's own file work;
+- ffmpeg or ffprobe ending with an error whose output says `No space left on device`, `Permission denied` or `Read-only
+  file system`;
+- a tool that is not there, or that this machine does not let run.
+
+The reason sent to the backend for such a failure is fixed ("The recorder could not write its files", "ffmpeg could not
+be started") and holds no path; the system's message and the output of the tool are in the log. A recorder for another
+mode gets the same rule from `src/machine.ts`.
 
 **The reason of a failure is public.** The text the recorder sends with `fail` is kept on the clip, and `GET /api/v1/clips/{id}`
 shows it to every visitor. It is therefore a short reason that anyone may read ("ffmpeg exited with code 1", "The demo

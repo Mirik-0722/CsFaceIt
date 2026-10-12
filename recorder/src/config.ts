@@ -12,6 +12,15 @@ export type Mode = (typeof MODES)[number]
 /** The longest name the backend keeps for a recorder (`WorkerLimits.NAME`); a longer one is refused as invalid. */
 const MAX_NAME_LENGTH = 64
 
+/** The variable that holds the secret of the worker API: read here, and left out of what child processes inherit. */
+export const WORKER_TOKEN_VARIABLE = 'CLIP_WORKER_TOKEN'
+
+/**
+ * The most a setting in seconds may be: one day. Such a setting becomes a timer of milliseconds, and Node runs a timer
+ * of more than 2^31 - 1 ms (about 24.8 days) after 1 ms, so a number without a limit would turn a long wait into none.
+ */
+const MAX_SECONDS = 86_400
+
 export interface Config {
   /** Where the backend is, without a trailing slash: the recorder only ever calls `/api/worker/v1/**` there. */
   backendUrl: string
@@ -21,13 +30,17 @@ export interface Config {
   mode: Mode
   /** An absolute path: the demo cache is `<workDir>/demos`, the scratch directory of each clip `<workDir>/jobs`. */
   workDir: string
+  /** How long the loop waits before it asks for work again; also the shortest pause after a failed job. */
   pollSeconds: number
   heartbeatSeconds: number
   demoCacheItems: number
   qualities: Quality[]
   ffmpegPath: string
   ffprobePath: string
-  /** How long the recorder takes no new clip after an error of its own machine (see `RecorderError.environment`). */
+  /**
+   * The longest pause after failed jobs, which grow from `pollSeconds` by doubling, and the pause after a failure of the
+   * recorder's own machine (see `RecorderError.environment`), which is this long at once.
+   */
   errorBackoffSeconds: number
   /** Seconds of video the fake recorder makes per second of wall time; 0 is as fast as ffmpeg goes. */
   fakeSpeed: number
@@ -57,24 +70,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
     return value
   }
-  const wholeNumber = (name: string, fallback: number, min: number): number => {
+  const wholeNumber = (name: string, fallback: number, min: number, max?: number): number => {
     const raw = text(name)
     if (raw === undefined) {
       return fallback
     }
-    if (!/^\d{1,9}$/.test(raw) || Number(raw) < min) {
-      problems.push(`${name} must be a whole number of at least ${min}, not '${raw}'`)
-      return fallback
+    const value = /^\d{1,9}$/.test(raw) ? Number(raw) : Number.NaN
+    if (value >= min && (max === undefined || value <= max)) {
+      return value
     }
-    return Number(raw)
+    // Only a setting with an upper bound is one in seconds (see `seconds`), and its message names the unit.
+    const range = max === undefined ? `of at least ${min}` : `of seconds from ${min} to ${max}`
+    problems.push(`${name} must be a whole number ${range}, not '${raw}'`)
+    return fallback
   }
+  const seconds = (name: string, fallback: number, min: number): number =>
+    wholeNumber(name, fallback, min, MAX_SECONDS)
 
   const backendUrl = backendUrlOf(
     required('BACKEND_URL', 'the address of the backend, such as http://backend:8080'),
     problems,
   )
   // The value is not repeated in a problem: it is a secret.
-  const workerToken = required('CLIP_WORKER_TOKEN', 'the secret the backend was started with')
+  const workerToken = required(WORKER_TOKEN_VARIABLE, 'the secret the backend was started with')
 
   const workerName = text('WORKER_NAME') ?? hostname()
   if (workerName.length === 0 || workerName.length > MAX_NAME_LENGTH) {
@@ -113,13 +131,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     workerName,
     mode: mode ?? 'fake',
     workDir: resolve(text('WORK_DIR') ?? './work'),
-    pollSeconds: wholeNumber('POLL_SECONDS', 5, 1),
-    heartbeatSeconds: wholeNumber('HEARTBEAT_SECONDS', 30, 1),
+    pollSeconds: seconds('POLL_SECONDS', 5, 1),
+    heartbeatSeconds: seconds('HEARTBEAT_SECONDS', 30, 1),
     demoCacheItems: wholeNumber('DEMO_CACHE_ITEMS', 5, 1),
     qualities,
     ffmpegPath: text('FFMPEG_PATH') ?? 'ffmpeg',
     ffprobePath: text('FFPROBE_PATH') ?? 'ffprobe',
-    errorBackoffSeconds: wholeNumber('ERROR_BACKOFF_SECONDS', 300, 0),
+    errorBackoffSeconds: seconds('ERROR_BACKOFF_SECONDS', 300, 0),
     fakeSpeed,
   }
   if (problems.length > 0) {
