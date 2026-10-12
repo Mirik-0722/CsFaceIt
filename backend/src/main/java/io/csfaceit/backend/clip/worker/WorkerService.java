@@ -1,6 +1,7 @@
 package io.csfaceit.backend.clip.worker;
 
 import io.csfaceit.backend.clip.ClipFiles;
+import io.csfaceit.backend.clip.ClipMetrics;
 import io.csfaceit.backend.clip.ClipProperties;
 import io.csfaceit.backend.clip.ClipQuality;
 import io.csfaceit.backend.clip.ClipStatus;
@@ -25,6 +26,7 @@ import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
@@ -83,11 +85,14 @@ public class WorkerService {
     private final WorkerPersistence persistence;
     private final StorageService storage;
     private final ClipProperties properties;
+    private final ClipMetrics metrics;
 
-    public WorkerService(WorkerPersistence persistence, StorageService storage, ClipProperties properties) {
+    public WorkerService(WorkerPersistence persistence, StorageService storage, ClipProperties properties,
+                         ClipMetrics metrics) {
         this.persistence = persistence;
         this.storage = storage;
         this.properties = properties;
+        this.metrics = metrics;
     }
 
     /**
@@ -109,9 +114,11 @@ public class WorkerService {
                 case Turn.NothingWaiting nothing -> {
                     return Optional.empty();
                 }
-                case Turn.Rejected rejected ->
+                case Turn.Rejected rejected -> {
+                    metrics.failed();
                     log.info("Failed clip {} instead of giving it to {}: {}", rejected.clipId(), worker,
                             rejected.reason());
+                }
                 case Turn.Taken taken -> {
                     Optional<WorkerJob> job = jobOf(taken.clip(), worker);
                     if (job.isPresent()) {
@@ -184,7 +191,10 @@ public class WorkerService {
      * @throws ConflictException {@code CLIP_NOT_CLAIMED}, or {@code CLIP_VIDEO_MISSING}: no video was uploaded
      */
     public void complete(long clipId, CompleteRequest request) {
-        persistence.complete(clipId, request.worker(), request.durationMs(), request.width(), request.height());
+        Optional<Duration> held = persistence.complete(clipId, request.worker(), request.durationMs(), request.width(),
+                request.height());
+        metrics.done();
+        held.ifPresent(metrics::recorded);
         log.info("Recorder {} finished clip {}: {} ms, {}x{}", request.worker(), clipId, request.durationMs(),
                 request.width(), request.height());
     }
@@ -199,6 +209,11 @@ public class WorkerService {
     public void fail(long clipId, FailRequest request) {
         String error = storableError(request.error());
         Ended ended = persistence.fail(clipId, request.worker(), error, request.retryable(), properties.maxAttempts());
+        if (ended.fate() == Fate.REQUEUED) {
+            metrics.requeued();
+        } else {
+            metrics.failed();
+        }
         log.info("Recorder {} gave up an attempt at clip {} (attempt {} of {}): {}; {}", request.worker(), clipId,
                 ended.attempts(), properties.maxAttempts(), ended.fate() == Fate.REQUEUED ? "queued again" : "failed",
                 oneLine(error));
@@ -234,6 +249,7 @@ public class WorkerService {
         if (demoSize.isEmpty()) {
             try {
                 persistence.fail(clip.clipId(), worker, WorkerPersistence.DEMO_GONE, false, properties.maxAttempts());
+                metrics.failed();
                 log.info("Failed clip {} instead of giving it to {}: {} ({} is not in the storage)", clip.clipId(),
                         worker, WorkerPersistence.DEMO_GONE, clip.demoStorageKey());
             } catch (ConflictException e) {
@@ -259,6 +275,7 @@ public class WorkerService {
     private void giveBack(ClaimedClip clip, String worker) {
         try {
             persistence.giveBack(clip.clipId(), worker, clip.attempts());
+            metrics.requeued();
             log.warn("The storage could not be asked for the demo of clip {}: it is back in the queue, not given to {}",
                     clip.clipId(), worker);
         } catch (ConflictException e) {

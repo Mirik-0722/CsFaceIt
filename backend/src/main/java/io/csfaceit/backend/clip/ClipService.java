@@ -67,10 +67,11 @@ public class ClipService {
     private final ClipQueryService queries;
     private final ClipProperties properties;
     private final StorageService storage;
+    private final ClipMetrics metrics;
 
     public ClipService(HighlightQueryService highlights, MatchRepository matches, PlayerRepository players,
                        DemoRepository demos, ClipFacts facts, ClipPersistence persistence, ClipQueryService queries,
-                       ClipProperties properties, StorageService storage) {
+                       ClipProperties properties, StorageService storage, ClipMetrics metrics) {
         this.highlights = highlights;
         this.matches = matches;
         this.players = players;
@@ -80,6 +81,7 @@ public class ClipService {
         this.queries = queries;
         this.properties = properties;
         this.storage = storage;
+        this.metrics = metrics;
     }
 
     /**
@@ -141,6 +143,7 @@ public class ClipService {
                     highlightId, quality.label(), winner.get());
             return new ClipCreation(queries.summary(winner.get()), false);
         }
+        metrics.requested(ClipKind.HIGHLIGHT);
         log.info("Queued clip {} at {} for highlight {} ({} of {}, round {}): {} segment(s), {} ticks", clipId,
                 quality.label(), highlightId, highlight.type(), highlight.matchId(), highlight.roundNumber(),
                 segments.size(), SegmentBuilder.totalTicks(segments));
@@ -206,6 +209,7 @@ public class ClipService {
                     faceitPlayerId, faceitMatchId, quality.label(), winner.get());
             return new ClipCreation(queries.summary(winner.get()), false);
         }
+        metrics.requested(ClipKind.COMPILATION);
         log.info("Queued clip {} at {} for the compilation of {} in match {}: {} segment(s), {} ticks", clipId,
                 quality.label(), faceitPlayerId, faceitMatchId, segments.size(), SegmentBuilder.totalTicks(segments));
         return new ClipCreation(queries.summary(clipId), true);

@@ -14,6 +14,7 @@ import io.csfaceit.backend.match.Match;
 import io.csfaceit.backend.player.Player;
 import java.sql.Types;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -258,16 +259,20 @@ public class WorkerPersistence {
      * Finishes the clip: {@code DONE}, with the length and picture size of the video. There has to be a video, the one
      * this attempt uploaded ({@link Clip#requeue} forgets the video of an attempt that was given up).
      *
+     * @return how long the recorder held the clip in the attempt that finished it, from the claim to the end; empty
+     *         for a clip that has no time of claim (only a row edited by hand lacks it)
      * @throws ConflictException {@code CLIP_NOT_CLAIMED}, or {@code CLIP_VIDEO_MISSING} when no video was uploaded
      */
     @Transactional
-    public void complete(long clipId, String worker, int durationMs, int width, int height) {
+    public Optional<Duration> complete(long clipId, String worker, int durationMs, int width, int height) {
         Clip clip = lockHeldBy(clipId, worker);
         if (clip.getVideoKey() == null) {
             throw new ConflictException(CLIP_VIDEO_MISSING, "Clip " + clipId + " has no uploaded video to complete");
         }
         clip.complete(durationMs, width, height);
         clips.saveAndFlush(clip);
+        return Optional.ofNullable(clip.getClaimedAt())
+                .map(claimedAt -> Duration.between(claimedAt, clip.getFinishedAt()));
     }
 
     /**

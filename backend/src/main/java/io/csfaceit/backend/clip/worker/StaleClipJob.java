@@ -1,5 +1,6 @@
 package io.csfaceit.backend.clip.worker;
 
+import io.csfaceit.backend.clip.ClipMetrics;
 import io.csfaceit.backend.clip.ClipProperties;
 import io.csfaceit.backend.clip.worker.WorkerPersistence.Ended;
 import io.csfaceit.backend.clip.worker.WorkerPersistence.Fate;
@@ -38,11 +39,13 @@ public class StaleClipJob {
     private final WorkerPersistence persistence;
     private final ClipProperties properties;
     private final Clock clock;
+    private final ClipMetrics metrics;
 
-    public StaleClipJob(WorkerPersistence persistence, ClipProperties properties, Clock clock) {
+    public StaleClipJob(WorkerPersistence persistence, ClipProperties properties, Clock clock, ClipMetrics metrics) {
         this.persistence = persistence;
         this.properties = properties;
         this.clock = clock;
+        this.metrics = metrics;
     }
 
     @Scheduled(initialDelay = INTERVAL_MILLIS, fixedDelay = INTERVAL_MILLIS)
@@ -67,9 +70,11 @@ public class StaleClipJob {
 
     private void report(long clipId, Ended ended) {
         if (ended.fate() == Fate.REQUEUED) {
+            metrics.requeued();
             log.warn("Clip {} had no report for over {} s: taken back and queued again (attempt {} of {})", clipId,
                     properties.staleAfter().toSeconds(), ended.attempts(), properties.maxAttempts());
         } else {
+            metrics.failed();
             log.warn("Clip {} had no report for over {} s: failed, it has had its {} attempts", clipId,
                     properties.staleAfter().toSeconds(), ended.attempts());
         }
