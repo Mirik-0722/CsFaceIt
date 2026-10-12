@@ -258,7 +258,7 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 416 | `RANGE_NOT_SATISFIABLE` | The `Range` of a request for a clip's video starts at or beyond its end; see [Video clips](#video-clips). |
 | 429 | `CLIP_QUEUE_FULL` | A new clip was requested but the queue of clips is full; see [Video clips](#video-clips). |
 | 502 | `FACEIT_UNAVAILABLE` | FACEIT failed or timed out after retries, or refused the request (for example a rejected `FACEIT_API_KEY`, which is not retried), and no cached copy exists. |
-| 503 | `STORAGE_UNAVAILABLE` | The storage cannot do what a recorder's request needs; see [Worker API](#worker-api-the-recorder). |
+| 503 | `STORAGE_UNAVAILABLE` | The storage cannot do what a request needs: a recorder's (see [Worker API](#worker-api-the-recorder)), or the request for the video or the thumbnail of a clip (see [Video clips](#video-clips)). |
 
 FACEIT responses are cached in Redis (player profile 5 minutes, match history 2 minutes, finished match 24 hours),
 and an expired copy is served when FACEIT is down.
@@ -665,7 +665,7 @@ Browser: GET /api/v1/clips/{clipId}, GET .../video (Range), GET .../thumbnail
 | `QUEUED` | Waits for a recorder. `queuePosition` is its place: 1 is the clip a recorder takes next, the oldest request first. | The request. Or back from an active status: the recorder gave an attempt up and said it may be repeated (`fail` with `retryable`) and the clip has attempts left, the recorder went silent for `clip.stale-after`, or the answer to a `claim` could not be made because the storage could not be asked (that attempt is not counted). |
 | `RECORDING` | A recorder holds the clip: it downloads the demo and records the segments. | `POST /claim`, or a progress report that names this stage. |
 | `ENCODING` | The recorder makes the thumbnail and reads the length and size of the video. | A progress report that names this stage. |
-| `UPLOADING` | The video is in the storage. | The upload of the video, or a progress report that names this stage. |
+| `UPLOADING` | The recorder sends the video and the thumbnail. It reports this stage before the first byte goes out, so the video is in the storage only once the upload of the video has ended (`sizeBytes` is set then); the clip stays here until `complete`. | A progress report that names this stage, or the upload of the video. |
 | `DONE` | The video is ready and is served. Final. | `POST .../complete`, which needs the video of this attempt to be uploaded. |
 | `FAILED` | Given up; `error` says why. Final: a new request for the same clip queues a new one. | `fail` without `retryable`, or with the attempts used up; a recorder that went silent with the attempts used up; a `claim` that finds the demo file gone or the player's SteamID unknown (not retried). |
 
@@ -687,8 +687,8 @@ instead.
 | `GET /api/v1/matches/{matchId}/clips` | An array of the clips of the match, whatever their status, the newest first. Empty for a match the database does not know. |
 | `GET /api/v1/players/{playerId}/clips?offset=0&limit=20` | `{"items": [...], "offset": 0, "limit": 20}`: a page of the clips of the player over all his matches, whatever their status, the newest first. `offset` 0-10000, `limit` 1-100. Empty for a player the database does not know. |
 | `GET /api/v1/clips?offset=0&limit=20` | The same page, of the clips that are `DONE` only, the most recently finished first. |
-| `GET /api/v1/clips/{clipId}/video` | The video of a `DONE` clip, `video/mp4`, with `Accept-Ranges: bytes` and its `Content-Length`; `HEAD` answers the same without the body. A single `Range` is answered with `206`, see "The video and the thumbnail" below. With `?download=1` a browser saves the file under a name of its own instead of playing it. `404 CLIP_NOT_FOUND`, `416 RANGE_NOT_SATISFIABLE`. |
-| `GET /api/v1/clips/{clipId}/thumbnail` | The thumbnail of a `DONE` clip, `image/jpeg`, `Cache-Control: public, max-age=86400`; `HEAD` works too. `404 CLIP_NOT_FOUND`. |
+| `GET /api/v1/clips/{clipId}/video` | The video of a `DONE` clip, `video/mp4`, with `Accept-Ranges: bytes`, its `Content-Length` and `Cache-Control: public, max-age=86400`; `HEAD` answers the same without the body. A single `Range` is answered with `206`, see "The video and the thumbnail" below. With `?download=1` a browser saves the file under a name of its own instead of playing it. `404 CLIP_NOT_FOUND`, `416 RANGE_NOT_SATISFIABLE`, `503 STORAGE_UNAVAILABLE`. |
+| `GET /api/v1/clips/{clipId}/thumbnail` | The thumbnail of a `DONE` clip, `image/jpeg`, `Cache-Control: public, max-age=86400`; `HEAD` works too. `404 CLIP_NOT_FOUND`, `503 STORAGE_UNAVAILABLE`. |
 | `DELETE /api/v1/clips/{clipId}` | Deletes the clip and its files: `204`, no body. `404 CLIP_NOT_FOUND`; `409 CLIP_IN_PROGRESS` while a recorder works on it (`RECORDING`, `ENCODING` or `UPLOADING`). A clip that is only `QUEUED` can be deleted, which withdraws the request. |
 | `GET /api/v1/recorder/status` | `{"online": true, "lastSeenAt": "...", "queued": 2, "active": 1}`: whether a recorder is there to take the clips that wait. `online` is true when some recorder was seen (it claimed, reported or sent a heartbeat) within `clip.worker-online-within`; `lastSeenAt` is the latest sighting, `null` if there never was one; `queued` clips are `QUEUED`, `active` ones are `RECORDING`, `ENCODING` or `UPLOADING`. |
 
@@ -785,6 +785,13 @@ streamed from the storage and never held in memory; a browser that seeks drops t
 not an error in the log. In the Compose stack Nginx passes the video on as it arrives (`proxy_buffering off` in
 `frontend/nginx.conf`). The thumbnail is always sent whole.
 
+Both files are sent with `Cache-Control: public, max-age=86400`, since the files of a finished clip never change: on
+every successful answer (`200`, `206` and `HEAD`, with and without `download`), so that a visit of a shared clip does
+not fetch the video again within the day. An error answer carries no such header. A storage that cannot be asked for the
+file (it cannot be reached, or it fails for another reason than the file being gone) is a `503 STORAGE_UNAVAILABLE`
+with a fixed text, and one warning without a stack trace in the log; it is not a `500`. A file that is simply missing
+from the storage stays a `404`.
+
 **Deleting and retention.** `DELETE` removes the row first, in one transaction under its lock, and then the files from
 the storage: the video and the thumbnail of every attempt the clip had (`clips/{id}-{attempt}.mp4` and
 `clips/{id}-{attempt}.jpg`, attempts counted from 1), and the files the row names if they are not among those. An attempt
@@ -793,7 +800,10 @@ but not its objects, which is why the files are removed by their names and not b
 cannot remove is a warning in the log, the file stays, and the answer is `204` all the same. A job removes the clips that
 finished more than `clip.retention-days` days ago (`DONE` and `FAILED` ones, both have a finish time) in the same way,
 once a day at 04:30 server time (`clip.retention-cron`), and logs one line with the number it removed; a clip it cannot
-remove does not stop it. `0` days switches the job off, and then `expiresAt` is `null`.
+remove does not stop it. It does not run against a storage that is down: before the first clip it asks the storage
+whether a key exists, and if that fails the whole run is skipped with one warning, the rows stay and the next run takes
+them (every expired clip would otherwise lose its row and keep its files for good, since nothing sweeps `clips/`). `0`
+days switches the job off, and then `expiresAt` is `null`.
 
 ### Checks and errors
 
@@ -813,6 +823,7 @@ Besides `200`, `201` and `204`, the requests above are answered with:
 | 409 | `CLIP_IN_PROGRESS` | The clip to delete is being recorded, encoded or uploaded. Delete it when it is `DONE` or `FAILED`, or while it still waits. |
 | 416 | `RANGE_NOT_SATISFIABLE` | The `Range` of a request for the video starts at or beyond its end; `Content-Range: bytes */size` says how long it is. |
 | 429 | `CLIP_QUEUE_FULL` | `clip.max-queued` clips are waiting already. Ask again later. The limit is soft: two requests at the same moment may both get in. |
+| 503 | `STORAGE_UNAVAILABLE` | The video or the thumbnail was asked for while the storage could not be asked for the file (it cannot be reached, or it fails for another reason than the file being gone). Ask again later. |
 
 The `POST` for a highlight checks in this order, and the first that fails ends the request: the highlight; the clip that is there
 already (answered with `200`, whatever became of the demo file and however long the queue is); the demo file; the SteamID
@@ -973,6 +984,17 @@ demo files after `DEMO_RETENTION_DAYS` days (30, see [Retention](#retention)); t
 demo stay. From then on a request for a new clip is a `409 DEMO_NOT_AVAILABLE`, a clip that still waits is `FAILED` when
 a recorder claims it ("The demo file is no longer stored", not retried), and the demo has to be uploaded again. A clip
 that is `DONE` is a file of its own and stays until `clip.retention-days` have passed since it finished.
+
+**A demo that the storage keeps failing on holds up the queue.** A `claim` that cannot ask the storage for the size of
+the demo gives the clip back to the queue with its attempt and answers `503`. That is right for an outage, which ends
+and lets the next `claim` go on. If the storage instead keeps answering with an error for the demo object of the clip at
+the head of the queue (an object it cannot look up, say), every `claim` takes that clip first, gives it back and ends in
+a `503`, and the clips behind it wait; no attempt is used up, so `clip.max-attempts` never fails it. It shows in the log
+of the backend as the warning "The storage could not be asked for the demo of clip N: it is back in the queue", which
+names the same clip at every poll of the recorder, and in the metrics as `clips_queue_size` staying above 0 while the
+recorder is online (`clips_recorder_online` is 1) and `clips_active` is 0; `GET /api/v1/recorder/status` shows the same
+figures. Delete the waiting clip (`DELETE /api/v1/clips/{clipId}`; a clip that is only `QUEUED` can be deleted), or
+upload the demo of its match again.
 
 **One recorder records one clip at a time.** At the default `FAKE_SPEED` the fake recorder takes as long as the video
 lasts, so a queue of `clip.max-queued` (50) clips is a long wait, and a compilation of a player with many kills is
