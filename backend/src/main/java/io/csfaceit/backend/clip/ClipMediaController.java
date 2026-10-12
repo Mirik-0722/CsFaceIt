@@ -46,6 +46,11 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>The bytes go from the storage to the client in pieces of a fixed size and are never held in memory, with no
  * database transaction open (the clip is read before the first byte goes out), and the storage stream is closed in
  * every case. A client that goes away part way, as a browser does when it seeks, is normal and only a debug line.
+ *
+ * <p>The files of a finished clip never change, so every answer that carries one (the {@code 200} and the {@code 206}
+ * of the video, with or without {@code download}, the thumbnail, and {@code HEAD} for either) says
+ * {@code Cache-Control: public, max-age=86400}; an error answer keeps the {@code no-store} that Spring Security gives
+ * every answer that sets no caching of its own.
  */
 @RestController
 @RequestMapping("/api/v1/clips")
@@ -57,8 +62,8 @@ public class ClipMediaController {
     private static final String IMAGE_JPEG = "image/jpeg";
     private static final String ACCEPT_RANGES_BYTES = "bytes";
 
-    /** A thumbnail never changes once the clip is done, so a browser may keep it for a day. */
-    private static final String THUMBNAIL_CACHE_CONTROL = "public, max-age=86400";
+    /** The video and the thumbnail of a done clip never change, so a browser may keep either for a day. */
+    private static final String MEDIA_CACHE_CONTROL = "public, max-age=86400";
 
     private static final int COPY_BUFFER_SIZE = 64 * 1024;
 
@@ -111,6 +116,7 @@ public class ClipMediaController {
             response.setStatus(asked.isPresent() ? HttpStatus.PARTIAL_CONTENT.value() : HttpStatus.OK.value());
             response.setContentType(VIDEO_MP4);
             response.setHeader(HttpHeaders.ACCEPT_RANGES, ACCEPT_RANGES_BYTES);
+            response.setHeader(HttpHeaders.CACHE_CONTROL, MEDIA_CACHE_CONTROL);
             response.setContentLengthLong(length);
             if (asked.isPresent()) {
                 response.setHeader(HttpHeaders.CONTENT_RANGE,
@@ -139,7 +145,7 @@ public class ClipMediaController {
 
         try (InputStream body = hasBody(request, size) ? open(clipId, key, 0, size) : null) {
             response.setContentType(IMAGE_JPEG);
-            response.setHeader(HttpHeaders.CACHE_CONTROL, THUMBNAIL_CACHE_CONTROL);
+            response.setHeader(HttpHeaders.CACHE_CONTROL, MEDIA_CACHE_CONTROL);
             response.setContentLengthLong(size);
             if (body != null) {
                 transfer(clipId, "thumbnail", body, size, response);
