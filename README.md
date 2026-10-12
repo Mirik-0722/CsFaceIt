@@ -36,6 +36,9 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
 - `docker-compose.fake.yml` and `dev/fake-faceit/` - an override that replaces FACEIT with a local WireMock fake, for
   running the stack without an API key. It also starts `recorder-fake`, the recorder in its fake recording mode, so
   that a clip that is asked for is recorded (as a test pattern) without a game.
+- `docker-compose.prod.yml` and `ops/caddy/` - an override for a server with a domain: Caddy in front of the web UI
+  serves HTTPS, the web port is no longer open to the network, and every service starts again after a reboot (see
+  [Deploying on a server](#deploying-on-a-server)).
 
 ## Pages
 
@@ -74,7 +77,7 @@ while the page holds the admin key.
 
 | Tool | Needed for |
 | --- | --- |
-| Docker with Compose v2 (2.24.4 or newer for the fake-FACEIT override, see below) | running the stack; also the backend tests (Testcontainers) |
+| Docker with Compose v2 (2.24.4 or newer for the fake-FACEIT and the production override, see below) | running the stack; also the backend tests (Testcontainers) |
 | Java 21 | running and testing the backend outside Docker |
 | Node 22 and npm | running and testing the frontend outside Docker |
 | Rust 1.90 and `protoc` | building the parser on the host only; the Docker image needs neither (see [`parser/README.md`](parser/README.md)) |
@@ -104,6 +107,8 @@ Then edit `.env`:
 | `REDIS_HOST`, `REDIS_PORT` | Redis address. | `localhost` / `6379` |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to call the API. | `http://localhost:5173` (the Vite dev server) |
 | `WEB_PORT` | Host port the web UI is published on when running with Docker Compose. | `3000` |
+| `PUBLIC_ORIGIN` | The browser origin the backend allows in the Compose stack (scheme and host, plus the port when it is not the default one), such as `https://example.com`. Set it when a proxy of your own in front of the web port terminates HTTPS; without it the browser's writes (uploads, analyses, clip orders) are refused with `403` (see [Deploying on a server](#deploying-on-a-server)). Not needed over plain HTTP on the web port, and not used with `docker-compose.prod.yml`, which allows `https://${DOMAIN}`. Commented out in `.env.example`. | `http://localhost:${WEB_PORT}` |
+| `DOMAIN` | Only with `docker-compose.prod.yml`: the host name of the server, such as `example.com`, without `https://`. Caddy gets the certificate for it and the backend allows `https://${DOMAIN}`. **Required** there: the stack does not start without it. Its DNS `A` record must point at the server. Commented out in `.env.example`. | none |
 | `RABBITMQ_HOST`, `RABBITMQ_PORT` | RabbitMQ address (dev mode; Compose points the backend at the `rabbitmq` service). | `localhost` / `5672` |
 | `RABBITMQ_USER`, `RABBITMQ_PASSWORD` | RabbitMQ credentials; the `rabbitmq` service is created with them. | `guest` / `guest` |
 | `STORAGE_TYPE` | Where demo files are kept: `local` (files under `STORAGE_LOCAL_DIR`) or `minio`. Compose always runs the backend with `minio`. | `local` |
@@ -124,7 +129,8 @@ Then edit `.env`:
 `DB_URL`, `REDIS_HOST`, `REDIS_PORT`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `STORAGE_TYPE`, `STORAGE_LOCAL_DIR`,
 `MINIO_ENDPOINT` and `CORS_ALLOWED_ORIGINS` describe a backend running on your machine (dev mode). Inside Docker
 Compose they are replaced for the backend container: it connects to the `postgres`, `redis`, `rabbitmq` and `minio`
-services, stores demos in MinIO and allows the origin `http://localhost:${WEB_PORT}`. The parser's own settings
+services, stores demos in MinIO and allows the origin `http://localhost:${WEB_PORT}` (`PUBLIC_ORIGIN` when that is set,
+`https://${DOMAIN}` with `docker-compose.prod.yml`). The parser's own settings
 (`AMQP_URL`, `DATABASE_URL`, `S3_*`) are put together by Compose from the variables above; see
 [`parser/README.md`](parser/README.md).
 
@@ -169,6 +175,172 @@ stack has to be taken down with `down -v` before you switch between the real and
 The override also starts `recorder-fake`, the [recorder](recorder/README.md) in its fake recording mode, so that the
 clips that are asked for (see [Video clips](#video-clips)) are recorded, as a test pattern, without a game; how it goes
 and what `FAKE_SPEED` does are in [The fake recorder](#the-fake-recorder).
+
+## Deploying on a server
+
+This takes a fresh Linux server (Ubuntu is assumed) to the site on the internet, with Docker Compose. It is the minimum
+for going live and not a hardened production setup: what is still missing is listed at the end.
+
+### What the server needs
+
+- **Docker Engine with Compose v2.24.4 or newer** (`docker compose version`).
+- **About 2 CPU cores and 4 GB of memory.** The first build, which compiles the Rust parser and the backend, asks for
+  more than the running stack does.
+- **Disk:** about 10 GB for the Docker images and the build, plus the data. A demo file is about 400 MB before it is
+  compressed for storage, and a clip is a video of tens of megabytes. By default demo files and clips are deleted after
+  30 days (`DEMO_RETENTION_DAYS`, `CLIP_RETENTION_DAYS`).
+- **Ports 80 and 443 open to the internet, and nothing else** except SSH: 80 and 443 over TCP, and 443 over UDP too if
+  you want HTTP/3. Nothing else on the server may listen on them. Open them in the firewall of your provider and in
+  `ufw` if you use it. Docker publishes ports around `ufw`, so the stack is built not to rely on it: with
+  `docker-compose.prod.yml` only Caddy listens on all interfaces, and everything else is bound to `127.0.0.1`.
+
+### Getting the code and the settings
+
+```bash
+git clone <the URL of this repository> csfaceit && cd csfaceit
+cp .env.example .env && chmod 600 .env
+```
+
+Edit `.env`. Make every secret with `openssl rand -hex 32`: hexadecimal has no character that is special in the URLs
+the parser connects with.
+
+| Variable | What to do |
+| --- | --- |
+| `FACEIT_API_KEY` | **Must be set.** Your FACEIT Data API key; the backend does not start without it. |
+| `APP_API_KEY` | **Must be set.** The admin key, sent in `X-API-Key` by whoever uploads a demo, has it analyzed or orders a clip. `docker-compose.prod.yml` refuses to start without it. |
+| `CLIP_WORKER_TOKEN` | **Must be set to have clips recorded**, by the recorder you connect (see the end of this section). While it is empty every request of a recorder is refused. |
+| `DB_PASSWORD` | **Should be changed.** The default is public. |
+| `RABBITMQ_USER`, `RABBITMQ_PASSWORD` | **Should be changed.** The defaults are `guest` / `guest`. |
+| `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | **Should be changed.** The defaults are `minioadmin` / `minioadmin`. |
+
+These services are published on `127.0.0.1` only, so the defaults cannot be reached from the network, but there is no
+reason to keep them on a server. Change them **before the first start**: the database, RabbitMQ and MinIO take their
+credentials only when their volumes are created, and a value changed afterwards leaves the existing data with the old
+one and the backend can no longer log in (see [Operational notes](#operational-notes)).
+
+### Way A: with a domain (HTTPS)
+
+1. **Point the domain at the server.** Create an `A` record for it with the address of the server (an `AAAA` record only
+   if the server really answers on that IPv6 address) and check from your own computer that `dig +short example.com`
+   prints that address before you go on. Caddy asks for its certificate as soon as it starts, and the certificate
+   authority refuses a name that does not point at the server yet and limits how often you may try again.
+2. **Set the domain in `.env`:** `DOMAIN=example.com`, the bare host name without `https://`.
+3. **Start the stack:**
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait
+   ```
+
+   The first start builds the images and takes several minutes. Then open `https://example.com`; port 80 redirects to
+   HTTPS. If the browser reports a certificate error, read what Caddy says; usually the DNS record is wrong or
+   something blocks port 80 or 443:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml logs caddy
+   ```
+
+`docker-compose.prod.yml` adds Caddy (`ops/caddy/Caddyfile`), which serves HTTPS for `DOMAIN` with a certificate it
+gets and renews by itself, and passes every request to the Nginx of the stack without limiting the size of a body or
+the time of a transfer; the certificates are kept in the volume `caddy_data`. It also takes the web port off the
+network (it stays on `127.0.0.1:3000` for a look from the server itself), makes `DOMAIN` and `APP_API_KEY` required,
+has the backend allow `https://example.com` as its origin, and gives every service `restart: unless-stopped`, so that
+the stack comes back after a reboot of the server.
+
+**Every later `docker compose` command for this stack needs the same two `-f` options**; leaving them out would
+publish the web port on all interfaces again. To type them once, add this line to `.env`, after which a plain
+`docker compose …` means the production stack and the commands below can be used as they are:
+
+```bash
+COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+```
+
+### Way B: without a domain (plain HTTP)
+
+```bash
+docker compose up -d --build --wait
+```
+
+Open `http://<address of the server>:3000` (the port is `WEB_PORT`; open it in the firewall of your provider if it has
+one). Everything works over plain HTTP because the page and the API are one origin. **The admin key then travels
+unencrypted**: the page sends it in a header with every upload, analysis and clip order, and anyone on the way between
+the browser and the server can read it. Use this way for a trial or on a network you trust, not for a site that other
+people use.
+
+If a proxy of your own terminates HTTPS in front of the web port (Cloudflare, or an Nginx or Traefik you run), set
+`PUBLIC_ORIGIN=https://example.com`, the address the browser shows. Without it the page loads and the reads work, but
+every upload, analysis and clip order is refused with `403`: the browser sends `Origin: https://example.com` with a
+write, the backend sees plain `http` behind the Nginx of the stack and takes the write for one from another site.
+
+### Updating, logs and backups
+
+The commands below are plain `docker compose …`, which is right for way B and for way A with the `COMPOSE_FILE` line
+in `.env`. Without that line, a stack started with way A needs the two `-f` options after `docker compose` in each of
+them.
+
+Update with the same `up -d --build` after pulling:
+
+```bash
+git pull
+docker compose up -d --build --wait
+```
+
+This rebuilds what changed, recreates the containers whose image or settings changed and applies new database
+migrations when the backend starts; the data volumes stay as they are. Take a backup first. A container that keeps
+running its old image after a rebuild (the change is not there, and `docker compose ps` shows an old start time) is
+recreated by name: `docker compose up -d --build --force-recreate backend`.
+
+Look at the stack and its logs:
+
+```bash
+docker compose ps
+docker compose logs -f --tail 100 backend      # also: caddy, frontend, parser, postgres
+```
+
+Docker keeps the logs of a container without a size limit unless you set one. To cap them, put
+`{"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "3"}}` in `/etc/docker/daemon.json` and
+restart Docker (`sudo systemctl restart docker`); the cap applies to containers created afterwards
+(`docker compose up -d --force-recreate`).
+
+**Backup of the database.** It holds everything the analysis made: the matches, the players, the facts of the demos,
+the statistics, the highlights and the records of the clips. Dump it into a file and keep the file off the server
+(`-U` is your `DB_USER`, `csfaceit` unless you changed it):
+
+```bash
+docker compose exec -T postgres pg_dump -U csfaceit --clean --if-exists csfaceit | gzip > csfaceit-$(date +%F).sql.gz
+```
+
+To restore it, stop the programs that write, replay the file and start them again. Because of `--clean --if-exists` it
+also replays onto a database that already has the tables:
+
+```bash
+docker compose stop backend parser
+gunzip -c csfaceit-<date>.sql.gz | docker compose exec -T postgres psql -U csfaceit csfaceit
+docker compose start backend parser
+```
+
+**Where the files are.** The demo files and the clip videos are not in the dump; they are in MinIO, in the Docker volume
+`miniodata` (bucket `csfaceit`). `docker volume ls` shows it as `<project>_miniodata`, where the project is the name of
+the directory you cloned into (`csfaceit_miniodata` for `csfaceit`, as above). To copy it, stop the stack first, then
+archive the volume:
+`docker run --rm -v csfaceit_miniodata:/data:ro -v "$PWD":/backup alpine tar czf /backup/miniodata.tgz -C /data .`
+
+Never run `docker compose down -v` on a server: `-v` deletes the volumes, and with them the database and the files.
+Plain `docker compose down` removes the containers and keeps the data.
+
+### What this deployment does not do yet
+
+- **No clip is recorded.** "Record clip" queues a clip, but no recorder runs on the server. The recorder that plays the
+  demo in CS2 on Windows is not written yet (see [Video clips](#video-clips)), and the fake recorder, which makes a test
+  pattern, is not started by `docker-compose.prod.yml`. An ordered clip waits in the queue (up to 50, then the API
+  answers `429`) and never finishes. A recorder, when there is one, runs on another machine and uses the API of the
+  site with `CLIP_WORKER_TOKEN`.
+- **Demo files are uploaded by an admin.** The import from FACEIT needs access to FACEIT's Downloads API, which a Data
+  API key does not give: such an import ends `FAILED`, with a message that says to upload the file. Upload the `.dem`
+  of a match on its page, under "Manage", with the admin key.
+- **There is no rate limiting.** Reads are public and anyone may send as many as they like; each lookup that is not in
+  the cache uses the quota of your FACEIT key.
+- **There are no automatic backups and no alerts when something fails**, and all recorders share one token
+  (`CLIP_WORKER_TOKEN`) instead of having one each. It is one server, with nothing to take over when it is down.
 
 ## Run in dev mode
 
@@ -1080,11 +1252,12 @@ Prometheus keeps its data (15 days) in the `prometheusdata` volume.
 The infrastructure and the observability tools are published on `127.0.0.1` only: they are reachable from this machine
 and not from the network. The web UI follows `WEB_PORT` and the files you start with: `docker-compose.yml` publishes it
 on all interfaces (`"${WEB_PORT:-3000}:80"`), and `docker-compose.fake.yml`, whose admin key is public, narrows it to
-`127.0.0.1`.
+`127.0.0.1`. `docker-compose.prod.yml` narrows it too: there Caddy, on ports 80 and 443, is the way in (see
+[Deploying on a server](#deploying-on-a-server)).
 
 | What | Address | Published on | Login |
 | --- | --- | --- | --- |
-| Web UI and API | <http://localhost:3000> | all interfaces (default stack), `127.0.0.1` (fake mode) | `X-API-Key` for `POST`; `X-Worker-Token` for `/api/worker/**` |
+| Web UI and API | <http://localhost:3000> | all interfaces (default stack), `127.0.0.1` (fake mode, `docker-compose.prod.yml`) | `X-API-Key` for `POST`; `X-Worker-Token` for `/api/worker/**` |
 | RabbitMQ management | <http://localhost:15672> | `127.0.0.1` | `RABBITMQ_USER` / `RABBITMQ_PASSWORD` (`guest` / `guest`) |
 | MinIO console (S3 API on `9000`) | <http://localhost:9001> | `127.0.0.1` | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` (`minioadmin` / `minioadmin`) |
 | Prometheus (profile `observability`) | <http://localhost:9090> | `127.0.0.1` | none; targets under Status -> Targets |
@@ -1092,8 +1265,8 @@ on all interfaces (`"${WEB_PORT:-3000}:80"`), and `docker-compose.fake.yml`, who
 
 ## Operational notes
 
-- **Docker Compose 2.24.4 or newer** is needed for `docker-compose.fake.yml`: it uses the `!override` tag to replace
-  the frontend's port mapping instead of adding a second one.
+- **Docker Compose 2.24.4 or newer** is needed for `docker-compose.fake.yml` and `docker-compose.prod.yml`: they use
+  the `!override` tag to replace the frontend's port mapping instead of adding a second one.
 - **RabbitMQ and MinIO credentials are applied only when their volumes are first created.** Changing `RABBITMQ_USER`,
   `RABBITMQ_PASSWORD`, `MINIO_ACCESS_KEY` or `MINIO_SECRET_KEY` later has no effect on the existing data and the
   backend can no longer log in; start over with `docker compose down -v` (this deletes the database, the queues and
