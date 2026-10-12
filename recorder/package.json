@@ -1,0 +1,20 @@
+{
+  "name": "csfaceit-recorder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The recorder: takes queued clips from the backend, records them and uploads the video and its thumbnail",
+  "type": "module",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "oxlint",
+    "start": "node dist/main.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "oxlint": "^1.81.0",
+    "typescript": "~6.0.2"
+  }
+}

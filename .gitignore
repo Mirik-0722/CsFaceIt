@@ -7,6 +7,10 @@ frontend/node_modules/
 frontend/dist/
 frontend/test-results/
 frontend/playwright-report/
+recorder/node_modules/
+recorder/dist/
+# The work directory of a recorder started by hand (see recorder/README.md): cached demos and the scratch of a clip
+recorder/work/
 # A real demo and its stub for the fake FACEIT (see dev/fake-faceit/README.md); demos are large and never committed
 dev/fake-faceit/__files/demos/local.dem
 dev/fake-faceit/mappings/local-*.json

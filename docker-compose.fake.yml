@@ -38,3 +38,30 @@ services:
     # !override replaces the mapping of docker-compose.yml instead of adding a second one.
     ports: !override
       - "127.0.0.1:${WEB_PORT:-3000}:80"
+
+  recorder-fake:
+    # The recorder in its fake recording mode. It takes the queued clips from the backend, makes a test pattern with
+    # ffmpeg instead of playing the demo, and uploads the result, so that the whole chain from the queue to the player
+    # can be tried without a game. It only calls the worker API of the backend and serves nothing, so it has no port.
+    # See recorder/README.md.
+    build: ./recorder
+    environment:
+      BACKEND_URL: http://backend:8080
+      # The secret of the worker API: the same variable and default as the backend's, so that the two agree.
+      CLIP_WORKER_TOKEN: ${CLIP_WORKER_TOKEN:-dev-worker-token}
+      RECORDER_MODE: fake
+      WORKER_NAME: fake-1
+      # Seconds of video made per second of wall time. 1 is real time: a clip of ten seconds takes ten, long enough to
+      # watch it go from state to state. 0 is as fast as ffmpeg can go.
+      FAKE_SPEED: ${FAKE_SPEED:-1}
+    volumes:
+      # The demos it has downloaded, so that a recreated container does not download them again.
+      - recorder-work:/work
+    depends_on:
+      backend:
+        condition: service_healthy
+    # Started again after a crash, like the parser. A stop gives the clip it holds back to the queue at once.
+    restart: unless-stopped
+
+volumes:
+  recorder-work:

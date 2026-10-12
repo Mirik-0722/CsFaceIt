@@ -22,6 +22,9 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
   persistence (Flyway migrations), the demo import worker, the analysis of parsed demos and the RabbitMQ listeners,
   Actuator and Prometheus metrics.
 - `parser/` - the Rust worker that parses stored demos ([`parser/README.md`](parser/README.md)).
+- `recorder/` - the recorder that turns the clips that were asked for into videos: it takes them from the backend's
+  worker API, records them and uploads the MP4 and a thumbnail ([`recorder/README.md`](recorder/README.md)). Only its
+  fake recording mode, a test pattern made by ffmpeg, exists so far.
 - `frontend/` - React + TypeScript single-page app built with Vite. In production Nginx serves it and proxies `/api/`
   to the backend. Its look follows the "A · REC" design: colours, type, components and screens are specified in
   [`docs/superpowers/specs/2026-10-11-web-ui-design.md`](docs/superpowers/specs/2026-10-11-web-ui-design.md), which
@@ -30,7 +33,8 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
 - `docker-compose.yml` - PostgreSQL 17, Redis 8, RabbitMQ 4, MinIO, the backend, the parser and the frontend; with
   `--profile observability` also Prometheus and Grafana (`ops/` holds their configuration).
 - `docker-compose.fake.yml` and `dev/fake-faceit/` - an override that replaces FACEIT with a local WireMock fake, for
-  running the stack without an API key.
+  running the stack without an API key. It also starts `recorder-fake`, the recorder in its fake recording mode, so
+  that a clip that is asked for is recorded (as a test pattern) without a game.
 
 ## Pages
 
@@ -159,6 +163,12 @@ The fake ids, what it serves and how to serve a real demo file are described in
 [`dev/fake-faceit/README.md`](dev/fake-faceit/README.md). The override needs Docker Compose 2.24.4 or newer, and the
 stack has to be taken down with `down -v` before you switch between the real and the fake mode (see
 [Operational notes](#operational-notes)).
+
+The override also starts `recorder-fake`, the [recorder](recorder/README.md) in its fake recording mode. It takes the
+clips that are asked for (see [Video clips](#video-clips)) from the queue, makes a test pattern with ffmpeg in place of
+playing the demo, and uploads it, so the whole chain from the button to the player can be tried without a game. It
+records in real time by default, so a ten-second clip takes about ten seconds; `FAKE_SPEED=0` in the environment of
+the `docker compose` command makes it as fast as ffmpeg goes.
 
 ## Run in dev mode
 
