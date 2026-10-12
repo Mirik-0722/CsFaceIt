@@ -97,13 +97,16 @@ function PlayerClips({ playerId }: { playerId: string }) {
     ready: t.clip.tabs.emptyReady,
     failed: t.clip.tabs.emptyFailed,
   }
-  // With no clip at all the tabs are gone (see below), so whatever tab was chosen, the one thing to say is that.
-  const emptyText = items?.length === 0 ? emptyTexts.all : emptyTexts[tab]
+  // A player without a clip of their own gets the page everybody gets, not an empty one: the finished clips of every
+  // player.
+  if (items?.length === 0 && !clips.hasNextPage) {
+    return <EveryoneClips />
+  }
   return (
     <>
-      {items && items.length > 0 && (
+      {items && (
         // Toggle buttons that look like tabs (spec 3), as on the matches page: 44px tall, a 2px light line under the
-        // chosen one. With no clip to sort they would do nothing, so they are not there.
+        // chosen one.
         <div role="group" aria-label={t.clip.tabs.label} className="flex flex-wrap gap-1 border-b border-border">
           {TABS.map((kind) => (
             <button
@@ -124,7 +127,7 @@ function PlayerClips({ playerId }: { playerId: string }) {
       <div aria-live="polite" className="flex flex-col gap-2">
         {clips.isPending && <ClipsLoading />}
         {shown && shown.length > 0 && <ClipList items={shown} />}
-        {shown?.length === 0 && <p className="text-sm text-muted-foreground">{emptyText}</p>}
+        {shown?.length === 0 && <p className="text-sm text-muted-foreground">{emptyTexts[tab]}</p>}
         {clips.isError && <p className="text-sm text-destructive">{errorMessage(clips.error, t)}</p>}
       </div>
       {clips.hasNextPage && (
@@ -143,8 +146,8 @@ function PlayerClips({ playerId }: { playerId: string }) {
 
 /**
  * The page "Kliplar" of the design. A signed-in visitor with a FACEIT player sees that player's clips in every state
- * under tabs by state; everybody else sees the finished clips of every player, as before. The state of the recorder
- * stays beside the title in both.
+ * under tabs by state; everybody else, and a player who has no clip yet, sees the finished clips of every player, as
+ * before. The state of the recorder stays beside the title in both.
  */
 export default function ClipsPage() {
   const t = useT()
