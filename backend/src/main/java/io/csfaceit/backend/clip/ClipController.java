@@ -39,9 +39,11 @@ public class ClipController {
     private static final int MAX_LIMIT = 100;
 
     private final ClipService clips;
+    private final ClipQueryService queries;
 
-    public ClipController(ClipService clips) {
+    public ClipController(ClipService clips, ClipQueryService queries) {
         this.clips = clips;
+        this.queries = queries;
     }
 
     /** 201 for the clip this request queued, 200 for the one that already stood for the highlight at that quality. */
@@ -55,13 +57,13 @@ public class ClipController {
 
     @GetMapping("/clips/{clipId}")
     public ClipResponse getClip(@PathVariable long clipId) {
-        return clips.get(clipId);
+        return queries.get(clipId);
     }
 
     @GetMapping("/matches/{matchId}/clips")
     public List<ClipResponse> getMatchClips(
             @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId) {
-        return clips.forMatch(matchId);
+        return queries.forMatch(matchId);
     }
 
     @GetMapping("/players/{playerId}/clips")
@@ -69,7 +71,7 @@ public class ClipController {
             @PathVariable @Pattern(regexp = PLAYER_ID_PATTERN, message = PLAYER_ID_MESSAGE) String playerId,
             @RequestParam(defaultValue = "0") @Min(0) @Max(MAX_OFFSET) int offset,
             @RequestParam(defaultValue = "20") @Min(1) @Max(MAX_LIMIT) int limit) {
-        return clips.forPlayer(playerId, offset, limit);
+        return queries.forPlayer(playerId, offset, limit);
     }
 
     /** The clips that are done, the most recently finished first. */
@@ -77,6 +79,6 @@ public class ClipController {
     public ClipPageResponse getFinishedClips(
             @RequestParam(defaultValue = "0") @Min(0) @Max(MAX_OFFSET) int offset,
             @RequestParam(defaultValue = "20") @Min(1) @Max(MAX_LIMIT) int limit) {
-        return clips.latest(offset, limit);
+        return queries.latest(offset, limit);
     }
 }

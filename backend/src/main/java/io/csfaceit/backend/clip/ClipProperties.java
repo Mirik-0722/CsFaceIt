@@ -1,5 +1,6 @@
 package io.csfaceit.backend.clip;
 
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -12,8 +13,8 @@ import org.springframework.validation.annotation.Validated;
 
 /**
  * Binds the {@code clip.*} block of {@code application.yml}: the queue of clips to record, the rules that cut a clip
- * into segments and how long a finished clip is kept. The application refuses to start with a count or a time span
- * that is not positive, so a rule never runs with a limit of 0.
+ * into segments and how long a finished clip is kept. The application refuses to start with a count, a time span or
+ * a size that is not positive, so a rule never runs with a limit of 0.
  *
  * @param workerToken the secret a recorder sends in {@code X-Worker-Token}; empty while none is set, and then every
  *        worker request is refused. It is never logged: {@link #toString} hides it.
@@ -46,6 +47,12 @@ public record ClipProperties(
         @PositiveOrZero int retentionDays,
         @NotBlank String retentionCron,
         @NotNull DataSize uploadMaxSize) {
+
+    /** Spring's {@link DataSize} has no constraint of its own; a missing size is for {@code @NotNull} to report. */
+    @AssertTrue(message = "clip.upload-max-size must be positive")
+    boolean isUploadMaxSizePositive() {
+        return uploadMaxSize == null || uploadMaxSize.toBytes() > 0;
+    }
 
     /** Keeps the secret out of logs and exception messages that print the properties. */
     @Override

@@ -236,9 +236,9 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND`, `DEMO_NOT_FOUND` | FACEIT does not know the player or match, or the match has no demo record yet. |
 | 404 | `HIGHLIGHT_NOT_FOUND`, `CLIP_NOT_FOUND` | There is no such highlight (or its demo is not `ANALYZED`) or clip; see [Video clips](#video-clips). |
 | 409 | `DEMO_URL_UNAVAILABLE`, `DEMO_NOT_PARSED` | A demo import was requested but FACEIT has no demo for the match (yet); or an analysis was requested but the demo is not `PARSED` or `ANALYZED`. |
-| 409 | `DEMO_NOT_AVAILABLE`, `PLAYER_STEAM_ID_UNKNOWN`, `CLIP_TOO_LONG` | A clip was requested but the demo file is not stored, the player's SteamID is unknown, or the clip would be longer than allowed; see [Video clips](#video-clips). |
+| 409 | `DEMO_NOT_AVAILABLE`, `PLAYER_STEAM_ID_UNKNOWN`, `CLIP_TOO_LONG` | A new clip was requested but the demo file is not stored, the player's SteamID is unknown, or the clip would be longer than allowed; see [Video clips](#video-clips). |
 | 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip file expands beyond it). |
-| 429 | `CLIP_QUEUE_FULL` | A clip was requested but the queue of clips is full; see [Video clips](#video-clips). |
+| 429 | `CLIP_QUEUE_FULL` | A new clip was requested but the queue of clips is full; see [Video clips](#video-clips). |
 | 502 | `FACEIT_UNAVAILABLE` | FACEIT failed or timed out after retries, or refused the request (for example a rejected `FACEIT_API_KEY`, which is not retried), and no cached copy exists. |
 
 FACEIT responses are cached in Redis (player profile 5 minutes, match history 2 minutes, finished match 24 hours),
@@ -655,10 +655,11 @@ A clip, here a queued one of a `K3` (ids shortened):
 **One clip per highlight and quality.** The clip of a highlight is told apart from the others by the match, the player,
 the type, the round and the first tick of the highlight, and its quality (the highlight's `id` changes with every
 analysis, so the clip does not keep it). A second request for the same highlight, also at the same moment from another
-browser, finds the clip that is there and answers `200` with it; nothing is recorded twice. A clip that ended `FAILED`
-does not count: asking again queues a new one. The same highlight at the other quality is another clip. After the demo
-was analyzed again the old highlight id is a `404 HIGHLIGHT_NOT_FOUND`, and asking with the id the same event now has
-finds the clip that was made before.
+browser, finds the clip that is there and answers `200` with it; nothing is recorded twice. It does so also when the
+demo file is gone (demo files are removed after `DEMO_RETENTION_DAYS` days, a clip is kept `clip.retention-days` days
+after it is finished). A clip that ended `FAILED` does not count: asking again queues a new one. The same highlight at
+the other quality is another clip. After the demo was analyzed again the old highlight id is a
+`404 HIGHLIGHT_NOT_FOUND`, and asking with the id the same event now has finds the clip that was made before.
 
 **The segments.** The video is made of the kills of the player inside the window of the highlight (`tickStart` to
 `tickEnd`). Each kill of an enemy gets a segment from `clip.pre-seconds` before it to `clip.post-seconds` after it, cut to
@@ -674,14 +675,14 @@ in `clips.segments` as `[{"startTick": ..., "endTick": ...}, ...]`.
 | 401 | `UNAUTHORIZED` | The `POST` is missing a valid `X-API-Key` header. |
 | 404 | `HIGHLIGHT_NOT_FOUND` | There is no highlight with that id, or the demo of its match is not `ANALYZED` (a highlight is served only then, see [Highlights and statistics](#highlights-and-statistics)). |
 | 404 | `CLIP_NOT_FOUND` | There is no clip with that id. |
-| 409 | `DEMO_NOT_AVAILABLE` | The demo file of the match is not in storage (the retention job removed it, see [Retention](#retention); upload the demo again) or the demo is not `PARSED` or `ANALYZED`. |
+| 409 | `DEMO_NOT_AVAILABLE` | A clip would have to be queued, but the demo file of the match is not in storage (the retention job removed it, see [Retention](#retention); upload the demo again) or the demo is not `PARSED` or `ANALYZED`. A request for a clip that exists is answered with that clip all the same. |
 | 409 | `PLAYER_STEAM_ID_UNKNOWN` | The backend does not know the SteamID of the player, and a recorder follows a player by it. |
 | 409 | `CLIP_TOO_LONG` | The segments add up to more than `clip.max-duration-seconds`. |
 | 429 | `CLIP_QUEUE_FULL` | `clip.max-queued` clips are waiting already. Ask again later. The limit is soft: two requests at the same moment may both get in. |
 
-The `POST` checks in this order, and the first that fails ends the request: the highlight, the demo file, the SteamID
-of the player, the clip that is there already (answered with `200` whatever the queue looks like), the queue, and
-last the length of the segments.
+The `POST` checks in this order, and the first that fails ends the request: the highlight; the clip that is there
+already (answered with `200`, whatever became of the demo file and however long the queue is); the demo file; the SteamID
+of the player; the queue; and last the length of the segments.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |

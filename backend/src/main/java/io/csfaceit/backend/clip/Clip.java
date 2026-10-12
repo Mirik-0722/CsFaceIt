@@ -36,7 +36,8 @@ import org.hibernate.type.SqlTypes;
  * {@link IllegalStateException}: a caller has the row under lock and has already decided what it wants, so a wrong
  * move is a bug in the caller. {@code DONE} and {@code FAILED} are final. Every move refreshes {@code updatedAt}.
  * <ul>
- *   <li>{@link #claim}: {@code QUEUED} to {@code RECORDING}, a recorder takes the clip and an attempt is counted.
+ *   <li>{@link #claim}: {@code QUEUED} to {@code RECORDING}, a recorder takes the clip, an attempt is counted and
+ *       the reason the last attempt failed is forgotten.
  *   <li>{@link #progress}: from one active status to any active status, with the percent done.
  *   <li>{@link #videoStored}: an active clip becomes {@code UPLOADING}, the video is in storage.
  *   <li>{@link #thumbnailStored}: the thumbnail is in storage; the status stays.
@@ -183,7 +184,9 @@ public class Clip {
 
     /**
      * A recorder takes the clip: {@code QUEUED} becomes {@code RECORDING}, owned by {@code worker}, with no progress
-     * and one more attempt counted. The claim and its heartbeat start now.
+     * and one more attempt counted. The claim and its heartbeat start now. The {@code error} of the attempt before
+     * goes: it is shown while the clip waits to be recorded again (see {@link #requeue}), not once it is being
+     * recorded.
      */
     public void claim(String worker) {
         if (status != ClipStatus.QUEUED) {
@@ -196,6 +199,7 @@ public class Clip {
         this.heartbeatAt = now;
         this.progress = 0;
         this.attempts++;
+        this.error = null;
         this.updatedAt = now;
     }
 
@@ -275,8 +279,9 @@ public class Clip {
 
     /**
      * The attempt is over and the clip is to be recorded again: an active clip goes back to {@code QUEUED} with the
-     * reason of the failed attempt in {@code error}. {@code attempts} stays. The claim, the progress and everything the
-     * attempt uploaded are forgotten, so that the next attempt cannot be completed with the previous one's video.
+     * reason of the failed attempt in {@code error}, which stays until the next {@link #claim}. {@code attempts}
+     * stays. The claim, the progress and everything the attempt uploaded are forgotten, so that the next attempt cannot
+     * be completed with the previous one's video.
      */
     public void requeue(String error) {
         requireActive("be queued again");

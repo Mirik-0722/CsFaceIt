@@ -1,15 +1,15 @@
 package io.csfaceit.backend.clip;
 
-import java.util.ArrayList;
+import io.csfaceit.backend.analysis.AnalysisPersistence;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
 /**
- * The facts of a demo that a clip is cut by: the kills of one player. It only reads the parser's tables, and every
- * answer is in the order of the demo, by tick.
+ * The facts of a demo that a clip is cut by: the kills of one player, and the tick rate the demo is read at. It only
+ * reads the parser's tables, and every answer is in the order of the demo, by tick.
  *
  * <p>A kill here is a kill of an enemy, the same rule as in the segments of a clip: the player is the killer, did not
  * kill himself, and killer and victim were not on the same side ({@code killer_side} differs from
@@ -19,8 +19,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class ClipFacts {
 
-    /** One round of a match with the ticks of the player's kills in it; {@code startTick..endTick} is the round. */
+    /**
+     * One round of a match with the ticks of the player's kills in it; {@code startTick..endTick} is the round. The
+     * list of ticks is copied when the record is made, so it cannot be changed through the record.
+     */
     public record RoundKills(int roundNumber, int startTick, int endTick, List<Integer> ticks) {
+
+        public RoundKills {
+            ticks = List.copyOf(ticks);
+        }
     }
 
     /** One kill of the player, as a clip page lists it; {@code weapon} is the raw name from the demo. */
@@ -58,6 +65,14 @@ public class ClipFacts {
     }
 
     /**
+     * The ticks per second to read a demo at: its own, or the default one when the parser could not tell
+     * ({@code demos.tick_rate} is null or not positive). Seconds become ticks, and ticks become time, with this.
+     */
+    public static int tickRate(Integer demoTickRate) {
+        return demoTickRate != null && demoTickRate > 0 ? demoTickRate : AnalysisPersistence.DEFAULT_TICK_RATE;
+    }
+
+    /**
      * The ticks of the player's kills of an enemy in one round, from {@code fromTick} to {@code toTick}, both
      * included. The ticks of two kills on the same tick are both there.
      */
@@ -83,13 +98,12 @@ public class ClipFacts {
                 .query((rs, rowNumber) -> new RoundTick(rs.getInt("round_number"), rs.getInt("start_tick"),
                         rs.getInt("end_tick"), rs.getInt("tick")))
                 .list();
-        Map<Integer, RoundKills> rounds = new LinkedHashMap<>();
-        for (RoundTick row : rows) {
-            rounds.computeIfAbsent(row.roundNumber(),
-                    roundNumber -> new RoundKills(roundNumber, row.startTick(), row.endTick(), new ArrayList<>()))
-                    .ticks().add(row.tick());
-        }
-        return List.copyOf(rounds.values());
+        return rows.stream()
+                .collect(Collectors.groupingBy(RoundTick::roundNumber, LinkedHashMap::new, Collectors.toList()))
+                .values().stream()
+                .map(round -> new RoundKills(round.get(0).roundNumber(), round.get(0).startTick(),
+                        round.get(0).endTick(), round.stream().map(RoundTick::tick).toList()))
+                .toList();
     }
 
     /**
