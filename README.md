@@ -291,7 +291,7 @@ The check of step 4 works here as well, with `http://<address of the server>` in
 point it at the server (way A, step 1), change `DOMAIN` to it and run the same `up` again.
 
 Without the override, a plain `docker compose up -d --build --wait` (no `COMPOSE_FILE` line) is the stack of the
-[Quick start](#quick-start): the site is at `http://<address of the server>:3000` (the port is `WEB_PORT`; open it in
+[Run with Docker Compose](#run-with-docker-compose): the site is at `http://<address of the server>:3000` (the port is `WEB_PORT`; open it in
 the firewall of your provider if it has one), and most services do not start again by themselves after a reboot.
 
 Either way everything works over plain HTTP because the page and the API are one origin. **The admin key then travels
