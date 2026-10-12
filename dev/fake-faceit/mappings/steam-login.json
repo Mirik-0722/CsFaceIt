@@ -1,0 +1,24 @@
+{
+  "name": "GET /steam/openid/login (the fake Steam signs the visitor in as s1mple)",
+  "request": {
+    "method": "GET",
+    "urlPath": "/steam/openid/login",
+    "queryParameters": {
+      "openid.mode": {
+        "equalTo": "checkid_setup"
+      },
+      "openid.return_to": {
+        "matches": ".+"
+      }
+    }
+  },
+  "response": {
+    "status": 302,
+    "headers": {
+      "Location": "{{{request.query.[openid.return_to]}}}&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0&openid.mode=id_res&openid.op_endpoint={{{urlEncode request.baseUrl}}}{{{urlEncode request.path}}}&openid.claimed_id=https%3A%2F%2Fsteamcommunity.com%2Fopenid%2Fid%2F76561198000000001&openid.identity=https%3A%2F%2Fsteamcommunity.com%2Fopenid%2Fid%2F76561198000000001&openid.return_to={{{urlEncode request.query.[openid.return_to]}}}&openid.response_nonce=2026-01-01T00%3A00%3A00Zfake-nonce&openid.assoc_handle=1234567890&openid.signed=signed%2Cop_endpoint%2Cclaimed_id%2Cidentity%2Creturn_to%2Cresponse_nonce%2Cassoc_handle&openid.sig=fake-signature"
+    },
+    "transformers": [
+      "response-template"
+    ]
+  }
+}

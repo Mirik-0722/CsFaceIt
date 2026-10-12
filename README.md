@@ -20,7 +20,7 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
 
 - `backend/` - Spring Boot 3.5 (Java 21): REST API, FACEIT client with retries and timeouts, Redis cache, PostgreSQL
   persistence (Flyway migrations), the demo import worker, the analysis of parsed demos and the RabbitMQ listeners,
-  Actuator and Prometheus metrics.
+  the sign-in with Steam and the sessions of signed-in visitors, Actuator and Prometheus metrics.
 - `parser/` - the Rust worker that parses stored demos ([`parser/README.md`](parser/README.md)).
 - `recorder/` - the recorder that turns the clips that were asked for into videos: it takes them from the backend's
   worker API, records them and uploads the MP4 and a thumbnail ([`recorder/README.md`](recorder/README.md)). Its fake
@@ -34,7 +34,8 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
 - `docker-compose.yml` - PostgreSQL 17, Redis 8, RabbitMQ 4, MinIO, the backend, the parser and the frontend; with
   `--profile observability` also Prometheus and Grafana (`ops/` holds their configuration).
 - `docker-compose.fake.yml` and `dev/fake-faceit/` - an override that replaces FACEIT with a local WireMock fake, for
-  running the stack without an API key. It also starts `recorder-fake`, the recorder in its fake recording mode, so
+  running the stack without an API key; the same fake plays Steam's login page, so signing in works without a Steam
+  account. It also starts `recorder-fake`, the recorder in its fake recording mode, so
   that a clip that is asked for is recorded (as a test pattern) without a game.
 - `docker-compose.prod.yml` and `ops/caddy/` - an override for a server with a domain: Caddy in front of the web UI
   serves HTTPS, the web port is no longer open to the network, and every service starts again after a reboot (see
@@ -97,11 +98,14 @@ Then edit `.env`:
 | Variable | Meaning | Default in `.env.example` |
 | --- | --- | --- |
 | `FACEIT_API_KEY` | **Required.** Your FACEIT Data API key. The backend refuses to start when it is empty. | empty |
-| `APP_API_KEY` | **Required.** Secret that clients send in the `X-API-Key` header. Everything except `GET`/`HEAD` on `/api/v1/**`, `/actuator/health` and `/actuator/prometheus` requires it, and `/api/worker/**`, which takes the worker token instead (`CLIP_WORKER_TOKEN`). Choose a long random value, for example `openssl rand -hex 32`. While it is empty the backend logs a warning and rejects every protected request. | empty |
+| `APP_API_KEY` | **Required.** Secret that clients send in the `X-API-Key` header. Everything except `GET`/`HEAD` on `/api/v1/**`, `/actuator/health` and `/actuator/prometheus` requires it (signing out, `POST /api/v1/auth/logout`, is the one exception, see [Signing in](#signing-in)), and `/api/worker/**`, which takes the worker token instead (`CLIP_WORKER_TOKEN`). Being signed in does not replace it. Choose a long random value, for example `openssl rand -hex 32`. While it is empty the backend logs a warning and rejects every protected request. | empty |
 | `CLIP_WORKER_TOKEN` | The secret the recorder sends in the `X-Worker-Token` header (see [Worker API](#worker-api-the-recorder)). It opens `/api/worker/**` and nothing else, and the admin key does not open that. Choose a long random value, for example `openssl rand -hex 32`, and give the same one to the recorder. While it is empty the backend logs a warning and rejects every request of a recorder. The fake-FACEIT mode sets `dev-worker-token`. | empty |
+| `AUTH_ADMIN_STEAM_IDS` | The SteamID64s (17 digits, comma separated) of the people who get the role `ADMIN` when they sign in with Steam (see [Signing in](#signing-in)). The role is shown on the site and does not yet let anyone act without `APP_API_KEY`. | empty |
+| `FACEIT_OAUTH_CLIENT_ID`, `FACEIT_OAUTH_CLIENT_SECRET` | The FACEIT OAuth application, for signing in with FACEIT. While the client id is empty only Steam is offered (`GET /api/v1/auth/providers`). The sign-in with FACEIT itself is not written yet, so the two are read and nothing more; the secret is never logged. | empty |
 | `FACEIT_BASE_URL` | FACEIT Data API address; override it only to point the backend at a fake FACEIT. Commented out in `.env.example`. | `https://open.faceit.com/data/v4` |
 | `FACEIT_HISTORY_LOOKBACK` | How far back a player's match history reaches (`faceit.history-lookback`). FACEIT itself returns only the last month unless the request names a start time, so the backend always sends one. Commented out in `.env.example`. | `365d` |
 | `FAKE_SPEED` | Only for the stack without a FACEIT key (`docker-compose.fake.yml`): the seconds of video its `recorder-fake` makes per second of real time. `1` is real time, `0` is as fast as ffmpeg goes (see [The fake recorder](#the-fake-recorder)). Commented out in `.env.example`. | `1` |
+| `FAKE_FACEIT_PORT` | Only for the stack without a FACEIT key (`docker-compose.fake.yml`): the host port its fake FACEIT, and the fake Steam of [Signing in](#signing-in), is published on. The address the browser is sent to for the fake Steam follows it. Commented out in `.env.example`. | `8089` |
 | `DB_URL` | JDBC URL of PostgreSQL. | `jdbc:postgresql://localhost:5432/csfaceit` |
 | `DB_USER`, `DB_PASSWORD` | PostgreSQL credentials; the `postgres` service is created with them. | `csfaceit` / `csfaceit` |
 | `REDIS_HOST`, `REDIS_PORT` | Redis address. | `localhost` / `6379` |
@@ -176,6 +180,10 @@ The override also starts `recorder-fake`, the [recorder](recorder/README.md) in 
 clips that are asked for (see [Video clips](#video-clips)) are recorded, as a test pattern, without a game; how it goes
 and what `FAKE_SPEED` does are in [The fake recorder](#the-fake-recorder).
 
+The same fake plays Steam's login page, so a visitor can sign in without a Steam account: it signs them in as `s1mple`
+at once, with no page and no password (see [Trying it without Steam](#trying-it-without-steam)). It confirms every
+answer it is shown, so this stack is for a development machine and never for a server.
+
 ## Deploying on a server
 
 This takes a fresh Linux server (Ubuntu is assumed) to the site on the internet, with Docker Compose. It is the minimum
@@ -214,6 +222,7 @@ the parser connects with.
 | `FACEIT_API_KEY` | **Must be set.** Your FACEIT Data API key; the backend does not start without it. |
 | `APP_API_KEY` | **Must be set.** The admin key, sent in `X-API-Key` by whoever uploads a demo, has it analyzed or orders a clip. `docker-compose.prod.yml` refuses to start without it. |
 | `CLIP_WORKER_TOKEN` | **Must be set to have clips recorded**, by the recorder you connect (see the end of this section). While it is empty every request of a recorder is refused. |
+| `AUTH_ADMIN_STEAM_IDS` | Optional. The SteamID64 of each person who should get the role `ADMIN` when they sign in with Steam (see [Signing in](#signing-in)). Nothing depends on the role yet. |
 | `DB_PASSWORD` | **Should be changed.** The default is public. |
 | `RABBITMQ_USER`, `RABBITMQ_PASSWORD` | **Should be changed.** The defaults are `guest` / `guest`. |
 | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | **Should be changed.** The defaults are `minioadmin` / `minioadmin`. |
@@ -440,7 +449,8 @@ cd frontend && SHOTS=1 npx playwright test e2e/shots.spec.ts
 Base URL: <http://localhost:3000> with Docker Compose, <http://localhost:8080> in dev mode. Everything returns JSON,
 and errors have the shape `{"code": "...", "message": "..."}`. The player and match endpoints below are `GET` and open;
 the four [demo endpoints](#demo-pipeline) and the [clip endpoints](#video-clips) are described in their own sections,
-and the requests that change something (`POST`, `DELETE`) need the `X-API-Key` header.
+and the requests that change something (`POST`, `DELETE`) need the `X-API-Key` header, signing out excepted. The requests
+about who is signed in are [their own section](#signing-in).
 
 | Endpoint | Description |
 | --- | --- |
@@ -474,8 +484,10 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | --- | --- | --- |
 | 400 | `VALIDATION_ERROR` | A nickname, id, highlight `type` or paging parameter is malformed; for the upload also a bad file name, an empty or corrupt file, or a multipart body that is malformed or was cut off. |
 | 401 | `UNAUTHORIZED` | A protected request is missing a valid `X-API-Key` header; a request to the recorder's API (`/api/worker/**`) a valid `X-Worker-Token` header. |
-| 403 | `FORBIDDEN` | The request has a valid credential that its path does not accept: the admin key on the recorder's API. |
+| 401 | `UNAUTHENTICATED` | `GET /api/v1/auth/me` without a session; see [Signing in](#signing-in). |
+| 403 | `FORBIDDEN` | The request has a valid credential that its path does not accept: the admin key on the recorder's API, a session on a request that needs the admin key. |
 | 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND`, `DEMO_NOT_FOUND` | FACEIT does not know the player or match, or the match has no demo record yet. The request for the compilation of a player's kills does not ask FACEIT: there the first two say that the database has no such match or player; see [Video clips](#video-clips). |
+| 404 | `AUTH_PROVIDER_DISABLED` | The sign-in with FACEIT was asked for; it is not written yet (see [Signing in](#signing-in)). |
 | 404 | `HIGHLIGHT_NOT_FOUND`, `CLIP_NOT_FOUND` | There is no such highlight (or its demo is not `ANALYZED`) or clip; see [Video clips](#video-clips). |
 | 409 | `DEMO_URL_UNAVAILABLE`, `DEMO_NOT_PARSED` | A demo import was requested but FACEIT has no demo for the match (yet); or an analysis was requested but the demo is not `PARSED` or `ANALYZED`. |
 | 409 | `DEMO_NOT_AVAILABLE`, `PLAYER_STEAM_ID_UNKNOWN`, `NO_KILLS`, `CLIP_TOO_LONG` | A new clip was requested but the demo file is not stored, the player's SteamID is unknown, the player made no kill of an enemy in the match (a compilation), or the clip would be longer than allowed; see [Video clips](#video-clips). |
@@ -492,6 +504,132 @@ and an expired copy is served when FACEIT is down.
 Operational endpoints (`/actuator/health`, `/actuator/prometheus`) are served by the backend on port 8080 and are
 only reachable directly in dev mode, not through Nginx. In the Compose stack Prometheus reads them over the internal
 network (see [Metrics and dashboards](#metrics-and-dashboards)).
+
+## Signing in
+
+A visitor can sign in with Steam: [OpenID 2.0](https://openid.net/specs/openid-authentication-2_0.html), which needs no
+API key and no registration. The site then looks for the visitor's FACEIT player by their SteamID, and says who is signed in.
+Nothing has to be signed in to read: every read of the API stays open. A session **identifies** the visitor and nothing
+more. Uploading and analyzing a demo and ordering and deleting a clip still take the admin key (`X-API-Key`), whoever is
+signed in, and so does everything else that is not a read; the recorder's API still takes the worker token and ignores
+the cookies. Signing in with FACEIT itself (OAuth) is a later step.
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /api/v1/auth/providers` | `{"steam": true, "faceit": false}`: which ways of signing in this deployment offers. `faceit` is true only while `FACEIT_OAUTH_CLIENT_ID` is set. |
+| `GET /api/v1/auth/steam/start?returnTo=/clips` | `302` to Steam's login page, and the cookie `csf_login`. `returnTo` is the path of the site to come back to. |
+| `GET /api/v1/auth/steam/callback?state=...&openid....` | Where Steam sends the visitor back; nothing calls it by hand. On success `302` to the `returnTo` of the start, with the cookie `csf_session`. On any failure `302` to `/?login=failed` and no session. `csf_login` is spent either way. |
+| `GET /api/v1/auth/faceit/start`, `GET /api/v1/auth/faceit/callback` | `404` `AUTH_PROVIDER_DISABLED`: the sign-in with FACEIT is not written yet. |
+| `GET /api/v1/auth/me` | `200` with who is signed in, `401` `UNAUTHENTICATED` without a session. |
+| `POST /api/v1/auth/logout` | `204`. The session is deleted from the database and its cookie cleared; the old cookie signs nobody in any more. `204` also when there was no session, and no admin key is needed. |
+
+```json
+{"id": 1, "nickname": "s1mple", "avatarUrl": "https://assets.example/avatars/s1mple.jpg", "role": "USER",
+ "steamId": "76561198000000001", "playerId": "11111111-1111-1111-1111-111111111111"}
+```
+
+`playerId` is the FACEIT player id that the site uses in `/players/{playerId}`, and `null` while no FACEIT player is
+linked; then `nickname` is `Steam ` and the last six digits of the SteamID. `role` is `USER` or `ADMIN`.
+
+### The two cookies
+
+Both are `HttpOnly` and `SameSite=Lax`, and `Secure` when the browser is on HTTPS (see "Where the address comes from"
+below). A page cannot read them, and the browser does not send them with a request made from another site.
+
+| Cookie | Holds | Lasts | Path |
+| --- | --- | --- | --- |
+| `csf_login` | a random `state` and the path to return to | 10 minutes; spent by the callback | `/api/v1/auth` |
+| `csf_session` | a random token, 32 bytes as URL-safe Base64 | 30 days from the sign-in; use does not extend it | `/` |
+
+The path to return to goes only to a path of the site: it has to start with `/` and not with `//`, hold no backslash and
+no control character, and be at most 512 characters; anything else (`//evil.example`, `https://evil.example`, `/\evil`,
+nothing at all) becomes `/`.
+
+### How an answer from Steam is checked
+
+Steam sends the visitor back to the callback with its answer in the address, so the answer is only as good as the checks
+made of it. Every failure ends in `302` to `/?login=failed`, without a session, with one `WARN` line in the log that
+names the reason and quotes no value of the request. The checks, in order:
+
+1. The `state` of the address equals the one in the `csf_login` cookie of this browser. An address carrying somebody
+   else's answer, given to a visitor, therefore signs nobody in as that somebody.
+2. `openid.mode` is `id_res` (a visitor who gives up at Steam comes back with `cancel`), and no `openid.*` parameter is
+   there twice.
+3. `openid.return_to` is the address this request would have been given: this site's callback, on the origin of this
+   request, with this `state`.
+4. `openid.op_endpoint` is the login address of the settings.
+5. `openid.claimed_id` is exactly `https://steamcommunity.com/openid/id/` and 17 digits. That is Steam's own pattern and it
+   stays so in every environment.
+6. Steam confirms the answer: every `openid.*` parameter is posted back to the verification address of the settings with
+   `openid.mode=check_authentication`, and the reply must hold the line `is_valid:true`. The wait is short; a Steam that
+   does not answer is a failed sign-in and not an error of the site.
+
+### Where the address comes from
+
+The address Steam is told to send the visitor back to (`openid.return_to`, and the `openid.realm` it shows) is **the origin
+the browser used**, taken from the request and from no setting: the scheme from `X-Forwarded-Proto` when it says `http` or
+`https`, else the request's own, and the host and port from the `Host` header. That is because one image is reached through
+a domain over HTTPS, through a bare address over HTTP and through `localhost`. The Caddy of `docker-compose.prod.yml` keeps
+the `Host` and sets `X-Forwarded-Proto: https`; the Nginx of the stack passes both on as they came, and fills in
+`X-Forwarded-Proto` with its own scheme only when the request has none. A proxy of your own in front has to set
+`X-Forwarded-Proto` as well, or the visitors of an HTTPS site are sent back to `http://`. The session cookie is `Secure`
+exactly when that scheme is `https`, and so is `csf_login`. In dev mode (Vite) the proxy of `vite.config.ts` keeps the
+`Host`, so the callback comes back to the dev server.
+
+### What is stored
+
+The migration `V5__users.sql` adds two tables.
+
+- `users`: `steam_id` and `faceit_id` (each unique; at least one is set), `player_id` (the row of the FACEIT player in
+  `players`, once found), `nickname`, `avatar_url`, `role`, `created_at` and `last_login_at`.
+- `user_sessions`: `token_hash`, `user_id`, `created_at` and `expires_at`. The table holds the SHA-256 of the session token,
+  never the token, so a copy of the database signs nobody in. The sessions that have ended are deleted whenever someone signs
+  in, so no job is needed.
+
+A session cookie that is unknown, expired or malformed is simply ignored: the request is anonymous, and a public page never
+answers `401` because of a stale cookie. A request that carries both a session cookie and the admin key is the admin's for
+every rule, and `GET /api/v1/auth/me` still answers for the cookie. Signing in again ends the session the browser had.
+
+### The FACEIT player
+
+After Steam has confirmed the visitor, the site asks FACEIT for the CS2 player of that SteamID
+(`GET /players?game=cs2&game_player_id=<SteamID>`). When there is one, the user gets its id, nickname and avatar, and the
+site's row for the player is made if it is missing, so that `playerId` of `/api/v1/auth/me` opens the player's page. A SteamID
+that FACEIT does not know, a FACEIT that fails or does not answer, and a FACEIT player that another user is linked to already
+all leave the visitor **signed in, without a link**; it is tried again at the next sign-in, and a link that exists is never
+removed by a lookup that fails or finds nothing. No call to Steam or FACEIT is made inside a database transaction.
+
+### Sign-in settings
+
+| Setting | Variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `auth.admin-steam-ids` | `AUTH_ADMIN_STEAM_IDS` | empty | SteamID64s (17 digits, comma separated) that get the role `ADMIN` at every sign-in; everyone else is a `USER`. The role is stored and shown, and gives a session no authority yet. |
+| `auth.steam.login-url` | `AUTH_STEAM_LOGIN_URL` | `https://steamcommunity.com/openid/login` | Where the browser is sent to sign in; the answer must name it as its `openid.op_endpoint`. |
+| `auth.steam.verify-url` | `AUTH_STEAM_VERIFY_URL` | the same | Where the backend posts the answer back to have it confirmed. |
+| `auth.faceit.client-id`, `auth.faceit.client-secret` | `FACEIT_OAUTH_CLIENT_ID`, `FACEIT_OAUTH_CLIENT_SECRET` | empty | The FACEIT OAuth application. Neither is logged. |
+| `auth.session-lifetime` | none | `30d` | How long a session lasts. |
+
+Only the stack without a FACEIT key changes the two Steam addresses (they are two settings because the browser and the
+backend reach its fake Steam at different addresses). A deployment leaves them alone and signs in with the real Steam.
+
+### Trying it without Steam
+
+The stack of [Running without a FACEIT key](#running-without-a-faceit-key) has a fake Steam that signs the visitor in as
+`s1mple` (SteamID `76561198000000001`) with no page and no password; see [`dev/fake-faceit/README.md`](dev/fake-faceit/README.md).
+Open <http://localhost:3000/api/v1/auth/steam/start?returnTo=/clips> in a browser, or:
+
+```bash
+# 1. Start: the redirect goes to the login page of the (fake) Steam, with this site's callback and realm in it.
+LOGIN=$(curl -sS -c jar.txt -o /dev/null -w '%{redirect_url}' "http://localhost:3000/api/v1/auth/steam/start?returnTo=/clips")
+# 2. The fake Steam answers at once with a redirect to the callback of the site, a positive answer in its address.
+CALLBACK=$(curl -sS -o /dev/null -w '%{redirect_url}' "$LOGIN")
+# 3. The callback sets the session cookie (into the jar) and sends the visitor to /clips.
+curl -sS -b jar.txt -c jar.txt -o /dev/null -w '%{http_code} %{redirect_url}\n' "$CALLBACK"
+# 4. Who is signed in:
+curl -sS -b jar.txt http://localhost:3000/api/v1/auth/me
+# 5. Sign out (no admin key needed); the cookie then gets 401 UNAUTHENTICATED from /me:
+curl -sS -b jar.txt -c jar.txt -X POST -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/v1/auth/logout
+```
 
 ## Demo pipeline
 

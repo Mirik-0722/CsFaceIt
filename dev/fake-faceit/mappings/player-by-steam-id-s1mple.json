@@ -1,0 +1,46 @@
+{
+  "name": "GET /players?game=cs2&game_player_id=<s1mple SteamID>",
+  "request": {
+    "method": "GET",
+    "urlPath": "/players",
+    "queryParameters": {
+      "game": {
+        "equalTo": "cs2"
+      },
+      "game_player_id": {
+        "equalTo": "76561198000000001"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "player_id": "11111111-1111-1111-1111-111111111111",
+      "nickname": "s1mple",
+      "avatar": "https://assets.example/avatars/s1mple.jpg",
+      "country": "ua",
+      "steam_id_64": "76561198000000001",
+      "faceit_url": "https://www.faceit.com/{lang}/players/s1mple",
+      "verified": true,
+      "games": {
+        "cs2": {
+          "region": "EU",
+          "game_player_id": "76561198000000001",
+          "game_player_name": "s1mple",
+          "skill_level": 10,
+          "faceit_elo": 3500
+        },
+        "csgo": {
+          "region": "EU",
+          "game_player_id": "76561198000000001",
+          "game_player_name": "s1mple",
+          "skill_level": 10,
+          "faceit_elo": 3200
+        }
+      }
+    }
+  }
+}

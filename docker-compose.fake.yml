@@ -7,9 +7,11 @@ services:
   fake-faceit:
     # Pinned to an exact version so the fake behaves the same everywhere.
     image: wiremock/wiremock:3.13.2
-    # Published for local development only, and only on the loopback interface.
+    # Published for local development only, and only on the loopback interface. The host port is a variable because the
+    # backend has to tell the browser where the fake Steam is (AUTH_STEAM_LOGIN_URL below): set FAKE_FACEIT_PORT to
+    # publish it elsewhere and both follow. A port mapping of another file that replaces this one has to set it too.
     ports:
-      - "127.0.0.1:8089:8080"
+      - "127.0.0.1:${FAKE_FACEIT_PORT:-8089}:8080"
     volumes:
       # WireMock reads its stubs from mappings/ and its response files from __files/ under /home/wiremock.
       - ./dev/fake-faceit:/home/wiremock:ro
@@ -29,6 +31,13 @@ services:
       APP_API_KEY: ${APP_API_KEY:-dev-admin-key}
       # Worker token of the demo stack (the X-Worker-Token header of a recorder); override it by setting CLIP_WORKER_TOKEN.
       CLIP_WORKER_TOKEN: ${CLIP_WORKER_TOKEN:-dev-worker-token}
+      # A fake Steam as well: the same WireMock plays it (dev/fake-faceit/README.md), and "Sign in with Steam" signs in as
+      # the player s1mple without a Steam account. The browser is sent to the login address on the published port of
+      # the fake, which is the address it can reach; the backend confirms the answer at the address the fake has inside
+      # this network. They are two addresses of one server, which is what the two settings are for. Never use this on a
+      # server: whoever reaches the fake can sign in as anybody.
+      AUTH_STEAM_LOGIN_URL: http://localhost:${FAKE_FACEIT_PORT:-8089}/steam/openid/login
+      AUTH_STEAM_VERIFY_URL: http://fake-faceit:8080/steam/openid/login
     depends_on:
       fake-faceit:
         condition: service_healthy
