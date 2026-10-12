@@ -18,6 +18,15 @@ function statusRank(status: ClipStatus): number {
   return status === 'FAILED' ? 2 : 1
 }
 
+/** The order of several clips of the same thing: see {@link clipFor}. */
+function byPreference(a: ClipResponse, b: ClipResponse): number {
+  return (
+    statusRank(a.status) - statusRank(b.status) ||
+    CLIP_QUALITIES.indexOf(b.quality) - CLIP_QUALITIES.indexOf(a.quality) ||
+    b.createdAt.localeCompare(a.createdAt)
+  )
+}
+
 /**
  * The clip of a highlight among the clips of its match, or undefined when it has none. A clip does not carry the id of
  * its highlight (a repeated analysis gives every highlight a new id), so it is found by what the highlight is: the
@@ -34,12 +43,17 @@ export function clipFor(highlight: HighlightResponse, clips: ClipResponse[]): Cl
         clip.roundNumber === highlight.roundNumber &&
         clip.tickStart === highlight.tickStart,
     )
-    .sort(
-      (a, b) =>
-        statusRank(a.status) - statusRank(b.status) ||
-        CLIP_QUALITIES.indexOf(b.quality) - CLIP_QUALITIES.indexOf(a.quality) ||
-        b.createdAt.localeCompare(a.createdAt),
-    )[0]
+    .sort(byPreference)[0]
+}
+
+/**
+ * The compilation of a player among the clips of a match, or undefined; of several the one {@link clipFor} would
+ * choose.
+ */
+export function compilationFor(playerId: string, clips: ClipResponse[]): ClipResponse | undefined {
+  return clips
+    .filter((clip) => clip.kind === 'COMPILATION' && clip.playerId === playerId)
+    .sort(byPreference)[0]
 }
 
 /** What a clip shows, as its tag says it: the label of its highlight (`4K`, `1v3 CLUTCH`), or the word for a compilation. */

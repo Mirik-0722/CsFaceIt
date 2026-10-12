@@ -1,27 +1,29 @@
 import type { UseQueryResult } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { useMatch, useMatchClips, useMatchHighlights, useMatchStats } from '@/api/queries'
+import { useDemo, useMatch, useMatchClips, useMatchHighlights, useMatchStats } from '@/api/queries'
 import ClipButton from '@/components/ClipButton'
 import ClipList from '@/components/ClipList'
-import ClipOrderDialog from '@/components/ClipOrderDialog'
+import ClipOrderDialog, { type ClipOrder } from '@/components/ClipOrderDialog'
 import DemoPanel from '@/components/DemoPanel'
 import HighlightList from '@/components/HighlightList'
 import MapTile from '@/components/MapTile'
 import MatchScore from '@/components/MatchScore'
+import RecDot from '@/components/RecDot'
 import RecorderBanner from '@/components/RecorderBanner'
 import StatsTable from '@/components/StatsTable'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useT } from '@/i18n'
-import { clipFor } from '@/lib/clips'
+import { clipFor, compilationFor } from '@/lib/clips'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/formatDate'
 import { hasLost } from '@/lib/hasLost'
 import { highlightGroup, type HighlightGroup } from '@/lib/highlightLabels'
 import { mapLabel } from '@/lib/mapTint'
 import type { ApiError } from '@/api/client'
-import type { HighlightResponse, MatchResponse, MatchStatsResponse, TeamStatsResponse } from '@/api/types'
+import type { MatchResponse, MatchStatsResponse, TeamStatsResponse } from '@/api/types'
 
 /**
  * The map, the start date and the status of a match, each left out while FACEIT has not published it, and the score
@@ -69,13 +71,11 @@ const HIGHLIGHT_FILTERS: HighlightFilter[] = ['all', 'multi', 'clutch', 'special
  * button carries the number of highlights it would show. Every card ends with what can be done about the clip of its
  * highlight: any highlight can be recorded, of whatever kind. A failure stays inside the section.
  */
-function MatchHighlights({ matchId }: { matchId: string }) {
+function MatchHighlights({ matchId, onOrder }: { matchId: string; onOrder: (order: ClipOrder) => void }) {
   const t = useT()
   const highlights = useMatchHighlights(matchId)
   const clips = useMatchClips(matchId)
   const [filter, setFilter] = useState<HighlightFilter>('all')
-  // The highlight whose clip is being ordered; the dialog is open while there is one.
-  const [ordering, setOrdering] = useState<HighlightResponse | null>(null)
   const items = highlights.data
   const matchClips = clips.data
   const labels: Record<HighlightFilter, string> = {
@@ -124,7 +124,10 @@ function MatchHighlights({ matchId }: { matchId: string }) {
             action={
               matchClips &&
               ((highlight) => (
-                <ClipButton clip={clipFor(highlight, matchClips)} onOrder={() => setOrdering(highlight)} />
+                <ClipButton
+                  clip={clipFor(highlight, matchClips)}
+                  onOrder={() => onOrder({ kind: 'highlight', highlight })}
+                />
               ))
             }
           />
@@ -136,7 +139,83 @@ function MatchHighlights({ matchId }: { matchId: string }) {
           <p className="text-sm text-destructive">{errorMessage(clips.error, t)}</p>
         )}
       </div>
-      <ClipOrderDialog highlight={ordering} open={ordering !== null} onClose={() => setOrdering(null)} />
+    </section>
+  )
+}
+
+interface CompilationProps {
+  matchId: string
+  mapName: string | null
+  /** The teams of the scoreboard, once the stats have arrived. */
+  teams: TeamStatsResponse[] | undefined
+  onOrder: (order: ClipOrder) => void
+}
+
+/**
+ * One video of every kill of a player in the match (spec 4, the compilation panel). It is cut from the kills of the
+ * demo, so the panel is there once the demo has been parsed. The players to choose from are those of the scoreboard
+ * and, after them, players the highlights name that the scoreboard does not (a player the backend knows only from
+ * the demo). Beside the chosen player stands the state of that player's compilation, as on a highlight card.
+ */
+function Compilation({ matchId, mapName, teams, onOrder }: CompilationProps) {
+  const t = useT()
+  const playerFieldId = useId()
+  const demo = useDemo(matchId)
+  const highlights = useMatchHighlights(matchId)
+  const clips = useMatchClips(matchId)
+  const [chosenId, setChosenId] = useState('')
+  const status = demo.data?.status
+  const players = [...(teams ?? []).flatMap((team) => team.players), ...(highlights.data ?? [])]
+    .map(({ playerId, nickname }) => ({ playerId, nickname }))
+    .filter((player, index, all) => all.findIndex((other) => other.playerId === player.playerId) === index)
+  const matchClips = clips.data
+  if ((status !== 'PARSED' && status !== 'ANALYZED') || players.length === 0 || !matchClips) {
+    return null
+  }
+  const chosen = players.find((player) => player.playerId === chosenId)
+  const record = t.clip.compilationPanel.record
+  return (
+    <section className="flex flex-wrap items-end gap-x-8 gap-y-4 border border-border px-6 py-5.5">
+      <div className="flex min-w-0 flex-[999_1_24rem] flex-col gap-1">
+        <h2 className="text-[17px] leading-[1.4] font-semibold">{t.clip.compilation}</h2>
+        <p className="text-sm text-muted-foreground">{t.clip.compilationPanel.text}</p>
+      </div>
+      <div className="flex min-w-0 flex-wrap items-end gap-3">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <label htmlFor={playerFieldId} className="label-mono">
+            {t.clip.compilationPanel.playerLabel}
+          </label>
+          <select
+            id={playerFieldId}
+            value={chosenId}
+            onChange={(event) => setChosenId(event.target.value)}
+            className="h-11 max-w-full min-w-48 rounded-lg border border-border bg-card px-3 text-base text-foreground"
+          >
+            <option value="">{t.clip.compilationPanel.choosePlayer}</option>
+            {players.map((player) => (
+              <option key={player.playerId} value={player.playerId}>
+                {player.nickname}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex min-h-11 min-w-0 items-center gap-3">
+          {chosen ? (
+            <ClipButton
+              clip={compilationFor(chosen.playerId, matchClips)}
+              label={record}
+              variant="outline"
+              onOrder={() => onOrder({ kind: 'compilation', matchId, mapName, ...chosen })}
+            />
+          ) : (
+            // Nothing to record until a player is chosen: the button is there to say what the panel is for.
+            <Button type="button" variant="outline" disabled>
+              <RecDot />
+              {record}
+            </Button>
+          )}
+        </div>
+      </div>
     </section>
   )
 }
@@ -198,6 +277,8 @@ function MatchDetails({ matchId }: { matchId: string }) {
   const t = useT()
   const match = useMatch(matchId)
   const stats = useMatchStats(matchId)
+  // What is being ordered, a highlight's clip or a compilation; the one dialog of the page is open while there is one.
+  const [order, setOrder] = useState<ClipOrder | null>(null)
   // A match that cannot be shown has no stats to show either: its error is the one message on the page.
   const matchFailed = match.isError && !match.data
 
@@ -217,7 +298,10 @@ function MatchDetails({ matchId }: { matchId: string }) {
       </div>
       {/* The demo and what was found in it belong to a match that exists: they wait for the header. */}
       {match.data && <DemoPanel matchId={matchId} />}
-      {match.data && <MatchHighlights matchId={matchId} />}
+      {match.data && <MatchHighlights matchId={matchId} onOrder={setOrder} />}
+      {match.data && (
+        <Compilation matchId={matchId} mapName={match.data.mapName} teams={stats.data?.teams} onOrder={setOrder} />
+      )}
       {match.data && <MatchClips matchId={matchId} />}
       {!matchFailed && (
         // The tables follow the header, so a match that then turns out to be missing never flashes them.
@@ -225,6 +309,7 @@ function MatchDetails({ matchId }: { matchId: string }) {
           {match.data ? <MatchStats stats={stats} /> : <StatsSkeleton />}
         </div>
       )}
+      <ClipOrderDialog order={order} onClose={() => setOrder(null)} />
     </div>
   )
 }

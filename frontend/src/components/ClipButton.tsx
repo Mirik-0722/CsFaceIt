@@ -7,24 +7,28 @@ import { cn } from '@/lib/utils'
 import type { ClipResponse } from '@/api/types'
 
 interface ClipButtonProps {
-  /** The clip of the highlight, when it has one. */
+  /** The clip of the highlight or the compilation, when there is one. */
   clip: ClipResponse | undefined
-  /** Opens the order of a clip for the highlight: the first one, or another attempt after a failure. */
+  /** Opens the order of the clip: the first one, or another attempt after a failure. */
   onOrder: () => void
+  /** What the button that records says; "Record clip" when left out. */
+  label?: string
+  /** The look of the button that records: filled on a highlight card, an outline where it is a second action. */
+  variant?: 'default' | 'outline'
 }
 
 /**
- * What can be done about the clip of a highlight, as the last row of its card: record it while there is none, follow
- * it while it is queued or being recorded (the row then links to the clip's page), watch it once it is ready, and try
- * again after a failure.
+ * What can be done about the clip of a highlight, as the last row of its card, or about a compilation: record it
+ * while there is none, follow it while it is queued or being recorded (the row then links to the clip's page), watch
+ * it once it is ready, and try again after a failure.
  */
-export default function ClipButton({ clip, onOrder }: ClipButtonProps) {
+export default function ClipButton({ clip, onOrder, label, variant = 'default' }: ClipButtonProps) {
   const t = useT()
   if (!clip) {
     return (
-      <Button type="button" onClick={onOrder}>
+      <Button type="button" variant={variant} onClick={onOrder}>
         <RecDot />
-        {t.clip.record}
+        {label ?? t.clip.record}
       </Button>
     )
   }

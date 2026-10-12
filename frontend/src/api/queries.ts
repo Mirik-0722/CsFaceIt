@@ -349,6 +349,29 @@ export function useRequestHighlightClip() {
   })
 }
 
+/**
+ * Asks for the compilation of a player's kills in a match: one video of every kill. Answered and cached like
+ * {@link useRequestHighlightClip}; a player without a kill in the demo is refused (409 `NO_KILLS`).
+ */
+export function useRequestCompilation() {
+  const queryClient = useQueryClient()
+  return useMutation<
+    ClipResponse,
+    ApiError,
+    { apiKey: string; matchId: string; playerId: string; quality: ClipQuality }
+  >({
+    mutationFn: ({ apiKey, matchId, playerId, quality }) =>
+      apiPost<ClipResponse>(`/matches/${matchId}/clips`, { apiKey, body: { playerId, quality } }),
+    gcTime: 0,
+    onSuccess: (clip) => {
+      queryClient.setQueryData<ClipResponse[]>(['match-clips', clip.matchId], (clips) =>
+        clips ? [clip, ...clips.filter((other) => other.id !== clip.id)] : clips,
+      )
+      invalidateClipLists(queryClient, clip.matchId)
+    },
+  })
+}
+
 /** Deletes a clip and its files. A clip that is being recorded cannot be deleted (409 `CLIP_IN_PROGRESS`). */
 export function useDeleteClip() {
   const queryClient = useQueryClient()

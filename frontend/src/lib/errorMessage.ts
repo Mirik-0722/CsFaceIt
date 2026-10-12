@@ -43,6 +43,9 @@ export function errorMessage(error: Error, t: Messages): string {
     if (error.code === 'CLIP_TOO_LONG') {
       return t.clip.errors.tooLong
     }
+    if (error.code === 'NO_KILLS') {
+      return t.clip.errors.noKills
+    }
     if (error.code === 'CLIP_IN_PROGRESS') {
       return t.clip.errors.inProgress
     }

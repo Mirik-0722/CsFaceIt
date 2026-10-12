@@ -162,6 +162,13 @@ export const en = {
       cancel: 'Cancel',
       start: 'Start recording',
     },
+    compilationPanel: {
+      text: 'Every kill of one player in this match, in one video.',
+      allKills: 'All kills of the match',
+      playerLabel: 'Player',
+      choosePlayer: 'Choose a player',
+      record: 'Record compilation',
+    },
     recorder: {
       online: 'Recorder online',
       offline: 'Recorder offline',
@@ -198,6 +205,7 @@ export const en = {
       steamIdUnknown: "The player's Steam ID is not known.",
       queueFull: 'The queue is full. Try again later.',
       tooLong: 'The clip would be too long.',
+      noKills: 'This player has no kills in the demo.',
       inProgress: 'The clip is being recorded and cannot be deleted now.',
     },
   },

@@ -1,6 +1,6 @@
 import { X } from 'lucide-react'
 import { useId, useState } from 'react'
-import { useRecorderStatus, useRequestHighlightClip } from '@/api/queries'
+import { useRecorderStatus, useRequestCompilation, useRequestHighlightClip } from '@/api/queries'
 import KillTimeline from '@/components/KillTimeline'
 import RecDot from '@/components/RecDot'
 import { Badge } from '@/components/ui/badge'
@@ -16,6 +16,11 @@ import { mapLabel } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
 import type { ApiError } from '@/api/client'
 import type { ClipQuality, HighlightResponse } from '@/api/types'
+
+/** What can be ordered: the clip of one highlight, or one video of every kill of a player in a match. */
+export type ClipOrder =
+  | { kind: 'highlight'; highlight: HighlightResponse }
+  | { kind: 'compilation'; matchId: string; mapName: string | null; playerId: string; nickname: string }
 
 // A side is shown as its letters in its own colour, so the colour is never the only sign.
 const SIDE_CLASS: Record<string, string> = { CT: 'text-side-ct', T: 'text-side-t' }
@@ -58,12 +63,28 @@ function HighlightSummary({ highlight }: { highlight: HighlightResponse }) {
   )
 }
 
+/** What is about to be recorded when it is a compilation: whose kills, and of which match. */
+function CompilationSummary({ order }: { order: Extract<ClipOrder, { kind: 'compilation' }> }) {
+  const t = useT()
+  const map = mapLabel(order.mapName)
+  return (
+    <div className="flex flex-col gap-3 border border-border bg-background p-4">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        <Badge variant="outline">{t.clip.compilation}</Badge>
+        <span className="min-w-0 truncate text-[15px] font-semibold">{order.nickname}</span>
+        {map && <span className="label-mono">{map}</span>}
+      </div>
+      <p className="text-[13px] text-muted-foreground">{t.clip.compilationPanel.allKills}</p>
+    </div>
+  )
+}
+
 /**
  * The order itself. It is mounted when the dialog opens, so every opening starts from the defaults. The admin key is
  * asked for here when the page does not hold one yet, as in the demo panel: a key the backend took is kept until the
  * page is reloaded, and a key it rejects is forgotten.
  */
-function OrderForm({ highlight, onClose }: { highlight: HighlightResponse; onClose: () => void }) {
+function OrderForm({ order, onClose }: { order: ClipOrder; onClose: () => void }) {
   const t = useT()
   const keyId = useId()
   const messagesId = useId()
@@ -75,34 +96,39 @@ function OrderForm({ highlight, onClose }: { highlight: HighlightResponse; onClo
   const storedKey = useAdminKey()
   const apiKey = storedKey ?? typedKey.trim()
   const recorder = useRecorderStatus()
-  const request = useRequestHighlightClip()
+  const highlightClip = useRequestHighlightClip()
+  const compilation = useRequestCompilation()
+  const pending = highlightClip.isPending || compilation.isPending
   const hints: Record<ClipQuality, string> = { '720p': t.clip.order.fasterSmaller, '1080p': t.clip.order.recommended }
 
   function start() {
     setKeyRejected(false)
     setFailure(null)
-    request.mutate(
-      { apiKey, highlightId: highlight.id, quality },
-      {
-        onSuccess: () => {
-          // The backend took the key, so it is the right one: keep it for the next clip.
-          setAdminKey(apiKey)
-          onClose()
-        },
-        onError: (error) => {
-          if (error.status === 401) {
-            // A rejected key is forgotten everywhere: the stored one, the one in the field and the one the rejected
-            // request keeps in its variables.
-            setAdminKey(null)
-            setTypedKey('')
-            setKeyRejected(true)
-            request.reset()
-          } else {
-            setFailure(error)
-          }
-        },
+    const callbacks = {
+      onSuccess: () => {
+        // The backend took the key, so it is the right one: keep it for the next clip.
+        setAdminKey(apiKey)
+        onClose()
       },
-    )
+      onError: (error: ApiError) => {
+        if (error.status === 401) {
+          // A rejected key is forgotten everywhere: the stored one, the one in the field and the one the rejected
+          // request keeps in its variables.
+          setAdminKey(null)
+          setTypedKey('')
+          setKeyRejected(true)
+          highlightClip.reset()
+          compilation.reset()
+        } else {
+          setFailure(error)
+        }
+      },
+    }
+    if (order.kind === 'highlight') {
+      highlightClip.mutate({ apiKey, highlightId: order.highlight.id, quality }, callbacks)
+    } else {
+      compilation.mutate({ apiKey, matchId: order.matchId, playerId: order.playerId, quality }, callbacks)
+    }
   }
 
   return (
@@ -113,7 +139,11 @@ function OrderForm({ highlight, onClose }: { highlight: HighlightResponse; onClo
         start()
       }}
     >
-      <HighlightSummary highlight={highlight} />
+      {order.kind === 'highlight' ? (
+        <HighlightSummary highlight={order.highlight} />
+      ) : (
+        <CompilationSummary order={order} />
+      )}
       <fieldset className="min-w-0">
         <legend className="label-mono">{t.clip.order.quality}</legend>
         <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
@@ -170,7 +200,7 @@ function OrderForm({ highlight, onClose }: { highlight: HighlightResponse; onClo
       )}
       {/* Always in the dialog, so that its first message is announced; while empty it takes back the gap above. */}
       <div id={messagesId} aria-live="polite" className="text-sm empty:-mt-5.5">
-        {request.isPending && <p className="text-muted-foreground">{t.demo.sending}</p>}
+        {pending && <p className="text-muted-foreground">{t.demo.sending}</p>}
         {keyRejected && <p className="text-destructive">{t.demo.wrongKey}</p>}
         {failure && <p className="text-destructive">{errorMessage(failure, t)}</p>}
       </div>
@@ -178,7 +208,7 @@ function OrderForm({ highlight, onClose }: { highlight: HighlightResponse; onClo
         <Button type="button" variant="outline" onClick={onClose}>
           {t.clip.order.cancel}
         </Button>
-        <Button type="submit" disabled={request.isPending || apiKey.length === 0}>
+        <Button type="submit" disabled={pending || apiKey.length === 0}>
           <RecDot />
           {t.clip.order.start}
         </Button>
@@ -188,9 +218,8 @@ function OrderForm({ highlight, onClose }: { highlight: HighlightResponse; onClo
 }
 
 interface ClipOrderDialogProps {
-  /** The highlight to record; without one the dialog stays closed. */
-  highlight: HighlightResponse | null
-  open: boolean
+  /** What to record; the dialog is open while there is something. */
+  order: ClipOrder | null
   onClose: () => void
 }
 
@@ -198,10 +227,10 @@ interface ClipOrderDialogProps {
  * The order of a clip (spec 4): what will be recorded, the quality to choose, how long the queue is, and the button
  * that puts the clip in the queue. The price and the Telegram switch of the mockup come with later plans.
  */
-export default function ClipOrderDialog({ highlight, open, onClose }: ClipOrderDialogProps) {
+export default function ClipOrderDialog({ order, onClose }: ClipOrderDialogProps) {
   const t = useT()
   return (
-    <Dialog open={open && highlight !== null} onOpenChange={(next) => !next && onClose()}>
+    <Dialog open={order !== null} onOpenChange={(next) => !next && onClose()}>
       <DialogContent>
         <div className="flex items-center justify-between gap-3">
           <DialogTitle>{t.clip.order.title}</DialogTitle>
@@ -212,7 +241,7 @@ export default function ClipOrderDialog({ highlight, open, onClose }: ClipOrderD
             <X aria-hidden="true" />
           </DialogClose>
         </div>
-        {highlight && <OrderForm highlight={highlight} onClose={onClose} />}
+        {order && <OrderForm order={order} onClose={onClose} />}
       </DialogContent>
     </Dialog>
   )

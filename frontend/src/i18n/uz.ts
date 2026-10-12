@@ -154,6 +154,13 @@ export const uz: Messages = {
       cancel: 'Bekor qilish',
       start: 'Yozishni boshlash',
     },
+    compilationPanel: {
+      text: "Bitta o'yinchining shu matchdagi hamma kill'lari bitta videoda.",
+      allKills: "Matchdagi hamma kill'lar",
+      playerLabel: "O'yinchi",
+      choosePlayer: "O'yinchini tanlang",
+      record: 'Kompilyatsiya yozish',
+    },
     recorder: {
       online: 'Yozuvchi onlayn',
       offline: 'Yozuvchi oflayn',
@@ -190,6 +197,7 @@ export const uz: Messages = {
       steamIdUnknown: "O'yinchining Steam ID'si noma'lum.",
       queueFull: "Navbat to'la. Keyinroq urinib ko'ring.",
       tooLong: 'Klip juda uzun chiqadi.',
+      noKills: "Bu o'yinchining demoda kill'i yo'q.",
       inProgress: "Klip yozilmoqda, hozir o'chirib bo'lmaydi.",
     },
   },
