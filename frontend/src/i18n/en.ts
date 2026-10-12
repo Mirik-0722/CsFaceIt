@@ -108,6 +108,62 @@ export const en = {
     adr: 'ADR',
     empty: 'No player stats',
   },
+  // The list of a player's matches, and the figures of the player's page that come from the same stored matches: the
+  // form strip, the maps and the kinds of highlight.
+  matches: {
+    title: 'Matches',
+    all: 'All',
+    // Heard after the visible word "All" by those who hear a page's links without their surroundings.
+    allSuffix: 'matches',
+    filterLabel: 'Filter matches',
+    needsDemo: 'Needs a demo',
+    emptyFilter: 'None of the loaded matches fits this filter',
+    // The newest matches as squares in the header of the profile; `count` is how many there are (up to ten).
+    form: {
+      label: (count: number) => `Last ${count} ${count === 1 ? 'match' : 'matches'}`,
+      name: (count: number, wins: number, losses: number, unknown: number) =>
+        `Last ${count} ${count === 1 ? 'match' : 'matches'}: ${wins} ${wins === 1 ? 'win' : 'wins'}, ` +
+        `${losses} ${losses === 1 ? 'loss' : 'losses'}${unknown > 0 ? `, ${unknown} unknown` : ''}`,
+    },
+    maps: {
+      title: 'Maps',
+      loading: 'Loading maps…',
+      map: 'Map',
+      matches: 'Matches',
+      winRate: 'Win rate',
+      kd: 'K/D',
+      adr: 'ADR',
+    },
+    types: {
+      title: 'Highlight types',
+      loading: 'Loading highlight types…',
+    },
+    columns: {
+      map: 'Map',
+      score: 'Score',
+      kda: 'K / D / A',
+      highlights: 'Highlights',
+      clips: 'Clips',
+    },
+    highlights: {
+      none: 'No highlights',
+    },
+    // Where the clips would be, for a match whose demo is on its way.
+    analyzing: 'Analyzing',
+    clips: {
+      active: (count: number) => `${count} recording`,
+      ready: (count: number) => `${count} ready`,
+      readyAlone: (count: number) => `${count} ${count === 1 ? 'clip' : 'clips'} ready`,
+    },
+    recorder: {
+      title: 'Recording PC',
+      loading: 'Loading the recorder status…',
+      online: 'Online',
+      offline: 'Offline',
+      active: 'Recording now',
+      queued: 'In the queue',
+    },
+  },
   statsCards: {
     title: 'Statistics',
     loading: 'Loading statistics…',

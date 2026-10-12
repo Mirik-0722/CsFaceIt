@@ -101,6 +101,56 @@ export const uz: Messages = {
     adr: 'ADR',
     empty: "O'yinchilar statistikasi yo'q",
   },
+  matches: {
+    title: 'Matchlar',
+    all: 'Hammasi',
+    allSuffix: 'matchlar',
+    filterLabel: 'Matchlarni saralash',
+    needsDemo: 'Demo kerak',
+    emptyFilter: "Yuklangan matchlar orasida bu filtrga mos keladigani yo'q",
+    form: {
+      label: (count) => `So'nggi ${count} match`,
+      name: (count, wins, losses, unknown) =>
+        `So'nggi ${count} match: ${wins} g'alaba, ${losses} mag'lubiyat${unknown > 0 ? `, ${unknown} noma'lum` : ''}`,
+    },
+    maps: {
+      title: 'Xaritalar',
+      loading: 'Xaritalar yuklanmoqda…',
+      map: 'Xarita',
+      matches: 'Match',
+      winRate: "G'alaba",
+      kd: 'K/D',
+      adr: 'ADR',
+    },
+    types: {
+      title: 'Highlight turlari',
+      loading: 'Highlight turlari yuklanmoqda…',
+    },
+    columns: {
+      map: 'Xarita',
+      score: 'Hisob',
+      kda: 'K / D / A',
+      highlights: "Highlight'lar",
+      clips: 'Kliplar',
+    },
+    highlights: {
+      none: "Highlight yo'q",
+    },
+    analyzing: 'Tahlil qilinmoqda',
+    clips: {
+      active: (count) => `${count} yozilmoqda`,
+      ready: (count) => `${count} tayyor`,
+      readyAlone: (count) => `${count} klip tayyor`,
+    },
+    recorder: {
+      title: 'Yozuvchi kompyuter',
+      loading: 'Yozuvchi holati yuklanmoqda…',
+      online: 'Onlayn',
+      offline: 'Oflayn',
+      active: 'Hozir yozilmoqda',
+      queued: 'Navbatda',
+    },
+  },
   statsCards: {
     title: 'Statistika',
     loading: 'Statistika yuklanmoqda…',

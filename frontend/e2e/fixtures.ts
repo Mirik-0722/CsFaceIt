@@ -3,14 +3,21 @@
 // The values are chosen for Playwright's strict locators: `25` is in exactly one stats cell, and `de_mirage` and
 // `ELO 3500` appear once on their pages.
 import type {
+  PlayerMatchPageResponse,
+  PlayerMatchResponse,
+  PlayerOverviewResponse,
+} from '../src/api/overviewTypes.ts'
+import type {
   ClipResponse,
   ClipStatus,
   DemoResponse,
+  DemoStatus,
   HighlightPageResponse,
   HighlightResponse,
   HighlightType,
   MatchHistoryResponse,
   MatchResponse,
+  MatchResult,
   MatchStatsResponse,
   PlayerAggregateStatsResponse,
   PlayerResponse,
@@ -139,6 +146,104 @@ export const playerStatsFixture: PlayerAggregateStatsResponse = {
   clutchPercent: 12.5,
   clutchAttempts: 16,
   clutchWins: 2,
+}
+
+/**
+ * The same player's stored matches by map and highlights by kind: twelve matches (seven of them won) as in
+ * `playerStatsFixture`, the last map without a stored ADR, and nine kinds once the five sizes of clutch are added up.
+ */
+export const playerOverviewFixture: PlayerOverviewResponse = {
+  playerId: PLAYER_ID,
+  maps: [
+    { mapName: 'de_mirage', matches: 5, wins: 3, kd: 1.52, adr: 93.4 },
+    { mapName: 'de_inferno', matches: 3, wins: 2, kd: 1.18, adr: 84.1 },
+    { mapName: 'de_ancient', matches: 2, wins: 1, kd: 1.26, adr: 85.0 },
+    { mapName: 'de_nuke', matches: 1, wins: 1, kd: 1.41, adr: 88.7 },
+    { mapName: 'de_dust2', matches: 1, wins: 0, kd: 0.97, adr: null },
+  ],
+  highlights: [
+    { type: 'K3', count: 9 },
+    { type: 'SMOKE_KILL', count: 4 },
+    { type: 'CLUTCH_1V1', count: 3 },
+    { type: 'WALLBANG', count: 3 },
+    { type: 'CLUTCH_1V2', count: 2 },
+    { type: 'K4', count: 2 },
+    { type: 'CLUTCH_1V3', count: 1 },
+    { type: 'ACE', count: 1 },
+    { type: 'NO_SCOPE', count: 1 },
+    { type: 'NINJA_DEFUSE', count: 1 },
+    { type: 'KNIFE_KILL', count: 1 },
+  ],
+}
+
+/** The fields of a row of the matches page that a row of the table below spells out; the rest follows from them. */
+type MatchRow = [
+  mapName: string | null,
+  startedAt: string,
+  result: MatchResult,
+  score: [own: number, other: number] | null,
+  kda: [kills: number, deaths: number, assists: number] | null,
+  adr: number | null,
+  demoStatus: DemoStatus | null,
+  highlights: [HighlightType, number][],
+  clips: [done: number, active: number, failed: number],
+]
+
+function playerMatchFixture(index: number, row: MatchRow): PlayerMatchResponse {
+  const [mapName, startedAt, result, score, kda, adr, demoStatus, highlights, [done, active, failed]] = row
+  // FACEIT orders the score by faction: the winner has more rounds, so a won match is the first faction's here.
+  const [own, other] = score ?? [0, 0]
+  const startedMs = Date.parse(startedAt)
+  return {
+    matchId: `1-pm-${String(index).padStart(2, '0')}`,
+    mapName,
+    startedAt,
+    finishedAt: new Date(startedMs + 45 * 60 * 1000).toISOString(),
+    result,
+    score: score === null ? {} : result === 'LOSS' ? { faction1: other, faction2: own } : { faction1: own, faction2: other },
+    kills: kda?.[0] ?? null,
+    deaths: kda?.[1] ?? null,
+    assists: kda?.[2] ?? null,
+    adr,
+    demoStatus,
+    highlights: highlights.map(([type, count]) => ({ type, count })),
+    clips: { done, active, failed },
+  }
+}
+
+/**
+ * A full page (20 rows, so the page offers "Show more") of the matches of the player, newest first, in every state a
+ * row can be in: the strongest highlight an ace, a four-kill, a triple kill and a clutch; a demo that was never
+ * uploaded, one that is being read and one that failed; an analyzed demo without a highlight; a clip being recorded and
+ * one ready; a match without a map and one without a stored line; and two matches of last year.
+ */
+export const playerMatchesFixture: PlayerMatchPageResponse = {
+  items: (
+    [
+      ['de_mirage', '2026-10-10T21:40:00', 'WIN', [13, 11], [27, 15, 4], 98.4, 'ANALYZED', [['ACE', 1], ['CLUTCH_1V3', 1], ['CLUTCH_1V1', 1], ['K3', 1], ['WALLBANG', 1]], [1, 1, 0]],
+      ['de_inferno', '2026-10-10T20:35:00', 'LOSS', [9, 13], [18, 17, 5], 77.0, 'ANALYZED', [['K3', 1]], [0, 0, 0]],
+      ['de_ancient', '2026-10-09T23:10:00', 'WIN', [13, 7], [22, 11, 6], 91.2, 'ANALYZED', [['K4', 1], ['CLUTCH_1V2', 1], ['K3', 1]], [1, 0, 0]],
+      ['de_anubis', '2026-10-09T22:15:00', 'WIN', [13, 10], [19, 14, 7], 80.5, 'PARSED', [], [0, 0, 0]],
+      ['de_dust2', '2026-10-08T21:05:00', 'LOSS', [11, 13], [16, 18, 3], 68.3, null, [], [0, 0, 0]],
+      ['de_mirage', '2026-10-08T19:50:00', 'LOSS', [7, 13], [12, 17, 4], 61.9, null, [], [0, 0, 0]],
+      ['de_nuke', '2026-10-07T22:40:00', 'WIN', [13, 9], [21, 13, 2], 88.0, 'ANALYZED', [['CLUTCH_1V1', 1], ['K3', 2]], [1, 0, 0]],
+      ['de_inferno', '2026-10-06T20:20:00', 'WIN', [13, 11], [24, 16, 5], 93.7, 'ANALYZED', [['K4', 1], ['NO_SCOPE', 1]], [1, 0, 0]],
+      ['de_mirage', '2026-10-05T22:00:00', 'WIN', [13, 8], [20, 12, 3], 84.2, 'ANALYZED', [], [0, 0, 0]],
+      ['de_ancient', '2026-10-05T20:30:00', 'LOSS', [10, 13], [15, 19, 6], 70.9, 'FAILED', [], [0, 0, 0]],
+      [null, '2026-10-04T21:10:00', 'UNKNOWN', null, null, null, null, [], [0, 0, 0]],
+      ['de_mirage', '2026-10-03T19:15:00', 'WIN', [13, 6], [29, 9, 4], 112.6, 'ANALYZED', [['ACE', 2], ['K4', 1], ['CLUTCH_1V5', 1], ['CLUTCH_1V4', 1], ['CLUTCH_1V3', 1], ['K3', 3], ['NO_SCOPE', 1]], [3, 0, 1]],
+      ['de_nuke', '2026-10-02T22:45:00', 'LOSS', [12, 14], [17, 20, 2], 72.4, 'ANALYZED', [['SMOKE_KILL', 1]], [0, 0, 0]],
+      ['de_inferno', '2026-10-01T21:20:00', 'WIN', [13, 10], [23, 14, 5], 89.9, 'ANALYZED', [['WALLBANG', 1], ['KNIFE_KILL', 1]], [0, 0, 0]],
+      ['de_vertigo', '2026-09-30T20:05:00', 'WIN', [13, 12], [18, 16, 7], 76.3, null, [], [0, 0, 0]],
+      ['de_mirage', '2026-09-29T22:30:00', 'LOSS', [8, 13], [14, 18, 3], 64.8, 'ANALYZED', [['NINJA_DEFUSE', 1]], [0, 0, 0]],
+      ['de_ancient', '2026-09-28T19:40:00', 'WIN', [13, 9], [25, 12, 6], 95.1, 'ANALYZED', [['CLUTCH_1V2', 1]], [0, 0, 0]],
+      ['de_anubis', '2026-09-27T21:55:00', 'WIN', [13, 11], [21, 15, 8], 82.7, 'STORED', [], [0, 0, 0]],
+      ['de_dust2', '2025-12-28T20:25:00', 'LOSS', [6, 13], [11, 19, 2], 55.0, null, [], [0, 0, 0]],
+      ['de_mirage', '2025-12-27T22:10:00', 'WIN', [13, 7], [26, 10, 5], 101.3, 'ANALYZED', [['K3', 1]], [0, 0, 0]],
+    ] satisfies MatchRow[]
+  ).map((row, index) => playerMatchFixture(index + 1, row)),
+  offset: 0,
+  limit: 20,
 }
 
 export const demoFixture: DemoResponse = {

@@ -1,7 +1,12 @@
+import { useId } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { usePlayerOverview } from '@/api/overview'
 import { usePlayer, usePlayerClips, usePlayerHighlights, usePlayerHistory, usePlayerStats } from '@/api/queries'
 import ClipList from '@/components/ClipList'
+import FormStrip from '@/components/FormStrip'
+import HighlightBreakdown from '@/components/HighlightBreakdown'
 import HighlightList from '@/components/HighlightList'
+import MapsTable from '@/components/MapsTable'
 import MatchList from '@/components/MatchList'
 import PlayerHeader from '@/components/PlayerHeader'
 import StatsCards from '@/components/StatsCards'
@@ -35,6 +40,61 @@ function PlayerStats({ playerId }: { playerId: string }) {
         {stats.isError && !stats.data && <p className="text-sm text-destructive">{errorMessage(stats.error, t)}</p>}
       </div>
     </section>
+  )
+}
+
+/**
+ * The player's stored matches by map beside the player's highlights by kind (spec 4, screen 8): two columns where both
+ * fit, one under the other below that. Each is there only while it has a row to show; while the answer is awaited both
+ * are, as skeletons, and a failure stays in the first of them.
+ */
+function PlayerOverview({ playerId }: { playerId: string }) {
+  const t = useT()
+  const mapsTitleId = useId()
+  const typesTitleId = useId()
+  const overview = usePlayerOverview(playerId)
+  const maps = overview.data?.maps ?? []
+  const kinds = overview.data?.highlights ?? []
+  const failed = overview.isError && !overview.data
+  if (overview.data && maps.length === 0 && kinds.length === 0) {
+    return null
+  }
+  return (
+    <div className="flex flex-wrap items-start gap-x-12 gap-y-7 pt-3">
+      {(overview.isPending || failed || maps.length > 0) && (
+        <section className="flex min-w-0 flex-[999_1_560px] flex-col gap-3.5">
+          <h2 id={mapsTitleId} className="heading-section">
+            {t.matches.maps.title}
+          </h2>
+          <div aria-live="polite" className="flex flex-col gap-2">
+            {overview.isPending && (
+              <>
+                <p className="label-mono">{t.matches.maps.loading}</p>
+                <Skeleton className="h-64 w-full" />
+              </>
+            )}
+            {maps.length > 0 && <MapsTable maps={maps} labelledBy={mapsTitleId} />}
+            {failed && <p className="text-sm text-destructive">{errorMessage(overview.error, t)}</p>}
+          </div>
+        </section>
+      )}
+      {(overview.isPending || kinds.length > 0) && (
+        <section className="flex min-w-0 flex-[1_1_340px] flex-col gap-3.5">
+          <h2 id={typesTitleId} className="heading-section">
+            {t.matches.types.title}
+          </h2>
+          <div aria-live="polite" className="flex flex-col gap-2">
+            {overview.isPending && (
+              <>
+                <p className="label-mono">{t.matches.types.loading}</p>
+                <Skeleton className="h-64 w-full" />
+              </>
+            )}
+            {kinds.length > 0 && <HighlightBreakdown highlights={kinds} labelledBy={typesTitleId} />}
+          </div>
+        </section>
+      )}
+    </div>
   )
 }
 
@@ -109,12 +169,17 @@ function PlayerProfile({ playerId }: { playerId: string }) {
   const t = useT()
   const player = usePlayer(playerId)
   const history = usePlayerHistory(playerId)
+  // The same request as the statistics section's: asked once, read twice.
+  const stats = usePlayerStats(playerId)
   // Offset paging can return the same match on two pages (each page is cached on its own), so keep the first.
   const matches = history.data?.pages
     .flatMap((page) => page.items)
     .filter((item, index, all) => all.findIndex((other) => other.matchId === item.matchId) === index)
   // A player that cannot be shown has no history to show either: its error is the one message on the page.
   const playerFailed = player.isError && !player.data
+  // The page of matches lists the matches the backend has stored, so there is nothing behind its link for a player
+  // without one.
+  const hasStoredMatches = (stats.data?.matches ?? 0) > 0
 
   return (
     <>
@@ -126,14 +191,26 @@ function PlayerProfile({ playerId }: { playerId: string }) {
           </>
         )}
         {playerFailed && <p className="text-sm text-destructive">{errorMessage(player.error, t)}</p>}
-        {player.data && <PlayerHeader player={player.data} size="lg" />}
+        {player.data && <PlayerHeader player={player.data} size="lg" aside={<FormStrip matches={matches ?? []} />} />}
       </div>
       {!playerFailed && <PlayerStats playerId={playerId} />}
+      {!playerFailed && <PlayerOverview playerId={playerId} />}
       {!playerFailed && <LatestHighlights playerId={playerId} />}
       {!playerFailed && <PlayerClips playerId={playerId} />}
       {!playerFailed && (
         <section className="flex flex-col gap-4 pt-3">
-          <h2 className="heading-section">{t.player.history}</h2>
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+            <h2 className="heading-section">{t.player.history}</h2>
+            {hasStoredMatches && (
+              <Link
+                to={`/players/${encodeURIComponent(playerId)}/matches`}
+                className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4 hover:text-primary"
+              >
+                {t.matches.all}
+                <span className="sr-only"> {t.matches.allSuffix}</span>
+              </Link>
+            )}
+          </div>
           <div aria-live="polite" className="flex flex-col gap-2">
             {history.isPending && (
               <>

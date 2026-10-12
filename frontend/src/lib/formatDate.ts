@@ -35,3 +35,28 @@ export function formatDateTime(iso: string, locale: Locale): string {
   const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
   return `${FORMATS[locale](date)}, ${time}`
 }
+
+const englishDayMonth = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short' })
+
+const DAY_MONTH_FORMATS: Record<Locale, (date: Date) => string> = {
+  en: (date) => englishDayMonth.format(date),
+  uz: (date) => `${date.getDate()}-${UZBEK_MONTHS[date.getMonth()]}`,
+}
+
+/**
+ * When a match was played, in the short form of a narrow table column: day, month and time of day, `10 Oct · 21:40` in
+ * English, `10-okt · 21:40` in Uzbek, for an instant of the year of `now`. Any other year takes the date with its year
+ * and no time (`10 Oct 2025`): a date without its year would be read as this year's, and the column has no room for
+ * both the year and the time. A string that is not a date gives an empty string.
+ */
+export function formatMatchTime(iso: string, locale: Locale, now: Date = new Date()): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  if (date.getFullYear() !== now.getFullYear()) {
+    return FORMATS[locale](date)
+  }
+  const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+  return `${DAY_MONTH_FORMATS[locale](date)} · ${time}`
+}

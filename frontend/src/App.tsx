@@ -4,6 +4,7 @@ import AppLayout from './components/AppLayout'
 import ClipPage from './pages/ClipPage'
 import ClipsPage from './pages/ClipsPage'
 import MatchPage from './pages/MatchPage'
+import MatchesPage from './pages/MatchesPage'
 import NotFoundPage from './pages/NotFoundPage'
 import PlayerHighlightsPage from './pages/PlayerHighlightsPage'
 import PlayerPage from './pages/PlayerPage'
@@ -21,6 +22,7 @@ export default function App() {
             <Route path="/" element={<SearchPage />} />
             <Route path="/players/:playerId" element={<PlayerPage />} />
             <Route path="/players/:playerId/highlights" element={<PlayerHighlightsPage />} />
+            <Route path="/players/:playerId/matches" element={<MatchesPage />} />
             <Route path="/matches/:matchId" element={<MatchPage />} />
             <Route path="/clips" element={<ClipsPage />} />
             <Route path="/clips/:clipId" element={<ClipPage />} />

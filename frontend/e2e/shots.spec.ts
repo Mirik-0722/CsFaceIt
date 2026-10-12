@@ -1,4 +1,5 @@
 import { test, type Page } from '@playwright/test'
+import type { PlayerMatchPageResponse, PlayerOverviewResponse } from '../src/api/overviewTypes.ts'
 import type {
   ClipResponse,
   DemoResponse,
@@ -22,6 +23,8 @@ import {
   matchFixture,
   matchHighlightsFixture,
   playerFixture,
+  playerMatchesFixture,
+  playerOverviewFixture,
   playerStatsFixture,
   recorderStatusFixture,
   statsFixture,
@@ -56,6 +59,10 @@ interface Backend {
   stats: MatchStatsResponse | null
   /** The player's figures over the stored matches. */
   playerStats: PlayerAggregateStatsResponse
+  /** The player's stored matches by map, and the player's highlights by kind. */
+  overview: PlayerOverviewResponse
+  /** The first page of the matches page. */
+  playerMatches: PlayerMatchPageResponse
   /** The highlights of the match. The player's own are also the profile's newest six and the highlights page. */
   highlights: HighlightResponse[]
   /** `null`: the match has no demo (the backend answers 404 DEMO_NOT_FOUND). */
@@ -119,6 +126,7 @@ const PAGES = [
   { name: 'result', path: '/', open: searchFor, tabs: 7 }, // the link around the player card (after field and button)
   { name: 'player', path: `/players/${PLAYER_ID}`, tabs: 5 }, // the player of the first highlight card
   { name: 'highlights', path: `/players/${PLAYER_ID}/highlights`, tabs: 6 }, // the type filter (after the player card)
+  { name: 'matches', path: `/players/${PLAYER_ID}/matches`, tabs: 5 }, // the link to the profile, beside the title
   { name: 'match', path: `/matches/${WON_MATCH_ID}`, tabs: 6 }, // the first filter button (after "Manage")
   // The order of a clip: the dialog that the first "Record clip" button of the match page opens. Its focus picture is
   // of what one Tab reaches from where the dialog put the focus when it opened.
@@ -156,13 +164,38 @@ const DEFAULT_CLIPS: ClipResponse[] = [
   clipFixture(READY_CLIP_ID, highlight(5), 'DONE'),
 ]
 
+/**
+ * Ten matches, the newest first: the two of the E2E fixtures (a win and a loss) and eight more, six wins and four
+ * losses in all, so that the form strip of the profile has its ten squares.
+ */
+function tenMatches(): MatchHistoryResponse {
+  const results = ['WIN', 'LOSS', 'WIN', 'WIN', 'LOSS', 'LOSS', 'WIN', 'WIN', 'WIN', 'LOSS'] as const
+  const items = results.map((result, index): MatchSummary => {
+    if (index < historyFixture.items.length) {
+      return historyFixture.items[index]
+    }
+    const startedAt = new Date(Date.parse('2023-11-13T21:00:00Z') - index * 24 * 60 * 60 * 1000)
+    return {
+      matchId: `1-form-${index}`,
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date(startedAt.getTime() + 45 * 60 * 1000).toISOString(),
+      result,
+      // The score comes in faction order, the winner has more rounds.
+      score: result === 'WIN' ? { faction1: 13, faction2: 6 + index } : { faction1: 8 + index, faction2: 13 },
+    }
+  })
+  return { items, offset: 0, limit: 20 }
+}
+
 const DEFAULT_BACKEND: Backend = {
   nickname: 's1mple',
   player: playerFixture,
-  history: historyFixture,
+  history: tenMatches(),
   match: matchFixture,
   stats: statsFixture,
   playerStats: playerStatsFixture,
+  overview: playerOverviewFixture,
+  playerMatches: playerMatchesFixture,
   highlights: matchHighlightsFixture,
   demo: demoFixture,
   clips: DEFAULT_CLIPS,
@@ -284,17 +317,19 @@ const SCENARIOS: Scenario[] = [
   { name: 'default', viewports: [SMALL_PHONE] },
   {
     name: 'long',
-    pages: ['result', 'player', 'highlights', 'match'],
+    pages: ['result', 'player', 'highlights', 'matches', 'match'],
     backend: LONG_BACKEND,
   },
   {
     // A player without CS2 data, without a single match, a stored figure or a highlight.
     name: 'empty',
-    pages: ['result', 'player', 'highlights'],
+    pages: ['result', 'player', 'highlights', 'matches'],
     backend: {
       player: { ...playerFixture, avatar: null, country: null, elo: null, level: null },
       history: { items: [], offset: 0, limit: 20 },
       playerStats: NO_PLAYER_STATS,
+      overview: { playerId: PLAYER_ID, maps: [], highlights: [] },
+      playerMatches: { items: [], offset: 0, limit: 20 },
       highlights: [],
       clips: [],
     },
@@ -308,7 +343,7 @@ const SCENARIOS: Scenario[] = [
   // The recording PC went away while clips were waiting.
   {
     name: 'offline',
-    pages: ['match', 'order', 'clips'],
+    pages: ['matches', 'match', 'order', 'clips'],
     backend: {
       clips: DEFAULT_CLIPS.filter((clip) => clip.status === 'QUEUED' || clip.status === 'DONE'),
       recorder: { online: false, lastSeenAt: '2023-11-14T21:00:00Z', queued: 1, active: 0 },
@@ -399,6 +434,8 @@ function answersFor(backend: Backend): Map<string, Reply> {
     [`GET /api/v1/players/${PLAYER_ID}`, { body: backend.player }],
     [`GET /api/v1/players/${PLAYER_ID}/history?offset=0&limit=20`, { body: backend.history }],
     [`GET /api/v1/players/${PLAYER_ID}/stats`, { body: backend.playerStats }],
+    [`GET /api/v1/players/${PLAYER_ID}/overview`, { body: backend.overview }],
+    [`GET /api/v1/players/${PLAYER_ID}/matches?offset=0&limit=20`, { body: backend.playerMatches }],
     [
       `GET /api/v1/players/${PLAYER_ID}/highlights?offset=0&limit=6`,
       { body: { items: own.slice(0, 6), offset: 0, limit: 6 } },
