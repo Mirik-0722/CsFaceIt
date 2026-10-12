@@ -6,6 +6,7 @@ import type {
   ClipResponse,
   DemoResponse,
   HighlightResponse,
+  HighlightType,
   MatchHistoryResponse,
   MatchResponse,
   MatchStatsResponse,
@@ -75,8 +76,9 @@ interface Backend {
   /** `null`: the match has no demo (the backend answers 404 DEMO_NOT_FOUND). */
   demo: DemoResponse | null
   /**
-   * The clips of the match, newest first. The player's own are also the clips of the profile, the finished ones the
-   * clips page, and each has a page of its own, with the kills of the highlight it was recorded from.
+   * The clips of the match, newest first. The player's own are also the clips of the profile and, for a signed-in
+   * visitor with a FACEIT player, the clips page under its tabs; the finished ones are the clips page of everybody
+   * else, and each has a page of its own, with the kills of the highlight it was recorded from.
    */
   clips: ClipResponse[]
   recorder: RecorderStatusResponse
@@ -303,6 +305,35 @@ const EDGE_CLIPS: ClipResponse[] = [
   clipFixture(34, EDGE_HIGHLIGHTS[2], 'UPLOADING', { progress: 100 }),
 ]
 
+/** A highlight of the player on a map of its own (the default match is on Mirage only), for the clips below. */
+function ownHighlight(id: number, type: HighlightType, mapName: string, roundNumber: number): HighlightResponse {
+  return { ...highlightFixture(id, type, OWNER, roundNumber, 'CT', [[40, 'ak47']]), mapName }
+}
+
+// The clips of the signed-in player as the design's page of clips draws them, newest first: eight, in five states, on
+// four maps. Under the tabs: 8 in all, 3 in progress (recording, queued, encoding), 4 ready, 1 failed.
+const OWN_CLIPS: ClipResponse[] = [
+  clipFixture(58, ownHighlight(61, 'CLUTCH_1V3', 'de_mirage', 21), 'RECORDING', { progress: 45 }),
+  clipFixture(57, ownHighlight(62, 'CLUTCH_1V1', 'de_mirage', 11), 'QUEUED', { queuePosition: 2 }),
+  clipFixture(56, ownHighlight(63, 'K4', 'de_ancient', 7), 'ENCODING', { progress: 80 }),
+  clipFixture(55, ownHighlight(64, 'K3', 'de_ancient', 13), 'DONE', {
+    kind: 'COMPILATION',
+    highlightType: null,
+    roundNumber: null,
+    tickStart: null,
+    durationMs: 137_000,
+    sizeBytes: 171_000_000,
+  }),
+  clipFixture(54, ownHighlight(65, 'ACE', 'de_mirage', 14), 'DONE', { durationMs: 16_000, sizeBytes: 22_440_000 }),
+  clipFixture(53, ownHighlight(66, 'K4', 'de_inferno', 9), 'DONE', {
+    quality: '720p',
+    durationMs: 15_000,
+    sizeBytes: 11_740_000,
+  }),
+  clipFixture(52, ownHighlight(67, 'K3', 'de_nuke', 18), 'DONE', { durationMs: 12_000, sizeBytes: 15_830_000 }),
+  clipFixture(51, ownHighlight(68, 'NO_SCOPE', 'de_inferno', 4), 'FAILED', { error: 'The recorder stopped responding' }),
+]
+
 // A 32-character nickname and team names longer than 32 characters (one with spaces, one without).
 const LONG_BACKEND: Partial<Backend> = {
   nickname: LONG_NICKNAME,
@@ -425,6 +456,16 @@ const SCENARIOS: Scenario[] = [
   { name: 'signedin', pages: ['home', 'player', 'clips', 'menu'], backend: { me: LINKED_USER } },
   // Signed in, but FACEIT has no player for the Steam account: the notice, the short nav and the short menu.
   { name: 'unlinked', pages: ['home', 'clips', 'menu'], backend: { me: UNLINKED_USER } },
+  // The page of clips of a signed-in player with a FACEIT player: every state under the tabs by state (the design's
+  // screen 5), then the tab with nothing in it (no clip has failed), then the page as a visitor sees it.
+  { name: 'myclips', pages: ['clips'], backend: { me: LINKED_USER, clips: OWN_CLIPS } },
+  {
+    name: 'myclips-empty',
+    pages: ['clips'],
+    backend: { me: LINKED_USER, clips: OWN_CLIPS.filter((clip) => clip.status !== 'FAILED') },
+    before: openLastTab,
+  },
+  { name: 'visitor', pages: ['clips'], backend: { me: null, clips: OWN_CLIPS } },
   // FACEIT turned on in the backend: its sign-in button is a button now, in the hero and in the dialog.
   { name: 'faceit', pages: ['home', 'signin'], backend: { providers: { steam: true, faceit: true } } },
   // The players of the demo are not linked to the roster: the strip has one row, the scoreboard no analysis columns.
@@ -594,6 +635,11 @@ async function openSignIn(page: Page) {
 async function openAccountMenu(page: Page) {
   await page.locator('header button[aria-expanded]').click()
   await page.getByRole('dialog').waitFor()
+}
+
+/** Presses the last of the toggle buttons of the page's content: the tab "Failed" of the clips page. */
+async function openLastTab(page: Page) {
+  await page.locator('main button[aria-pressed]').last().click()
 }
 
 /** Opens the controls of the demo panel: the one button of the page's content that says it has something to expand. */

@@ -312,6 +312,18 @@ export const en = {
     loading: 'Loading clip…',
     loadingList: 'Loading clips…',
     empty: 'No clips yet',
+    // The tabs of the signed-in player's clips. They sort the clips that are loaded so far, so an empty tab says that:
+    // there may be more of that kind on the next page.
+    tabs: {
+      label: 'Filter clips by state',
+      all: 'All',
+      active: 'In progress',
+      ready: 'Ready',
+      failed: 'Failed',
+      emptyActive: 'None of the loaded clips is in progress',
+      emptyReady: 'None of the loaded clips is ready',
+      emptyFailed: 'None of the loaded clips has failed',
+    },
     notFound: 'Clip not found',
     compilation: 'Compilation',
     record: 'Record clip',

@@ -16,6 +16,8 @@ interface StatusChipProps {
   clip: Pick<ClipResponse, 'status' | 'progress' | 'queuePosition'>
   /** Leaves the percentage of a recording out, where it is shown large beside the chip. */
   percent?: boolean
+  /** Leaves the blinking dot of a recording out, where the picture of the clip, right above the chip, blinks already. */
+  dot?: boolean
   className?: string
 }
 
@@ -24,7 +26,7 @@ interface StatusChipProps {
  * dot, `ENCODING` and `UPLOADING` in the text colour, `READY` in green, `FAILED` in red. The reason of a failure is not
  * part of the chip: whoever shows the chip puts it beside it.
  */
-export default function StatusChip({ clip, percent = true, className }: StatusChipProps) {
+export default function StatusChip({ clip, percent = true, dot = true, className }: StatusChipProps) {
   const t = useT()
   return (
     <span
@@ -34,7 +36,7 @@ export default function StatusChip({ clip, percent = true, className }: StatusCh
         className,
       )}
     >
-      {clip.status === 'RECORDING' && (
+      {clip.status === 'RECORDING' && dot && (
         <span aria-hidden="true" className="size-2 shrink-0 animate-rec rounded-full bg-rec" />
       )}
       <span>

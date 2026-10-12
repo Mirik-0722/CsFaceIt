@@ -6,10 +6,12 @@ import { clipLabel, formatBytes, frameLabel } from '@/lib/clips'
 import { formatDate } from '@/lib/formatDate'
 import { formatDuration } from '@/lib/highlightLabels'
 import { mapLabel } from '@/lib/mapTint'
+import { cn } from '@/lib/utils'
 import type { ClipResponse } from '@/api/types'
 
 /** What the middle of the frame says: a play mark on a finished clip, the percentage of a recording, else the state. */
 function FrameCenter({ clip }: { clip: ClipResponse }) {
+  const t = useT()
   if (clip.status === 'DONE') {
     return (
       <span aria-hidden="true" className="flex size-12 items-center justify-center rounded-full bg-primary">
@@ -27,9 +29,18 @@ function FrameCenter({ clip }: { clip: ClipResponse }) {
       </span>
     )
   }
+  // A box of 24px with the word of the state alone, as the design draws it: the place in the queue and the reason of a
+  // failure are said by the line under the frame. A failure has its box and word in red, any other state in the text
+  // colour.
   return (
-    <span aria-hidden="true" className="border border-ring bg-background/80 px-2.5 py-1">
-      <StatusChip clip={clip} />
+    <span
+      aria-hidden="true"
+      className={cn(
+        'inline-flex h-6 items-center border bg-background/80 px-2.5 font-mono text-[11px] tracking-[0.08em] whitespace-nowrap uppercase',
+        clip.status === 'FAILED' ? 'border-negative text-negative' : 'border-ring text-foreground',
+      )}
+    >
+      {t.clip.status[clip.status]}
     </span>
   )
 }
@@ -84,14 +95,23 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
             <time dateTime={clip.createdAt}>{formatDate(clip.createdAt, locale)}</time>
           </p>
         </div>
-        <div className="mt-auto flex min-h-11 min-w-0 items-center gap-2 px-4 pb-1.5">
-          <StatusChip clip={clip} />
+        {/* 44px of line and 6px under it, as the design's card has. */}
+        <div className="mt-auto flex min-h-12.5 min-w-0 items-center gap-2 px-4 pb-1.5">
+          {/* The frame above has the blinking dot and the large percentage of a recording; the line says the word, and
+              the number stays there for a screen reader, who does not see the frame (not announced: it changes with
+              every answer of the backend). */}
+          <StatusChip clip={clip} percent={false} dot={false} />
+          {recording && (
+            <span aria-live="off" className="sr-only">
+              {clip.progress}%
+            </span>
+          )}
           {clip.status === 'DONE' && clip.sizeBytes !== null && (
             <span className="font-mono text-[11px] tracking-[0.06em] text-subtle">{formatBytes(clip.sizeBytes)}</span>
           )}
           {/* The recorder's own words about what went wrong, as they are: a technical message. */}
           {clip.status === 'FAILED' && clip.error && (
-            <span className="min-w-0 truncate font-mono text-[11px] text-subtle">{clip.error}</span>
+            <span className="min-w-0 truncate font-mono text-[11px] tracking-[0.06em] text-subtle">{clip.error}</span>
           )}
         </div>
       </article>
