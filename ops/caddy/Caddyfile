@@ -1,0 +1,19 @@
+# The Caddy of docker-compose.prod.yml, the entrance of the stack on a server. DOMAIN is the host name the site is
+# served on (such as example.com); the compose file hands it in and refuses to start without it.
+#
+# A host name as the site address is all it takes for HTTPS: Caddy gets a certificate for it when it starts (from Let's
+# Encrypt or ZeroSSL), renews it before it expires and redirects port 80 to HTTPS. It keeps the certificates in /data, a
+# named volume. For `localhost` it makes a certificate of its own instead, which a browser does not trust but `curl -k`
+# accepts: that is how this file is tried on a development machine.
+#
+# Every request goes on to the Nginx of the frontend service, which serves the app and proxies /api/ to the backend.
+# Caddy keeps the Host header as the browser sent it (Nginx passes it on to the backend) and adds X-Forwarded-For,
+# X-Forwarded-Proto and X-Forwarded-Host.
+#
+# Nothing here limits the size of a request body or the time a transfer may take, on purpose: a demo upload is up to
+# 1 GB and the backend answers it only once the file is stored, and the limits that apply are those of Nginx and of the
+# backend (frontend/nginx.conf, DEMO_UPLOAD_MAX_SIZE, CLIP_UPLOAD_MAX_SIZE). Caddy has neither a limit on the body nor a
+# timeout on a read or a write unless one is set, so do not add `request_body { max_size }` or `timeouts` here.
+{$DOMAIN} {
+	reverse_proxy frontend:80
+}

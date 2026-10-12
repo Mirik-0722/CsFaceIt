@@ -1,0 +1,82 @@
+# The stack on a public server with a domain: Caddy in front of the web UI, serving HTTPS with a certificate it gets and
+# renews by itself, and nothing else of the stack reachable from the network.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait
+#
+# DOMAIN (the host name of the server, such as example.com, whose DNS A record has to point at it) and APP_API_KEY must
+# be set in .env or the environment first; "Deploying on a server" in the README goes through it step by step. This file
+# only adds what differs from docker-compose.yml, and it is not meant to be combined with docker-compose.fake.yml (whose
+# admin key is public) other than to try it on a development machine, with DOMAIN=localhost. It needs Docker Compose
+# 2.24.4 or newer for the `!override` tag, like docker-compose.fake.yml.
+services:
+  caddy:
+    image: caddy:2
+    # 80 answers the certificate challenge and redirects to HTTPS, 443 is HTTPS, and 443/udp is HTTP/3, which a browser
+    # uses when it can and does without when the port is closed. The site itself is configured in ops/caddy/Caddyfile.
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      # The host name of the site and of its certificate, read by ops/caddy/Caddyfile. Required: without it Caddy would
+      # have no name to get a certificate for. It is the bare host name, no https:// before it and no path after it.
+      DOMAIN: "${DOMAIN:?Set DOMAIN in .env to the host name of this server, without https:// (for example example.com)}"
+    volumes:
+      - ./ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # The certificates and their keys. They must outlive the container: a Caddy that starts with an empty volume asks
+      # for new certificates, and the certificate authorities limit how many they issue for one domain.
+      - caddy_data:/data
+      # The configuration Caddy saves for itself.
+      - caddy_config:/config
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
+  backend:
+    environment:
+      # Required: a server must not run without the admin key. The backend would start without it, but it fails closed:
+      # it logs "The admin API key is unusable" and answers 401 to every request that needs the key (uploading or
+      # analyzing a demo, ordering or deleting a clip). The site could be looked at and nothing more, and only the first
+      # write would say why. Here `up` stops with a message instead.
+      APP_API_KEY: "${APP_API_KEY:?Set APP_API_KEY in .env to a long random secret, for example the output of openssl rand -hex 32}"
+      # The page is at https://DOMAIN, so the browser sends that as the Origin of every write, while the backend, behind
+      # Caddy and Nginx, sees plain http and takes the write for a cross-origin one: it must find the origin in this
+      # list or it answers 403. This takes the place of PUBLIC_ORIGIN of docker-compose.yml, which is for a proxy of
+      # your own.
+      CORS_ALLOWED_ORIGINS: "https://${DOMAIN:?Set DOMAIN in .env to the host name of this server, without https:// (for example example.com)}"
+
+  frontend:
+    # Caddy reaches the Nginx over the network of the stack, so the web port is not needed on the network. Docker
+    # publishes ports around the firewall of the host (ufw), so a port is not closed by leaving it out of the firewall
+    # rules: it is closed by not publishing it. The mapping stays on the loopback interface, for a look from the server
+    # itself (curl http://127.0.0.1:3000). !override replaces the mapping of docker-compose.yml instead of adding a
+    # second one.
+    ports: !override
+      - "127.0.0.1:${WEB_PORT:-3000}:80"
+    restart: unless-stopped
+
+  # The rest of the services have no restart policy in docker-compose.yml (the backend and the parser have one). With
+  # unless-stopped Docker starts them again after a crash and when the Docker service itself starts, which includes the
+  # reboot of a server; a container stopped by hand stays stopped. Prometheus and Grafana run only with
+  # --profile observability.
+  postgres:
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
+
+  rabbitmq:
+    restart: unless-stopped
+
+  minio:
+    restart: unless-stopped
+
+  prometheus:
+    restart: unless-stopped
+
+  grafana:
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
