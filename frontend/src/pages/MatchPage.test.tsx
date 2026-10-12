@@ -3,10 +3,13 @@ import type { MatchResponse, MatchStatsResponse, PlayerStatsResponse, TeamStatsR
 import { deferred, mockFetchRoutes as mockRoutes, renderWithProviders, type MockReply } from '@/test/utils'
 import MatchPage from './MatchPage'
 
-// The page also asks for the match's demo, highlights, clips and breakdown. Every test gets the answers of a match
-// without a demo, for each id a test uses, next to the routes it sets up itself.
+// The page also asks who is signed in and for the match's demo, highlights, clips and breakdown. Every test gets the
+// answers of a visitor who is not signed in and of a match without a demo, for each id a test uses, next to the routes
+// it sets up itself.
 function mockFetchRoutes(routes: Parameters<typeof mockRoutes>[0]) {
-  const extra: Parameters<typeof mockRoutes>[0] = {}
+  const extra: Parameters<typeof mockRoutes>[0] = {
+    '/api/v1/auth/me': { body: { code: 'UNAUTHENTICATED', message: 'x' }, status: 401 },
+  }
   for (const id of ['m1', 'a%20b']) {
     extra[`/api/v1/matches/${id}/demo`] = { body: { code: 'DEMO_NOT_FOUND', message: 'x' }, status: 404 }
     extra[`/api/v1/matches/${id}/highlights`] = { body: [] }
@@ -266,6 +269,8 @@ describe('MatchPage', () => {
     renderWithProviders(<MatchPage />, { route: '/matches' })
     expect(screen.getByText('Match not found')).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 1, name: 'Match' })).toBeInTheDocument()
-    expect(fetchMock).not.toHaveBeenCalled()
+    // The page asks who is signed in (which player is "you"); it asks for no match.
+    const requested = fetchMock.mock.calls.map(([url]) => url)
+    expect(requested.filter((url) => url !== '/api/v1/auth/me')).toEqual([])
   })
 })
