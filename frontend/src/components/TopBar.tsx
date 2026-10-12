@@ -44,11 +44,14 @@ export default function TopBar() {
   const landing = home && user === null
   const playerPath = user?.playerId ? `/players/${encodeURIComponent(user.playerId)}` : null
 
-  const itemClass = cn(ITEM, landing ? 'min-h-11' : 'min-h-17')
+  // On a phone the bar is the one row of the mockup (56px: the logo and, on the right, the language and the account).
+  // The navigation of the inner pages gets a row of its own under it; the anchors of the landing page and the search
+  // of the bar are left to wider screens (the page scrolls, and the home page has the search).
+  const itemClass = cn(ITEM, landing ? 'min-h-11' : 'min-h-11 sm:min-h-17')
   let navigation = null
   if (settled && landing) {
     navigation = (
-      <nav aria-label={t.auth.sectionsLabel} className="flex flex-auto flex-wrap gap-1">
+      <nav aria-label={t.auth.sectionsLabel} className="flex flex-auto flex-wrap gap-1 max-md:hidden">
         {ANCHORS.map(({ href, label }) => (
           <a key={href} href={href} className={itemClass}>
             {t.auth[label]}
@@ -58,7 +61,10 @@ export default function TopBar() {
     )
   } else if (settled) {
     navigation = (
-      <nav aria-label={t.nav.label} className="flex flex-auto flex-wrap gap-1 self-stretch">
+      <nav
+        aria-label={t.nav.label}
+        className="flex flex-auto flex-wrap gap-1 self-stretch max-sm:order-last max-sm:w-full"
+      >
         {playerPath && (
           <NavLink to={`${playerPath}/matches`} className={cn(itemClass, CURRENT)}>
             {t.auth.matches}
@@ -79,7 +85,12 @@ export default function TopBar() {
   return (
     <header className="border-b border-border">
       {/* The line spans the window, the content sits in the page column; on a narrow screen the parts wrap. */}
-      <div className={cn('container-page flex min-h-17 flex-wrap items-center gap-x-7', landing && 'gap-y-1')}>
+      <div
+        className={cn(
+          'container-page flex min-h-14 flex-wrap items-center gap-x-7 sm:min-h-17',
+          landing && 'gap-y-1',
+        )}
+      >
         {/* The name starts with the visible wordmark, so that saying what is on the screen reaches the link. */}
         <Link to="/" aria-label={`${WORDMARK} · ${t.app.homeLink}`} className="inline-flex min-h-11 items-center">
           <Logo />
@@ -88,8 +99,17 @@ export default function TopBar() {
             a whole to a row of its own and does not squeeze in beside the logo). Until the answer is here the room is
             kept, so that the right side stays on the right. */}
         {navigation ?? <div className="flex-1" />}
-        <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2', landing ? 'gap-x-2' : 'py-3')}>
-          {!home && <TopBarSearch />}
+        <div
+          className={cn(
+            'ml-auto flex flex-wrap items-center gap-x-3 gap-y-2',
+            landing ? 'gap-x-2' : 'py-1.5 sm:py-3',
+          )}
+        >
+          {!home && (
+            <div className="max-sm:hidden">
+              <TopBarSearch />
+            </div>
+          )}
           <LanguageSwitch />
           {settled &&
             (user ? (
