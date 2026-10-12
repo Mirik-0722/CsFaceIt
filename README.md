@@ -452,6 +452,8 @@ and the requests that change something (`POST`, `DELETE`) need the `X-API-Key` h
 | `GET /api/v1/matches/{matchId}/highlights?type=&playerId=` | The highlights the analysis found in the match's demo (see [Highlights and statistics](#highlights-and-statistics)). |
 | `GET /api/v1/players/{playerId}/highlights?type=&offset=0&limit=50` | A page of the player's highlights over all his analyzed matches, the newest match first (`offset` 0-10000, `limit` 1-100). |
 | `GET /api/v1/players/{playerId}/stats` | The player's statistics over the matches the backend has stored: K/D, HS%, ADR, KAST, entry and trade kills, clutch %, win rate. |
+| `GET /api/v1/players/{playerId}/overview` | The player's results by map (matches, wins, K/D, ADR) and his highlights by type, from the database only (see [Highlights and statistics](#highlights-and-statistics)). |
+| `GET /api/v1/players/{playerId}/matches?offset=0&limit=20` | The page of `/history` for the same `offset` (0-1000) and `limit` (1-100), each match with what the backend has stored of it: map, the player's kills, deaths, assists and ADR, the demo's status, his highlights by type and his clips by state. |
 
 ```bash
 curl "http://localhost:3000/api/v1/players?nickname=s1mple"
@@ -462,6 +464,8 @@ curl "http://localhost:3000/api/v1/matches/<matchId>/stats"
 curl "http://localhost:3000/api/v1/matches/<matchId>/highlights?type=K3"
 curl "http://localhost:3000/api/v1/players/<playerId>/highlights?offset=0&limit=10"
 curl "http://localhost:3000/api/v1/players/<playerId>/stats"
+curl "http://localhost:3000/api/v1/players/<playerId>/overview"
+curl "http://localhost:3000/api/v1/players/<playerId>/matches?offset=0&limit=20"
 ```
 
 Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls.
@@ -842,6 +846,33 @@ figures without an analyzed match and `clutchPercent` without a clutch. `kd` and
 numbers, `0.0` for a player without a stored row (and `hsPercent` for one without a kill), so a consumer that has to tell
 "no data" from "zero" tests `matches > 0`. A player the database does not know has `matches`, `analyzedMatches`,
 `clutchAttempts` and `clutchWins` at `0`, `kd` and `hsPercent` at `0.0`, and the other figures `null`.
+
+**The overview and the list of matches.** Two more open `GET`s serve the player page and the list of matches. The
+overview reads the database only; the list asks FACEIT for the page of the history and then the database, once for the
+whole page (three statements, whatever `limit` is).
+
+```json
+{"playerId": "...", "maps": [{"mapName": "de_mirage", "matches": 14, "wins": 9, "kd": 1.38, "adr": 91.0}],
+ "highlights": [{"type": "K3", "count": 31}, {"type": "CLUTCH_1V2", "count": 4}]}
+```
+
+- `GET /api/v1/players/{playerId}/overview`: `maps` has one entry per map over the same matches `.../stats` counts,
+  except that a match with no map name is left out; the map with the most matches first, then by name. `wins` are the
+  matches whose result is known to be a win, `kd` is the kills over the deaths of those matches with two decimals (over
+  1 when the player never died there), and `adr` is the mean of the ADR of the matches analyzed from a demo only, with
+  one decimal, `null` when there is none (the ADR of the other rows is FACEIT's and is not mixed in). `highlights` counts
+  the player's highlights by type, the most frequent first, then by name, and only the types that occur. Like the
+  highlight lists it counts a highlight only while the demo of its match is `ANALYZED`. A player the database does not
+  know has two empty lists, not a 404.
+- `GET /api/v1/players/{playerId}/matches?offset=0&limit=20`: `{"items": [...], "offset": 0, "limit": 20}`. The
+  items are the lines `.../history` returns for the same `offset` and `limit` (`matchId`, `startedAt`, `finishedAt`,
+  `result`, `score`, with the same limits on the parameters and the same errors, including `404 PLAYER_NOT_FOUND` and
+  `502 FACEIT_UNAVAILABLE`), each with `mapName` (`null` while the match is not stored), the player's `kills`,
+  `deaths` and `assists` in it (`null` while there is no row of statistics for him), `adr` (one decimal, `null` unless
+  the match was analyzed), `demoStatus` (`null` without a demo), `highlights` (his highlights in the match by type, as
+  above; empty list) and `clips`: `{"done": 1, "active": 1, "failed": 0}`, the clips of the match that follow the
+  player, `active` being every clip that is neither `DONE` nor `FAILED` (waiting in the queue, being recorded, encoded
+  or uploaded).
 
 ### Retention
 

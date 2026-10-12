@@ -24,8 +24,11 @@ public class PlayerController {
     public static final String PLAYER_ID_PATTERN = "^[A-Za-z0-9-]{1,64}$";
     public static final String PLAYER_ID_MESSAGE = "must be 1-64 characters: letters, digits or '-'";
 
-    /** FACEIT rejects a history offset above 1000 with a 400, which would otherwise surface as a 502. */
-    private static final int MAX_HISTORY_OFFSET = 1000;
+    /**
+     * FACEIT rejects a history offset above 1000 with a 400, which would otherwise surface as a 502. Public because
+     * the list of matches, which is a page of the history, checks its {@code offset} against the same limit.
+     */
+    public static final int MAX_HISTORY_OFFSET = 1000;
 
     private final PlayerService service;
 
