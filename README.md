@@ -277,15 +277,27 @@ falls back to a recorder token that is public.
 
 ### Way B: without a domain (plain HTTP)
 
+On a server, use the production override here too, with a port in the place of the host name. In `.env`:
+
 ```bash
-docker compose up -d --build --wait
+DOMAIN=:80
+COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
 ```
 
-Open `http://<address of the server>:3000` (the port is `WEB_PORT`; open it in the firewall of your provider if it has
-one). Everything works over plain HTTP because the page and the API are one origin. **The admin key then travels
+Then `docker compose up -d --build --wait`, and open `http://<address of the server>`. With `:80` Caddy serves plain
+HTTP on port 80 under whatever name or address the server is reached by, and asks for no certificate. The rest is as
+in way A: only Caddy listens on the network, `APP_API_KEY` is required, and every service comes back after a reboot.
+The check of step 4 works here as well, with `http://<address of the server>` in both places. When you have a domain,
+point it at the server (way A, step 1), change `DOMAIN` to it and run the same `up` again.
+
+Without the override, a plain `docker compose up -d --build --wait` (no `COMPOSE_FILE` line) is the stack of the
+[Quick start](#quick-start): the site is at `http://<address of the server>:3000` (the port is `WEB_PORT`; open it in
+the firewall of your provider if it has one), and most services do not start again by themselves after a reboot.
+
+Either way everything works over plain HTTP because the page and the API are one origin. **The admin key then travels
 unencrypted**: the page sends it in a header with every upload, analysis and clip order, and anyone on the way between
 the browser and the server can read it. Use this way for a trial or on a network you trust, not for a site that other
-people use.
+people use, and change the key when you move to HTTPS.
 
 If a proxy of your own terminates HTTPS in front of the web port (Cloudflare, or an Nginx or Traefik you run), set
 `PUBLIC_ORIGIN=https://example.com`, the address the browser shows. Without it the page loads and the reads work, but

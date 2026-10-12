@@ -8,6 +8,10 @@
 # only adds what differs from docker-compose.yml, and it is not meant to be combined with docker-compose.fake.yml (whose
 # admin key is public) other than to try it on a development machine, with DOMAIN=localhost. It needs Docker Compose
 # 2.24.4 or newer for the `!override` tag, like docker-compose.fake.yml.
+#
+# A server that has no domain yet can use this file as well: with DOMAIN=:80 Caddy serves plain HTTP on port 80 under
+# any name or address and asks for no certificate. The origin the backend is given below then matches nothing, which
+# is right: over plain HTTP the page and the API are one origin and no entry is needed.
 services:
   caddy:
     image: caddy:2
