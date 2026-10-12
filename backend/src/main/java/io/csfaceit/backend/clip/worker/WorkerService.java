@@ -270,12 +270,12 @@ public class WorkerService {
      * and not the clip, and a clip that nobody works on must neither wait for the stale check nor use an attempt up
      * (a storage that is down would otherwise strand a queued clip with every poll of the recorder). If the clip cannot
      * be given back, which only a failure of the database or a clip taken away in the meantime can cause, it is left
-     * to the stale check, and the storage failure stays the answer.
+     * to the stale check, and the storage failure stays the answer. It is not counted in {@code clips.requeued}, which
+     * counts the clips an attempt sent back: no attempt was made here, and the outage shows as the 503 and the warning.
      */
     private void giveBack(ClaimedClip clip, String worker) {
         try {
             persistence.giveBack(clip.clipId(), worker, clip.attempts());
-            metrics.requeued();
             log.warn("The storage could not be asked for the demo of clip {}: it is back in the queue, not given to {}",
                     clip.clipId(), worker);
         } catch (ConflictException e) {

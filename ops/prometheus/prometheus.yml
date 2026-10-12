@@ -4,7 +4,8 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  # Spring Boot / Micrometer: JVM, HTTP, FACEIT client and the demo pipeline (demo_pipeline_*). Public endpoint.
+  # Spring Boot / Micrometer: JVM, HTTP, FACEIT client, the demo pipeline (demo_pipeline_*) and the clip pipeline
+  # (clips_*). Public endpoint.
   - job_name: backend
     metrics_path: /actuator/prometheus
     static_configs:

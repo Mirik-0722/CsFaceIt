@@ -98,6 +98,7 @@ Then edit `.env`:
 | `CLIP_WORKER_TOKEN` | The secret the recorder sends in the `X-Worker-Token` header (see [Worker API](#worker-api-the-recorder)). It opens `/api/worker/**` and nothing else, and the admin key does not open that. Choose a long random value, for example `openssl rand -hex 32`, and give the same one to the recorder. While it is empty the backend logs a warning and rejects every request of a recorder. The fake-FACEIT mode sets `dev-worker-token`. | empty |
 | `FACEIT_BASE_URL` | FACEIT Data API address; override it only to point the backend at a fake FACEIT. Commented out in `.env.example`. | `https://open.faceit.com/data/v4` |
 | `FACEIT_HISTORY_LOOKBACK` | How far back a player's match history reaches (`faceit.history-lookback`). FACEIT itself returns only the last month unless the request names a start time, so the backend always sends one. Commented out in `.env.example`. | `365d` |
+| `FAKE_SPEED` | Only for the stack without a FACEIT key (`docker-compose.fake.yml`): the seconds of video its `recorder-fake` makes per second of real time. `1` is real time, `0` is as fast as ffmpeg goes (see [The fake recorder](#the-fake-recorder)). Commented out in `.env.example`. | `1` |
 | `DB_URL` | JDBC URL of PostgreSQL. | `jdbc:postgresql://localhost:5432/csfaceit` |
 | `DB_USER`, `DB_PASSWORD` | PostgreSQL credentials; the `postgres` service is created with them. | `csfaceit` / `csfaceit` |
 | `REDIS_HOST`, `REDIS_PORT` | Redis address. | `localhost` / `6379` |
@@ -671,9 +672,10 @@ Browser: GET /api/v1/clips/{clipId}, GET .../video (Range), GET .../thumbnail
 `RECORDING`, `ENCODING` and `UPLOADING` are the active statuses, the ones in which a recorder holds the clip. A recorder
 may report any active stage at any time, also an earlier one. A status changes only under the lock of the clip's row, so
 of a recorder's report and the check that takes a silent clip back, whichever comes first wins and the other finds the
-clip as it was left: it is answered with `409 CLIP_NOT_CLAIMED` and changes nothing. `attempts` counts the claims. A clip
-that goes back to the queue keeps its count, forgets the claim, the progress and the files of the attempt, and shows the
-reason in `error` until it is claimed again; at `clip.max-attempts` it is `FAILED` instead.
+clip as it was left: it is answered with `409 CLIP_NOT_CLAIMED` and changes nothing. The `attempts` column of the `clips`
+table counts the claims. A clip that goes back to the queue keeps its count, forgets the claim, the progress and the
+files of the attempt, and shows the reason in `error` until it is claimed again; at `clip.max-attempts` it is `FAILED`
+instead.
 
 ### Requests and reads
 
@@ -1002,7 +1004,7 @@ pipeline:
 | `demo_pipeline_parsed_total` | `demo.parsed` messages handled by the backend, each time the listener handles one: a message whose analysis fails is tried three times and counts three times. It also counts messages for a demo that is not there or is no longer `PARSED`, which the analysis skips. |
 | `clips_requested_total` (`kind` = `HIGHLIGHT` or `COMPILATION`) | Requests that queued a new clip. A request answered with the clip that was already there (a repeated request, also one from a second browser) is not counted, and neither is one that was refused. |
 | `clips_finished_total` (`status` = `DONE` or `FAILED`) | Every arrival of a clip in a final status, whoever caused it: a recorder's `complete`; a recorder's `fail` that may not be retried or has no attempt left; the check that takes back the clip of a silent recorder when no attempt is left; a `claim` that found the demo file gone or the player's SteamID unknown. A clip deleted, by a request or by the retention job, is not counted. |
-| `clips_requeued_total` | Every return of a clip to the queue: a `fail` with `retryable` while an attempt is left, a clip taken back from a recorder that went silent, and a claim that was given back because the storage could not be asked for the demo. |
+| `clips_requeued_total` | Every return of a clip to the queue after an attempt: a `fail` with `retryable` while an attempt is left, and a clip taken back from a recorder that went silent. A claim that was given back because the storage could not be asked for the demo is not counted: no attempt was made, the attempt is handed back with the clip (that outage is the `503` of `/claim` and a warning in the log). |
 | `clips_record_duration_seconds_count`, `_sum`, `_max` | How long a clip that became `DONE` was held by its recorder: from `claimed_at` to `finished_at` of the attempt that succeeded, so the download of the demo (when the recorder does not have it yet), the recording, the encoding and the upload. Only clips that became `DONE` are in it. |
 | `clips_queue_size`, `clips_active` | Gauges: the clips that are `QUEUED`, and the clips that are `RECORDING`, `ENCODING` or `UPLOADING`. |
 | `clips_recorder_online` | A gauge: 1 when some recorder was seen (it claimed, reported or sent a heartbeat) within `clip.worker-online-within`, else 0. |

@@ -27,15 +27,17 @@ import org.springframework.stereotype.Component;
  * committed, as {@code DemoMetrics} is used: a change that was rolled back is not counted. They are registered at
  * startup, so a counter that has not counted anything yet is exported as 0 instead of being absent.
  * <ul>
- *   <li>{@link #requested}: a request that queued a new clip. A request answered with the clip that was already there
- *       is not counted.
- *   <li>{@link #done} and {@link #failed}: every arrival of a clip in {@code DONE} or {@code FAILED}, whoever caused
- *       it: the recorder's completion or failure, the check that takes back a silent clip, a claim that found the
- *       demo file gone or the player's SteamID unknown.
- *   <li>{@link #requeued}: every return of a clip to the queue: a failure the recorder said may be retried, a clip
- *       taken back from a silent recorder, and a claim that was given back because the storage could not be asked.
- *   <li>{@link #recorded}: the time from {@code claimed_at} to {@code finished_at} of a clip that became {@code DONE},
- *       that is of the attempt that succeeded.
+ *   <li>{@link #requested(ClipKind)}: a request that queued a new clip. A request answered with the clip that was
+ *       already there is not counted.
+ *   <li>{@link #done()} and {@link #failed()}: every arrival of a clip in {@code DONE} or {@code FAILED}, whoever
+ *       caused it: the recorder's completion or failure, the check that takes back a silent clip, a claim that found
+ *       the demo file gone or the player's SteamID unknown.
+ *   <li>{@link #requeued()}: every return of a clip to the queue after an attempt: a failure the recorder said may be
+ *       retried, and a clip taken back from a silent recorder. A claim that was given back because the storage could
+ *       not be asked for the demo is not counted, as no attempt was made (the attempt is handed back with the clip);
+ *       that outage shows as the 503 of {@code /claim} and as a warning in the log.
+ *   <li>{@link #recorded(Duration)}: the time from {@code claimed_at} to {@code finished_at} of a clip that became
+ *       {@code DONE}, that is of the attempt that succeeded.
  * </ul>
  *
  * <p>The three gauges come from the database: the clips waiting, the clips a recorder holds, and whether a recorder
@@ -85,8 +87,8 @@ public class ClipMetrics {
                     .register(registry));
         }
         this.requeued = Counter.builder("clips.requeued")
-                .description("Clips that went back to the queue: a retryable failure, a recorder that went silent, "
-                        + "a claim given back")
+                .description("Clips that went back to the queue after an attempt: a retryable failure, a recorder that "
+                        + "went silent; a claim given back after a storage failure is not counted, no attempt was made")
                 .register(registry);
         this.recordDuration = Timer.builder("clips.record.duration")
                 .description("How long a clip that became DONE was held by its recorder, from the claim to the end")
@@ -115,7 +117,11 @@ public class ClipMetrics {
         finished.get(ClipStatus.FAILED).increment();
     }
 
-    /** Counts a clip that went back to the queue. */
+    /**
+     * Counts a clip that went back to the queue after an attempt: the recorder gave the attempt up and said it may be
+     * repeated, or went silent. Not a claim that was given back because the storage could not be asked for the demo:
+     * no attempt was made.
+     */
     public void requeued() {
         requeued.increment();
     }
@@ -136,8 +142,7 @@ public class ClipMetrics {
         } catch (RuntimeException e) {
             status = null;
             if (!unreadable) {
-                log.warn("The clip gauges cannot be read from the database and show NaN until they can: {}",
-                        e.toString());
+                log.warn("The clip gauges cannot be read from the database and show NaN until they can", e);
             }
             unreadable = true;
             return;
