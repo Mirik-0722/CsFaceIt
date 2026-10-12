@@ -169,17 +169,14 @@ function PlayerProfile({ playerId }: { playerId: string }) {
   const t = useT()
   const player = usePlayer(playerId)
   const history = usePlayerHistory(playerId)
-  // The same request as the statistics section's: asked once, read twice.
-  const stats = usePlayerStats(playerId)
   // Offset paging can return the same match on two pages (each page is cached on its own), so keep the first.
   const matches = history.data?.pages
     .flatMap((page) => page.items)
     .filter((item, index, all) => all.findIndex((other) => other.matchId === item.matchId) === index)
   // A player that cannot be shown has no history to show either: its error is the one message on the page.
   const playerFailed = player.isError && !player.data
-  // The page of matches lists the matches the backend has stored, so there is nothing behind its link for a player
-  // without one.
-  const hasStoredMatches = (stats.data?.matches ?? 0) > 0
+  // The page of matches lists the same history with what the site knows about each match: no row, no link.
+  const hasMatches = (matches?.length ?? 0) > 0
 
   return (
     <>
@@ -201,7 +198,7 @@ function PlayerProfile({ playerId }: { playerId: string }) {
         <section className="flex flex-col gap-4 pt-3">
           <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
             <h2 className="heading-section">{t.player.history}</h2>
-            {hasStoredMatches && (
+            {hasMatches && (
               <Link
                 to={`/players/${encodeURIComponent(playerId)}/matches`}
                 className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4 hover:text-primary"

@@ -77,7 +77,8 @@ describe('PlayerPage', () => {
     expect(await screen.findByText('s1mple')).toBeInTheDocument()
     expect(screen.getByText('ELO 3500')).toBeInTheDocument()
     expect(await screen.findByRole('link', { name: /13 : 2$/ })).toHaveAttribute('href', '/matches/m2')
-    expect(screen.getAllByRole('link')).toHaveLength(3)
+    // The three matches, and the link to the page of matches over them.
+    expect(screen.getAllByRole('link')).toHaveLength(4)
     expect(screen.getByRole('heading', { level: 1, name: 'Player profile' })).toBeInTheDocument()
   })
 
@@ -122,16 +123,18 @@ describe('PlayerPage', () => {
       renderPlayerPage()
 
       expect(await screen.findByRole('link', { name: /13 : 20$/ })).toBeInTheDocument()
-      expect(screen.getAllByRole('link')).toHaveLength(20)
+      expect(screen.getAllByRole('link')).toHaveLength(21)
 
       await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
 
       expect(await screen.findByRole('link', { name: /13 : 23$/ })).toBeInTheDocument()
+      // The link to the page of matches comes first, in the heading of the list.
       const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href'))
-      expect(hrefs).toHaveLength(23)
-      expect(hrefs[0]).toBe('/matches/m1')
-      expect(hrefs[19]).toBe('/matches/m20')
-      expect(hrefs[22]).toBe('/matches/m23')
+      expect(hrefs).toHaveLength(24)
+      expect(hrefs[0]).toBe('/players/p1/matches')
+      expect(hrefs[1]).toBe('/matches/m1')
+      expect(hrefs[20]).toBe('/matches/m20')
+      expect(hrefs[23]).toBe('/matches/m23')
       expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
       expect(fetchMock).toHaveBeenCalledWith(SECOND_PAGE_URL, expect.anything())
     })
@@ -150,7 +153,7 @@ describe('PlayerPage', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
 
       expect(await screen.findByRole('link', { name: /13 : 41$/ })).toBeInTheDocument()
-      expect(screen.getAllByRole('link')).toHaveLength(41)
+      expect(screen.getAllByRole('link')).toHaveLength(42)
       expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
     })
 
@@ -165,7 +168,7 @@ describe('PlayerPage', () => {
 
       await userEvent.click(await screen.findByRole('button', { name: 'Load more' }))
       expect(screen.getByRole('button', { name: 'Load more' })).toBeDisabled()
-      expect(screen.getAllByRole('link')).toHaveLength(20)
+      expect(screen.getAllByRole('link')).toHaveLength(21)
 
       secondPage.resolve(page(matches(21, 2), 20))
       expect(await screen.findByRole('link', { name: /13 : 22$/ })).toBeInTheDocument()
@@ -183,7 +186,7 @@ describe('PlayerPage', () => {
       await userEvent.click(await screen.findByRole('button', { name: 'Load more' }))
 
       expect(await screen.findByText('FACEIT is temporarily unavailable. Try again later.')).toBeInTheDocument()
-      expect(screen.getAllByRole('link')).toHaveLength(20)
+      expect(screen.getAllByRole('link')).toHaveLength(21)
       expect(screen.getByRole('button', { name: 'Load more' })).toBeEnabled()
     })
 
