@@ -1,5 +1,5 @@
 import { Download, Link2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useClip, useDeleteClip, useMatchClips } from '@/api/queries'
 import KillTimeline from '@/components/KillTimeline'
@@ -11,7 +11,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useT, type Messages } from '@/i18n'
 import { setAdminKey, useAdminKey } from '@/lib/adminKey'
 import { copyText } from '@/lib/clipboard'
-import { clipLabel, formatBytes, isFinished } from '@/lib/clips'
+import { clipLabel, formatBytes, frameLabel } from '@/lib/clips'
+import { isFinished } from '@/lib/clipStatus'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate, formatDateTime } from '@/lib/formatDate'
 import { formatDuration } from '@/lib/highlightLabels'
@@ -21,7 +22,7 @@ import { isKnife, weaponLabel } from '@/lib/weapons'
 import type { ApiError } from '@/api/client'
 import type { ClipKill, ClipResponse } from '@/api/types'
 
-/** How long "Link copied" stays in place of "Copy link". */
+/** How long "Link copied", or that it could not be copied, stays in place of "Copy link". */
 const COPIED_MS = 2000
 
 /** Item names are the same in every language; the knife is a plain word and comes from the dictionary. */
@@ -55,9 +56,7 @@ function ClipPlaceholder({ clip }: { clip: ClipResponse }) {
         <ViewfinderFrame
           size="large"
           mapName={clip.mapName}
-          topLeft={`${mapLabel(clip.mapName) ?? t.match.unknownMap} · ${
-            clip.roundNumber !== null ? `R${clip.roundNumber}` : 'MATCH'
-          }`}
+          topLeft={frameLabel(clip, t)}
           bottomRight={clip.quality}
           center={
             <span className="flex flex-col items-center gap-3">
@@ -97,15 +96,27 @@ function ClipPlaceholder({ clip }: { clip: ClipResponse }) {
   )
 }
 
+interface DeleteControlProps {
+  clip: ClipResponse
+  apiKey: string
+  /** The backend did not take the key: it is forgotten, this control goes with it, and the page says why. */
+  onKeyRejected: () => void
+}
+
 /**
  * Deletes the clip, after a second click that confirms it. Offered only while the page holds the admin key; a key the
- * backend rejects is forgotten, and the control goes with it.
+ * backend rejects is forgotten, and the control goes with it. The focus follows the question: to "Keep", the answer
+ * that changes nothing, when it is asked (the question is the name of the group, so it is read then), and back to the
+ * button when the clip is kept.
  */
-function DeleteControl({ clip, apiKey }: { clip: ClipResponse; apiKey: string }) {
+function DeleteControl({ clip, apiKey, onKeyRejected }: DeleteControlProps) {
   const t = useT()
+  const questionId = useId()
   const navigate = useNavigate()
   const remove = useDeleteClip()
   const [confirming, setConfirming] = useState(false)
+  // The question was asked and answered with "Keep": the button it replaced takes the focus back.
+  const [kept, setKept] = useState(false)
   const [failure, setFailure] = useState<ApiError | null>(null)
 
   function confirm() {
@@ -119,6 +130,7 @@ function DeleteControl({ clip, apiKey }: { clip: ClipResponse; apiKey: string })
           if (error.status === 401) {
             setAdminKey(null)
             remove.reset()
+            onKeyRejected()
           } else {
             setFailure(error)
           }
@@ -129,18 +141,29 @@ function DeleteControl({ clip, apiKey }: { clip: ClipResponse; apiKey: string })
 
   if (!confirming) {
     return (
-      <Button type="button" variant="destructive" onClick={() => setConfirming(true)}>
+      <Button type="button" variant="destructive" autoFocus={kept} onClick={() => setConfirming(true)}>
         {t.clip.page.delete}
       </Button>
     )
   }
   return (
-    <div role="group" aria-label={t.clip.page.delete} className="flex basis-full flex-wrap items-center gap-3">
-      <p className="text-sm">{t.clip.page.confirmDelete}</p>
+    <div role="group" aria-labelledby={questionId} className="flex basis-full flex-wrap items-center gap-3">
+      <p id={questionId} className="text-sm">
+        {t.clip.page.confirmDelete}
+      </p>
       <Button type="button" variant="destructive" disabled={remove.isPending} onClick={confirm}>
         {t.clip.page.confirmYes}
       </Button>
-      <Button type="button" variant="ghost" disabled={remove.isPending} onClick={() => setConfirming(false)}>
+      <Button
+        type="button"
+        variant="ghost"
+        autoFocus
+        disabled={remove.isPending}
+        onClick={() => {
+          setConfirming(false)
+          setKept(true)
+        }}
+      >
         {t.clip.page.keep}
       </Button>
       <p aria-live="polite" className="basis-full text-sm text-destructive empty:hidden">
@@ -281,16 +304,21 @@ function ClipView({ clip }: { clip: ClipResponse }) {
   const locale = useLocale()
   const adminKey = useAdminKey()
   const video = useRef<HTMLVideoElement>(null)
-  const [copied, setCopied] = useState(false)
+  // What became of the last "Copy link", for as long as the button says it.
+  const [copy, setCopy] = useState<'copied' | 'failed' | null>(null)
+  // The browser could not load the video: its file is gone although the clip says it is done, or cannot be played here.
+  const [videoFailed, setVideoFailed] = useState(false)
+  // The backend rejected the admin key of a deletion: the key is forgotten and "Delete" is gone, so the page says why.
+  const [keyRejected, setKeyRejected] = useState(false)
   const ready = clip.status === 'DONE' && clip.videoUrl !== null
 
   useEffect(() => {
-    if (!copied) {
+    if (copy === null) {
       return
     }
-    const timer = setTimeout(() => setCopied(false), COPIED_MS)
+    const timer = setTimeout(() => setCopy(null), COPIED_MS)
     return () => clearTimeout(timer)
-  }, [copied])
+  }, [copy])
 
   /** Takes the video to a moment and plays from there; on a phone the video may be above the screen by then. */
   function seek(offsetMs: number) {
@@ -318,8 +346,12 @@ function ClipView({ clip }: { clip: ClipResponse }) {
               aria-label={clipTitle(clip, t)}
               poster={clip.thumbnailUrl ?? undefined}
               src={clip.videoUrl ?? undefined}
+              onError={() => setVideoFailed(true)}
               className="aspect-video w-full border border-border bg-black"
             />
+            <p aria-live="polite" className="text-sm text-destructive empty:hidden">
+              {videoFailed && t.clip.page.videoFailed}
+            </p>
             {clip.durationMs !== null && clip.kills.length > 0 && (
               <KillTimeline
                 start={0}
@@ -371,15 +403,24 @@ function ClipView({ clip }: { clip: ClipResponse }) {
           <Button
             type="button"
             variant="outline"
-            onClick={() => void copyText(window.location.href).then((done) => setCopied(done))}
+            onClick={() => void copyText(window.location.href).then((done) => setCopy(done ? 'copied' : 'failed'))}
           >
             <Link2 aria-hidden="true" />
-            <span aria-live="polite">{copied ? t.clip.page.copied : t.clip.page.copyLink}</span>
+            <span aria-live="polite">
+              {copy === 'copied'
+                ? t.clip.page.copied
+                : copy === 'failed'
+                  ? t.clip.page.copyFailed
+                  : t.clip.page.copyLink}
+            </span>
           </Button>
           {/* A clip that is being recorded cannot be deleted (the backend answers 409), so it is not offered then. */}
           {adminKey !== null && (isFinished(clip.status) || clip.status === 'QUEUED') && (
-            <DeleteControl clip={clip} apiKey={adminKey} />
+            <DeleteControl clip={clip} apiKey={adminKey} onKeyRejected={() => setKeyRejected(true)} />
           )}
+          <p aria-live="polite" className="basis-full text-sm text-destructive empty:hidden">
+            {keyRejected && adminKey === null && t.demo.wrongKey}
+          </p>
         </div>
         <section className="flex flex-col gap-2.5 pt-2">
           <h3 className="text-lg leading-[1.4] font-semibold">{t.clip.page.kills}</h3>
@@ -397,6 +438,9 @@ function ClipView({ clip }: { clip: ClipResponse }) {
 function ClipDetails({ clipId }: { clipId: number }) {
   const t = useT()
   const clip = useClip(clipId)
+  // The clip was there and is not any more (a clip that waits can be withdrawn while its page is open): what the page
+  // still holds of it is not shown as if it were there.
+  const gone = clip.isError && clip.error.status === 404
   return (
     <>
       <div aria-live="polite" className="empty:hidden">
@@ -406,9 +450,11 @@ function ClipDetails({ clipId }: { clipId: number }) {
             <Skeleton className="aspect-video w-full max-w-4xl" />
           </>
         )}
-        {clip.isError && !clip.data && <p className="text-sm text-destructive">{errorMessage(clip.error, t)}</p>}
+        {clip.isError && (gone || !clip.data) && (
+          <p className="text-sm text-destructive">{errorMessage(clip.error, t)}</p>
+        )}
       </div>
-      {clip.data && <ClipView clip={clip.data} />}
+      {clip.data && !gone && <ClipView clip={clip.data} />}
     </>
   )
 }

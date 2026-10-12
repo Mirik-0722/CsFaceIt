@@ -21,20 +21,25 @@ export default function RecorderBanner({ boxed = false, className }: { boxed?: b
     <p
       aria-live="polite"
       className={cn(
-        'flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs text-muted-foreground',
+        'flex items-center font-mono text-xs text-muted-foreground',
         boxed && 'min-h-11 border border-border px-4 py-2',
         className,
       )}
     >
-      <span className="inline-flex items-center gap-2 text-foreground">
+      {/* One run of text that wraps like a sentence; the dot stays beside its first line. */}
+      <span className="flex items-start gap-2">
         <span
           aria-hidden="true"
-          className={cn('size-2 shrink-0 rounded-full', status.online ? 'bg-positive' : 'bg-ring')}
+          className={cn('mt-1 size-2 shrink-0 rounded-full', status.online ? 'bg-positive' : 'bg-ring')}
         />
-        {status.online ? t.clip.recorder.online : waiting ? t.clip.recorder.offlineQueued : t.clip.recorder.offline}
+        <span>
+          <span className="text-foreground">
+            {status.online ? t.clip.recorder.online : waiting ? t.clip.recorder.offlineQueued : t.clip.recorder.offline}
+          </span>
+          {status.active > 0 && ` · ${t.clip.recorder.active(status.active)}`}
+          {(status.online || status.queued > 0) && ` · ${t.clip.recorder.queued(status.queued)}`}
+        </span>
       </span>
-      {status.active > 0 && <span>{t.clip.recorder.active(status.active)}</span>}
-      {(status.online || status.queued > 0) && <span>{t.clip.recorder.queued(status.queued)}</span>}
     </p>
   )
 }

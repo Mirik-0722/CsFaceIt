@@ -20,7 +20,7 @@ import { clipFor, compilationFor } from '@/lib/clips'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/formatDate'
 import { hasLost } from '@/lib/hasLost'
-import { highlightGroup, type HighlightGroup } from '@/lib/highlightLabels'
+import { highlightGroup, highlightLabel, type HighlightGroup } from '@/lib/highlightLabels'
 import { mapLabel } from '@/lib/mapTint'
 import type { ApiError } from '@/api/client'
 import type { MatchResponse, MatchStatsResponse, TeamStatsResponse } from '@/api/types'
@@ -120,15 +120,24 @@ function MatchHighlights({ matchId, onOrder }: { matchId: string; onOrder: (orde
           <HighlightList
             items={matching(filter)}
             showMatch={false}
-            // Until the clips of the match are known, a card cannot say whether its highlight has one: no row yet.
+            // Until the clips of the match are known, a card cannot say whether its highlight has one. While they are
+            // on their way the row is kept free, so that the cards do not grow under the reader when they arrive.
             action={
-              matchClips &&
-              ((highlight) => (
-                <ClipButton
-                  clip={clipFor(highlight, matchClips)}
-                  onOrder={() => onOrder({ kind: 'highlight', highlight })}
-                />
-              ))
+              matchClips
+                ? (highlight) => (
+                    <ClipButton
+                      clip={clipFor(highlight, matchClips)}
+                      onOrder={() => onOrder({ kind: 'highlight', highlight })}
+                      subject={[
+                        highlightLabel(highlight.type, t),
+                        highlight.nickname,
+                        t.highlight.round(highlight.roundNumber),
+                      ].join(' · ')}
+                    />
+                  )
+                : clips.isPending
+                  ? () => <span aria-hidden="true" />
+                  : undefined
             }
           />
         )}

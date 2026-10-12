@@ -7,6 +7,8 @@ export async function copyText(text: string): Promise<boolean> {
     await navigator.clipboard.writeText(text)
     return true
   } catch {
+    // The selection below takes the focus; afterwards it goes back to where it was, the button that asked for the copy.
+    const focused = document.activeElement
     const field = document.createElement('textarea')
     field.value = text
     field.setAttribute('readonly', '')
@@ -20,6 +22,9 @@ export async function copyText(text: string): Promise<boolean> {
       return false
     } finally {
       field.remove()
+      if (focused instanceof HTMLElement) {
+        focused.focus()
+      }
     }
   }
 }

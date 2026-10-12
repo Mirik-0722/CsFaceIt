@@ -15,6 +15,11 @@ interface ClipButtonProps {
   label?: string
   /** The look of the button that records: filled on a highlight card, an outline where it is a second action. */
   variant?: 'default' | 'outline'
+  /**
+   * What the clip is of (`4K · nickname · Round 14`), where a page has many of these rows: it is added to the name of
+   * the button or link, so that a list of the page's controls does not read "Record clip" thirty times.
+   */
+  subject?: string
 }
 
 /**
@@ -22,11 +27,13 @@ interface ClipButtonProps {
  * while there is none, follow it while it is queued or being recorded (the row then links to the clip's page), watch
  * it once it is ready, and try again after a failure.
  */
-export default function ClipButton({ clip, onOrder, label, variant = 'default' }: ClipButtonProps) {
+export default function ClipButton({ clip, onOrder, label, variant = 'default', subject }: ClipButtonProps) {
   const t = useT()
+  // The name starts with the words on the control, so that it can still be asked for by what it shows.
+  const named = (words: string) => (subject ? `${words}: ${subject}` : undefined)
   if (!clip) {
     return (
-      <Button type="button" variant={variant} onClick={onOrder}>
+      <Button type="button" variant={variant} aria-label={named(label ?? t.clip.record)} onClick={onOrder}>
         <RecDot />
         {label ?? t.clip.record}
       </Button>
@@ -36,7 +43,11 @@ export default function ClipButton({ clip, onOrder, label, variant = 'default' }
     return (
       <>
         {/* `cn` settles the border of the variant against the transparent one every button starts with. */}
-        <Link to={`/clips/${clip.id}`} className={cn(buttonVariants({ variant: 'outline' }))}>
+        <Link
+          to={`/clips/${clip.id}`}
+          aria-label={named(t.clip.watch)}
+          className={cn(buttonVariants({ variant: 'outline' }))}
+        >
           <svg viewBox="0 0 12 12" aria-hidden="true" className="size-3 fill-current">
             <path d="M3 1.5v9l7.5-4.5z" />
           </svg>
@@ -61,7 +72,14 @@ export default function ClipButton({ clip, onOrder, label, variant = 'default' }
             </span>
           )}
         </span>
-        <Button type="button" variant="link" size="sm" className="-mr-3.5" onClick={onOrder}>
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="-mr-3.5"
+          aria-label={named(t.clip.retry)}
+          onClick={onOrder}
+        >
           {t.clip.retry}
         </Button>
       </>

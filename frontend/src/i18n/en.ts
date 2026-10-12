@@ -180,6 +180,8 @@ export const en = {
       download: 'Download',
       copyLink: 'Copy link',
       copied: 'Link copied',
+      copyFailed: 'Could not copy the link',
+      videoFailed: 'The video could not be loaded. Reload the page, or try again later.',
       delete: 'Delete',
       confirmDelete: 'Delete this clip and its video?',
       confirmYes: 'Yes, delete',

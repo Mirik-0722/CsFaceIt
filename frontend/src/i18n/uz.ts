@@ -172,6 +172,8 @@ export const uz: Messages = {
       download: 'Yuklab olish',
       copyLink: 'Havolani nusxalash',
       copied: 'Havola nusxalandi',
+      copyFailed: "Havolani nusxalab bo'lmadi",
+      videoFailed: "Videoni yuklab bo'lmadi. Sahifani yangilang yoki keyinroq urinib ko'ring.",
       delete: "O'chirish",
       confirmDelete: "Klip videosi bilan birga o'chirilsinmi?",
       confirmYes: "Ha, o'chirish",

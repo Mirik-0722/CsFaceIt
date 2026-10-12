@@ -7,7 +7,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { isFinished } from '@/lib/clips'
+import { isFinished } from '@/lib/clipStatus'
 import { ApiError, apiDelete, apiGet, apiPost } from './client'
 import type {
   ClipPageResponse,
@@ -300,12 +300,16 @@ export function useRecentClips(limit = CLIPS_PAGE_SIZE) {
   })
 }
 
-/** One clip with its kills; asked for again every three seconds until it is done or failed. */
+/**
+ * One clip with its kills; asked for again every three seconds until it is done or failed, or until the backend says
+ * that there is no such clip (any more): a clip that waits can be withdrawn while its page is open somewhere else.
+ */
 export function useClip(clipId: number) {
   return useQuery<ClipResponse, ApiError>({
     queryKey: ['clip', clipId],
     queryFn: () => apiGet<ClipResponse>(`/clips/${clipId}`),
-    refetchInterval: (query) => pollWhileUnfinished(query.state.data && [query.state.data]),
+    refetchInterval: (query) =>
+      query.state.error?.status === 404 ? false : pollWhileUnfinished(query.state.data && [query.state.data]),
     retry: retryUnlessClientError,
   })
 }
@@ -329,6 +333,17 @@ function invalidateClipLists(queryClient: QueryClient, matchId: string) {
 }
 
 /**
+ * What both requests for a clip do with their answer: the clip goes to the head of the list of its match at once, so
+ * the page shows it before the lists have been asked for again.
+ */
+function takeInRequestedClip(queryClient: QueryClient, clip: ClipResponse) {
+  queryClient.setQueryData<ClipResponse[]>(['match-clips', clip.matchId], (clips) =>
+    clips ? [clip, ...clips.filter((other) => other.id !== clip.id)] : clips,
+  )
+  invalidateClipLists(queryClient, clip.matchId)
+}
+
+/**
  * Asks for the clip of a highlight. The answer is the clip as it is now (a new one in the queue, or the one that
  * already exists for that highlight and quality); it goes into the list of its match at once, so the page shows it
  * before the list has been asked for again.
@@ -340,12 +355,7 @@ export function useRequestHighlightClip() {
       apiPost<ClipResponse>(`/highlights/${highlightId}/clips`, { apiKey, body: { quality } }),
     // The variables hold the admin key: see useDemoAction.
     gcTime: 0,
-    onSuccess: (clip) => {
-      queryClient.setQueryData<ClipResponse[]>(['match-clips', clip.matchId], (clips) =>
-        clips ? [clip, ...clips.filter((other) => other.id !== clip.id)] : clips,
-      )
-      invalidateClipLists(queryClient, clip.matchId)
-    },
+    onSuccess: (clip) => takeInRequestedClip(queryClient, clip),
   })
 }
 
@@ -363,12 +373,7 @@ export function useRequestCompilation() {
     mutationFn: ({ apiKey, matchId, playerId, quality }) =>
       apiPost<ClipResponse>(`/matches/${matchId}/clips`, { apiKey, body: { playerId, quality } }),
     gcTime: 0,
-    onSuccess: (clip) => {
-      queryClient.setQueryData<ClipResponse[]>(['match-clips', clip.matchId], (clips) =>
-        clips ? [clip, ...clips.filter((other) => other.id !== clip.id)] : clips,
-      )
-      invalidateClipLists(queryClient, clip.matchId)
-    },
+    onSuccess: (clip) => takeInRequestedClip(queryClient, clip),
   })
 }
 

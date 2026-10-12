@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useRecorderStatus, useRequestCompilation, useRequestHighlightClip } from '@/api/queries'
 import KillTimeline from '@/components/KillTimeline'
 import RecDot from '@/components/RecDot'
@@ -79,12 +79,20 @@ function CompilationSummary({ order }: { order: Extract<ClipOrder, { kind: 'comp
   )
 }
 
+interface OrderFormProps {
+  order: ClipOrder
+  /** A request of this form is on its way. The dialog holds the flag, because it must not close meanwhile. */
+  sending: boolean
+  onSendingChange: (sending: boolean) => void
+  onClose: () => void
+}
+
 /**
  * The order itself. It is mounted when the dialog opens, so every opening starts from the defaults. The admin key is
  * asked for here when the page does not hold one yet, as in the demo panel: a key the backend took is kept until the
  * page is reloaded, and a key it rejects is forgotten.
  */
-function OrderForm({ order, onClose }: { order: ClipOrder; onClose: () => void }) {
+function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps) {
   const t = useT()
   const keyId = useId()
   const messagesId = useId()
@@ -98,19 +106,26 @@ function OrderForm({ order, onClose }: { order: ClipOrder; onClose: () => void }
   const recorder = useRecorderStatus()
   const highlightClip = useRequestHighlightClip()
   const compilation = useRequestCompilation()
-  const pending = highlightClip.isPending || compilation.isPending
   const hints: Record<ClipQuality, string> = { '720p': t.clip.order.fasterSmaller, '1080p': t.clip.order.recommended }
+
+  // A form that goes away takes its flag with it, whatever became of its request.
+  useEffect(() => () => onSendingChange(false), [onSendingChange])
 
   function start() {
     setKeyRejected(false)
     setFailure(null)
+    // Set with the click itself and not read from the state of the request, which follows a moment later: the dialog
+    // has to refuse to close from the very next key press on.
+    onSendingChange(true)
     const callbacks = {
       onSuccess: () => {
+        onSendingChange(false)
         // The backend took the key, so it is the right one: keep it for the next clip.
         setAdminKey(apiKey)
         onClose()
       },
       onError: (error: ApiError) => {
+        onSendingChange(false)
         if (error.status === 401) {
           // A rejected key is forgotten everywhere: the stored one, the one in the field and the one the rejected
           // request keeps in its variables.
@@ -200,15 +215,15 @@ function OrderForm({ order, onClose }: { order: ClipOrder; onClose: () => void }
       )}
       {/* Always in the dialog, so that its first message is announced; while empty it takes back the gap above. */}
       <div id={messagesId} aria-live="polite" className="text-sm empty:-mt-5.5">
-        {pending && <p className="text-muted-foreground">{t.demo.sending}</p>}
+        {sending && <p className="text-muted-foreground">{t.demo.sending}</p>}
         {keyRejected && <p className="text-destructive">{t.demo.wrongKey}</p>}
         {failure && <p className="text-destructive">{errorMessage(failure, t)}</p>}
       </div>
       <div className="flex flex-wrap justify-end gap-3">
-        <Button type="button" variant="outline" onClick={onClose}>
+        <Button type="button" variant="outline" disabled={sending} onClick={onClose}>
           {t.clip.order.cancel}
         </Button>
-        <Button type="submit" disabled={pending || apiKey.length === 0}>
+        <Button type="submit" disabled={sending || apiKey.length === 0}>
           <RecDot />
           {t.clip.order.start}
         </Button>
@@ -226,22 +241,40 @@ interface ClipOrderDialogProps {
 /**
  * The order of a clip (spec 4): what will be recorded, the quality to choose, how long the queue is, and the button
  * that puts the clip in the queue. The price and the Telegram switch of the mockup come with later plans.
+ *
+ * While the request is on its way the dialog cannot be closed, by its buttons, by Escape or by a click outside: the
+ * request cannot be taken back, and what the backend says to it (the key is wrong, the queue is full) is shown here.
  */
 export default function ClipOrderDialog({ order, onClose }: ClipOrderDialogProps) {
   const t = useT()
+  const [sending, setSending] = useState(false)
   return (
-    <Dialog open={order !== null} onOpenChange={(next) => !next && onClose()}>
+    <Dialog
+      open={order !== null}
+      onOpenChange={(next, details) => {
+        if (next) {
+          return
+        }
+        if (sending) {
+          // Refused, and said to the dialog as well: it would otherwise close by itself.
+          details.cancel()
+          return
+        }
+        onClose()
+      }}
+    >
       <DialogContent>
         <div className="flex items-center justify-between gap-3">
           <DialogTitle>{t.clip.order.title}</DialogTitle>
           <DialogClose
+            disabled={sending}
             render={<Button type="button" variant="ghost" size="icon" className="-my-2 -mr-3 text-muted-foreground" />}
             aria-label={t.clip.order.close}
           >
             <X aria-hidden="true" />
           </DialogClose>
         </div>
-        {order && <OrderForm order={order} onClose={onClose} />}
+        {order && <OrderForm order={order} sending={sending} onSendingChange={setSending} onClose={onClose} />}
       </DialogContent>
     </Dialog>
   )

@@ -40,7 +40,11 @@ export default function StatusChip({ clip, percent = true, className }: StatusCh
       <span>
         {t.clip.status[clip.status]}
         {clip.status === 'QUEUED' && clip.queuePosition !== null && ` · ${t.clip.queuePosition(clip.queuePosition)}`}
-        {clip.status === 'RECORDING' && percent && ` ${clip.progress}%`}
+        {clip.status === 'RECORDING' && percent && (
+          // The number changes with every answer of the backend. Where the chip stands in a part of the page that is
+          // announced when it changes, the word of the state is announced, and the number is read only when asked for.
+          <span aria-live="off">{` ${clip.progress}%`}</span>
+        )}
       </span>
     </span>
   )

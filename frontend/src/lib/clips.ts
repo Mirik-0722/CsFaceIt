@@ -1,11 +1,7 @@
 import type { Messages } from '@/i18n'
 import type { ClipQuality, ClipResponse, ClipStatus, HighlightResponse } from '@/api/types'
 import { highlightLabel } from '@/lib/highlightLabels'
-
-/** `DONE` and `FAILED` are where a clip stops; in any other status it is still on its way to a video. */
-export function isFinished(status: ClipStatus): boolean {
-  return status === 'DONE' || status === 'FAILED'
-}
+import { mapLabel } from '@/lib/mapTint'
 
 /** The qualities a clip can be asked for in, the lower first. */
 export const CLIP_QUALITIES: readonly ClipQuality[] = ['720p', '1080p']
@@ -59,6 +55,15 @@ export function compilationFor(playerId: string, clips: ClipResponse[]): ClipRes
 /** What a clip shows, as its tag says it: the label of its highlight (`4K`, `1v3 CLUTCH`), or the word for a compilation. */
 export function clipLabel(clip: ClipResponse, t: Messages): string {
   return clip.highlightType ? highlightLabel(clip.highlightType, t) : t.clip.compilation
+}
+
+/**
+ * Where a clip is from, as the corner of its frame says it: `Mirage · R14`, and `Mirage · MATCH` for a compilation.
+ * `R14` and `MATCH` are marks on the frame, the same in every language, like the tags of the highlights.
+ */
+export function frameLabel(clip: Pick<ClipResponse, 'mapName' | 'roundNumber'>, t: Messages): string {
+  const round = clip.roundNumber !== null ? `R${clip.roundNumber}` : 'MATCH'
+  return `${mapLabel(clip.mapName) ?? t.match.unknownMap} · ${round}`
 }
 
 /** A file size as it is shown next to a download: `21.4 MB`, and `640 KB` below one megabyte. */

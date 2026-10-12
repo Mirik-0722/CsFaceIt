@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import StatusChip from '@/components/StatusChip'
 import ViewfinderFrame from '@/components/ViewfinderFrame'
 import { useLocale, useT } from '@/i18n'
-import { clipLabel, formatBytes } from '@/lib/clips'
+import { clipLabel, formatBytes, frameLabel } from '@/lib/clips'
 import { formatDate } from '@/lib/formatDate'
 import { formatDuration } from '@/lib/highlightLabels'
 import { mapLabel } from '@/lib/mapTint'
@@ -41,7 +41,6 @@ function FrameCenter({ clip }: { clip: ClipResponse }) {
 export default function ClipCard({ clip }: { clip: ClipResponse }) {
   const t = useT()
   const locale = useLocale()
-  const map = mapLabel(clip.mapName) ?? t.match.unknownMap
   const recording = clip.status === 'RECORDING'
   return (
     <Link
@@ -53,8 +52,7 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
           <ViewfinderFrame
             mapName={clip.mapName}
             imageUrl={clip.thumbnailUrl}
-            // `R14` and `MATCH` are marks on the frame, the same in every language, like the tags of the highlights.
-            topLeft={`${map} · ${clip.roundNumber !== null ? `R${clip.roundNumber}` : 'MATCH'}`}
+            topLeft={frameLabel(clip, t)}
             topRight={
               recording && (
                 <span aria-hidden="true" className="flex items-center gap-1.5">
@@ -80,7 +78,7 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
             {clipLabel(clip, t)} · {clip.nickname}
           </h3>
           <p className="truncate text-[13px] text-muted-foreground">
-            {map}
+            {mapLabel(clip.mapName) ?? t.match.unknownMap}
             {clip.roundNumber !== null && `, ${t.highlight.round(clip.roundNumber)}`}
             {' · '}
             <time dateTime={clip.createdAt}>{formatDate(clip.createdAt, locale)}</time>

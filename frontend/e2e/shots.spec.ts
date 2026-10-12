@@ -121,7 +121,7 @@ const PAGES = [
   { name: 'highlights', path: `/players/${PLAYER_ID}/highlights`, tabs: 6 }, // the type filter (after the player card)
   { name: 'match', path: `/matches/${WON_MATCH_ID}`, tabs: 6 }, // the first filter button (after "Manage")
   // The order of a clip: the dialog that the first "Record clip" button of the match page opens. Its focus picture is
-  // of the first thing in the dialog, wherever the dialog puts the focus when it opens.
+  // of what one Tab reaches from where the dialog put the focus when it opened.
   { name: 'order', path: `/matches/${WON_MATCH_ID}`, open: openClipOrder, tabs: 1 },
   { name: 'clips', path: '/clips', tabs: 5 }, // the first clip card
   { name: 'clip', path: `/clips/${READY_CLIP_ID}`, tabs: 5 }, // the video
@@ -454,11 +454,14 @@ async function searchFor(page: Page, backend: Backend) {
   await page.locator('a[href^="/players/"]').waitFor()
 }
 
-/** Presses Tab as often as the page's `tabs` say, from the top of the page. */
+/** Presses Tab as often as the page's `tabs` say, from the top of the page, or from where an open dialog put the focus. */
 async function pressTab(page: Page, { tabs }: ShotPage) {
   // A click in the top-left corner (nothing to click there) makes Tab start from the top of the page, whatever the
-  // page did before: the search leaves the focus in its form.
-  await page.mouse.click(1, 1)
+  // page did before: the search leaves the focus in its form. An open dialog holds the focus itself, and the click
+  // would land outside it and close it.
+  if ((await page.locator('[data-slot="dialog-content"]').count()) === 0) {
+    await page.mouse.click(1, 1)
+  }
   for (let press = 0; press < tabs; press++) {
     await page.keyboard.press('Tab')
   }
