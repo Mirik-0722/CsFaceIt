@@ -118,7 +118,8 @@ clip:
   stale-after: 3m
   # A recorder seen this recently counts as online.
   worker-online-within: 90s
-  # A finished clip (done or failed) is removed with its files after this many days; 0 keeps every clip. The cron
+  # Once a day (retention-cron) a job deletes the clips that finished, done or failed, more than this many days ago, with
+  # the video and thumbnail files of every attempt to record them; 0 switches the job off and keeps every clip. The cron
   # expression (Spring's six fields, server time) is normally left alone.
   retention-days: ${CLIP_RETENTION_DAYS:30}
   retention-cron: ${CLIP_RETENTION_CRON:0 30 4 * * *}

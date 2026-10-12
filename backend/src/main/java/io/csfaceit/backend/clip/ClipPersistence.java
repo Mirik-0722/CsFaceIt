@@ -1,8 +1,11 @@
 package io.csfaceit.backend.clip;
 
 import io.csfaceit.backend.analysis.highlight.HighlightType;
+import io.csfaceit.backend.common.api.ConflictException;
+import io.csfaceit.backend.common.api.NotFoundException;
 import io.csfaceit.backend.match.MatchRepository;
 import io.csfaceit.backend.player.PlayerRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Component;
@@ -19,6 +22,19 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Component
 public class ClipPersistence {
+
+    private static final String CLIP_NOT_FOUND = "CLIP_NOT_FOUND";
+    private static final String CLIP_IN_PROGRESS = "CLIP_IN_PROGRESS";
+
+    /** The two statuses a clip ends in, from which it never moves on. */
+    private static final List<ClipStatus> FINISHED_STATUSES = List.of(ClipStatus.DONE, ClipStatus.FAILED);
+
+    /**
+     * What a deleted clip may have left in the storage: the files of {@code attempts} attempts (see {@link ClipFiles}),
+     * and the files its row named, {@code videoKey} and {@code thumbnailKey}, which are {@code null} while it has none.
+     */
+    public record DeletedClip(int attempts, String videoKey, String thumbnailKey) {
+    }
 
     /**
      * What tells the clip of a highlight apart from every other: the highlight by its natural key (its id is no handle,
@@ -56,6 +72,34 @@ public class ClipPersistence {
     @Transactional(readOnly = true)
     public long countQueued() {
         return clips.countByStatus(ClipStatus.QUEUED);
+    }
+
+    /**
+     * Deletes the row of a clip. It is read under its lock and looked at again there, so that it cannot be claimed by a
+     * recorder in the same moment: whoever gets the lock first wins, and a delete that comes second finds the clip
+     * active. A {@code QUEUED} clip is deleted too, which is how a request is withdrawn.
+     *
+     * @return what the clip leaves in the storage, read before the row went
+     * @throws NotFoundException {@code CLIP_NOT_FOUND}
+     * @throws ConflictException {@code CLIP_IN_PROGRESS}: a recorder holds the clip
+     */
+    @Transactional
+    public DeletedClip delete(long clipId) {
+        Clip clip = clips.findByIdForUpdate(clipId)
+                .orElseThrow(() -> new NotFoundException(CLIP_NOT_FOUND, "Clip not found: " + clipId));
+        if (clip.getStatus().isActive()) {
+            throw new ConflictException(CLIP_IN_PROGRESS,
+                    "Clip " + clipId + " is being made (" + clip.getStatus() + ") and cannot be deleted now");
+        }
+        DeletedClip deleted = new DeletedClip(clip.getAttempts(), clip.getVideoKey(), clip.getThumbnailKey());
+        clips.delete(clip);
+        return deleted;
+    }
+
+    /** The ids of the clips that finished ({@code DONE} or {@code FAILED}) before {@code cutoff}, the oldest first. */
+    @Transactional(readOnly = true)
+    public List<Long> findFinishedBefore(Instant cutoff) {
+        return clips.findFinishedBeforeIds(FINISHED_STATUSES, cutoff);
     }
 
     /**

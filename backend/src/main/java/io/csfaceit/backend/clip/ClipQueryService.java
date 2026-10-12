@@ -46,6 +46,15 @@ import org.springframework.stereotype.Service;
 @Service
 public class ClipQueryService {
 
+    /**
+     * A clip as the endpoints that serve its files need it: {@code nickname}, {@code kind}, {@code highlightType} and
+     * {@code roundNumber} name a download ({@code highlightType} and {@code roundNumber} are {@code null} in a
+     * compilation), and {@code videoKey} and {@code thumbnailKey} are where the files are in the storage.
+     */
+    public record ClipMedia(ClipStatus status, ClipKind kind, String nickname, HighlightType highlightType,
+                            Integer roundNumber, String videoKey, String thumbnailKey) {
+    }
+
     private static final String CLIP_NOT_FOUND = "CLIP_NOT_FOUND";
 
     private static final int MILLIS_PER_SECOND = 1000;
@@ -64,7 +73,7 @@ public class ClipQueryService {
     private static final String CLIPS_SQL = """
             SELECT c.id, c.match_id, c.player_id, c.kind, c.status, c.progress, m.faceit_match_id, m.map_name,
                    p.faceit_id AS player_faceit_id, p.nickname, c.highlight_type, c.round_number, c.tick_start,
-                   c.quality, c.fps, c.duration_ms, c.size_bytes, c.error, c.thumbnail_key, c.created_at,
+                   c.quality, c.fps, c.duration_ms, c.size_bytes, c.error, c.video_key, c.thumbnail_key, c.created_at,
                    c.finished_at, c.segments, d.tick_rate,
                    CASE WHEN c.status = :queued THEN (
                        SELECT count(*) FROM clips q
@@ -131,6 +140,20 @@ public class ClipQueryService {
      */
     public ClipResponse summary(long clipId) {
         return find(clipId).toResponse(properties, List.of());
+    }
+
+    /**
+     * What the video and the thumbnail of a clip are served from: the clip's status, what a download is named after,
+     * and the keys of its files in the storage as the row holds them. A key is {@code null} while the clip has no such
+     * file. Each attempt to record a clip uploads under keys of its own, and these are the ones of the attempt that
+     * finished the clip.
+     *
+     * @throws NotFoundException {@code CLIP_NOT_FOUND}
+     */
+    public ClipMedia media(long clipId) {
+        Row row = find(clipId);
+        return new ClipMedia(row.status(), row.kind(), row.nickname(), row.highlightType(), row.roundNumber(),
+                row.videoKey(), row.thumbnailKey());
     }
 
     /** Every clip of the match, whatever its status, the newest first. Empty for a match the database does not know. */
@@ -266,7 +289,8 @@ public class ClipQueryService {
                 rs.getString("player_faceit_id"), rs.getString("nickname"), highlightType,
                 nullableInt(rs, "round_number"), nullableInt(rs, "tick_start"), quality, rs.getInt("fps"),
                 nullableInt(rs, "duration_ms"), nullableLong(rs, "size_bytes"), rs.getString("error"),
-                rs.getString("thumbnail_key") != null, rs.getObject("created_at", OffsetDateTime.class).toInstant(),
+                rs.getString("video_key"), rs.getString("thumbnail_key"),
+                rs.getObject("created_at", OffsetDateTime.class).toInstant(),
                 finishedAt == null ? null : finishedAt.toInstant(), rs.getString("segments"),
                 ClipFacts.tickRate(nullableInt(rs, "tick_rate")), nullableInt(rs, "queue_position"));
     }
@@ -305,8 +329,8 @@ public class ClipQueryService {
     private record Row(long id, long matchRowId, long playerRowId, ClipKind kind, ClipStatus status, int progress,
                        String matchId, String mapName, String playerId, String nickname, HighlightType highlightType,
                        Integer roundNumber, Integer tickStart, ClipQuality quality, int fps, Integer durationMs,
-                       Long sizeBytes, String error, boolean hasThumbnail, Instant createdAt, Instant finishedAt,
-                       String segmentsJson, int tickRate, Integer queuePosition) {
+                       Long sizeBytes, String error, String videoKey, String thumbnailKey, Instant createdAt,
+                       Instant finishedAt, String segmentsJson, int tickRate, Integer queuePosition) {
 
         ClipResponse toResponse(ClipProperties properties, List<ClipKill> kills) {
             boolean done = status == ClipStatus.DONE;
@@ -316,7 +340,7 @@ public class ClipQueryService {
                     roundNumber, tickStart, quality, fps, durationMs, sizeBytes, error,
                     status == ClipStatus.QUEUED ? queuePosition : null,
                     done ? "/api/v1/clips/" + id + "/video" : null,
-                    done && hasThumbnail ? "/api/v1/clips/" + id + "/thumbnail" : null,
+                    done && thumbnailKey != null ? "/api/v1/clips/" + id + "/thumbnail" : null,
                     createdAt, finishedAt, expiresAt, kills);
         }
     }

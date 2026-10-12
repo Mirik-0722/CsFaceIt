@@ -42,6 +42,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     static final String NOT_FOUND = "NOT_FOUND";
     static final String FACEIT_UNAVAILABLE = "FACEIT_UNAVAILABLE";
     static final String PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
+    static final String RANGE_NOT_SATISFIABLE = "RANGE_NOT_SATISFIABLE";
 
     private static final String FACEIT_UNAVAILABLE_MESSAGE = "FACEIT is unavailable";
     private static final String INTERNAL_ERROR_MESSAGE = "Unexpected server error";
@@ -71,6 +72,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(TooManyRequestsException.class)
     ResponseEntity<ApiError> handleTooManyRequests(TooManyRequestsException ex) {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(new ApiError(ex.getCode(), ex.getMessage()));
+    }
+
+    /** The one answer that carries a header of its own: how long the resource is, so that the client can ask again. */
+    @ExceptionHandler(RangeNotSatisfiableException.class)
+    ResponseEntity<ApiError> handleRangeNotSatisfiable(RangeNotSatisfiableException ex) {
+        return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                .header(HttpHeaders.CONTENT_RANGE, "bytes */" + ex.getSizeBytes())
+                .body(new ApiError(RANGE_NOT_SATISFIABLE, ex.getMessage()));
     }
 
     /** Safety net: services translate this into a {@link NotFoundException} with a context-specific code. */

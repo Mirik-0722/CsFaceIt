@@ -208,7 +208,7 @@ cd frontend && SHOTS=1 npx playwright test e2e/shots.spec.ts
 Base URL: <http://localhost:3000> with Docker Compose, <http://localhost:8080> in dev mode. Everything returns JSON,
 and errors have the shape `{"code": "...", "message": "..."}`. The player and match endpoints below are `GET` and open;
 the four [demo endpoints](#demo-pipeline) and the [clip endpoints](#video-clips) are described in their own sections,
-and the four that change something (`POST`) need the `X-API-Key` header.
+and the requests that change something (`POST`, `DELETE`) need the `X-API-Key` header.
 
 | Endpoint | Description |
 | --- | --- |
@@ -243,7 +243,9 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 404 | `HIGHLIGHT_NOT_FOUND`, `CLIP_NOT_FOUND` | There is no such highlight (or its demo is not `ANALYZED`) or clip; see [Video clips](#video-clips). |
 | 409 | `DEMO_URL_UNAVAILABLE`, `DEMO_NOT_PARSED` | A demo import was requested but FACEIT has no demo for the match (yet); or an analysis was requested but the demo is not `PARSED` or `ANALYZED`. |
 | 409 | `DEMO_NOT_AVAILABLE`, `PLAYER_STEAM_ID_UNKNOWN`, `CLIP_TOO_LONG` | A new clip was requested but the demo file is not stored, the player's SteamID is unknown, or the clip would be longer than allowed; see [Video clips](#video-clips). |
+| 409 | `CLIP_IN_PROGRESS` | A clip was to be deleted while a recorder works on it; see [Video clips](#video-clips). |
 | 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip file expands beyond it), or a recorder's video or thumbnail is larger than `CLIP_UPLOAD_MAX_SIZE`. |
+| 416 | `RANGE_NOT_SATISFIABLE` | The `Range` of a request for a clip's video starts at or beyond its end; see [Video clips](#video-clips). |
 | 429 | `CLIP_QUEUE_FULL` | A new clip was requested but the queue of clips is full; see [Video clips](#video-clips). |
 | 502 | `FACEIT_UNAVAILABLE` | FACEIT failed or timed out after retries, or refused the request (for example a rejected `FACEIT_API_KEY`, which is not retried), and no cached copy exists. |
 | 503 | `STORAGE_UNAVAILABLE` | The storage cannot do what a recorder's request needs; see [Worker API](#worker-api-the-recorder). |
@@ -613,11 +615,11 @@ numbers, `0.0` for a player without a stored row (and `hsPercent` for one withou
 
 A clip is a video of a moment of a match, cut from the stored demo of the match. Asking for the clip of a highlight puts
 a row in the `clips` table with the status `QUEUED` and the **segments** of the demo the video is made of; a recorder
-takes the queued clips one at a time (see [Worker API](#worker-api-the-recorder)). The endpoints below are the request
-and the reads. The `POST` needs the admin key
-in the `X-API-Key` header, the reads are open and answer from the database only (nothing is asked of FACEIT or of the
-storage). The examples use the Compose address; `<highlightId>` is the `id` of an item of
-`GET /api/v1/matches/{matchId}/highlights`.
+takes the queued clips one at a time (see [Worker API](#worker-api-the-recorder)). The endpoints below are the request,
+the reads and the delete. The `POST` and the `DELETE` need the admin key
+in the `X-API-Key` header, the reads are open and answer from the database only (nothing is asked of FACEIT), except
+the video and the thumbnail, which come from the storage. The examples use the Compose address; `<highlightId>` is the
+`id` of an item of `GET /api/v1/matches/{matchId}/highlights`.
 
 | Endpoint | Answer |
 | --- | --- |
@@ -627,6 +629,9 @@ storage). The examples use the Compose address; `<highlightId>` is the `id` of a
 | `GET /api/v1/matches/{matchId}/clips` | An array of the clips of the match, whatever their status, the newest first. Empty for a match the database does not know. |
 | `GET /api/v1/players/{playerId}/clips?offset=0&limit=20` | `{"items": [...], "offset": 0, "limit": 20}`: a page of the clips of the player over all his matches, whatever their status, the newest first. `offset` 0-10000, `limit` 1-100. Empty for a player the database does not know. |
 | `GET /api/v1/clips?offset=0&limit=20` | The same page, of the clips that are `DONE` only, the most recently finished first. |
+| `GET /api/v1/clips/{clipId}/video` | The video of a `DONE` clip, `video/mp4`, with `Accept-Ranges: bytes` and its `Content-Length`; `HEAD` answers the same without the body. A single `Range` is answered with `206`, see "The video and the thumbnail" below. With `?download=1` a browser saves the file under a name of its own instead of playing it. `404 CLIP_NOT_FOUND`, `416 RANGE_NOT_SATISFIABLE`. |
+| `GET /api/v1/clips/{clipId}/thumbnail` | The thumbnail of a `DONE` clip, `image/jpeg`, `Cache-Control: public, max-age=86400`; `HEAD` works too. `404 CLIP_NOT_FOUND`. |
+| `DELETE /api/v1/clips/{clipId}` | Deletes the clip and its files: `204`, no body. `404 CLIP_NOT_FOUND`; `409 CLIP_IN_PROGRESS` while a recorder works on it (`RECORDING`, `ENCODING` or `UPLOADING`). A clip that is only `QUEUED` can be deleted, which withdraws the request. |
 | `GET /api/v1/recorder/status` | `{"online": true, "lastSeenAt": "...", "queued": 2, "active": 1}`: whether a recorder is there to take the clips that wait. `online` is true when some recorder was seen (it claimed, reported or sent a heartbeat) within `clip.worker-online-within`; `lastSeenAt` is the latest sighting, `null` if there never was one; `queued` clips are `QUEUED`, `active` ones are `RECORDING`, `ENCODING` or `UPLOADING`. |
 
 ```bash
@@ -640,6 +645,11 @@ curl http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
 curl "http://localhost:3000/api/v1/players/<playerId>/clips?offset=0&limit=20"
 curl "http://localhost:3000/api/v1/clips?limit=10"
 curl http://localhost:3000/api/v1/recorder/status
+curl -I http://localhost:3000/api/v1/clips/<clipId>/video
+curl -H 'Range: bytes=0-99' -o first-100-bytes.mp4 http://localhost:3000/api/v1/clips/<clipId>/video
+curl -OJ "http://localhost:3000/api/v1/clips/<clipId>/video?download=1"
+curl -o thumbnail.jpg http://localhost:3000/api/v1/clips/<clipId>/thumbnail
+curl -X DELETE -H 'X-API-Key: dev-admin-key' http://localhost:3000/api/v1/clips/<clipId>
 ```
 
 A clip, here a queued one of a `K3` (ids shortened):
@@ -705,17 +715,47 @@ already (answered with `200`, whatever became of the demo file and however long 
 of the player; that he made a kill of an enemy in the match (`409 NO_KILLS`); the queue; and last the length of the
 segments.
 
+**The video and the thumbnail.** Only a `DONE` clip has either. For a clip that is not `DONE`, one that does not exist,
+a thumbnail the recorder did not upload, and a `DONE` clip whose file is missing from the storage (a warning is logged
+then), the answer is `404 CLIP_NOT_FOUND`. The video is `Content-Type: video/mp4`, always with `Accept-Ranges: bytes`
+and a `Content-Length` of the bytes sent. The files are the ones the row of the clip names (`video_key`,
+`thumbnail_key`: every attempt to record a clip uploads under keys of its own, and the row says which attempt's files are
+the clip's), and the length of the video is what the storage says for that key, not `sizeBytes`. Without a
+`Range` header the whole file comes with `200`. One range, in the form `bytes=a-b` or `bytes=a-`, is answered with `206`
+and `Content-Range: bytes a-b/size` (an end beyond the last byte is cut to it); a start at or beyond the end is a `416`
+with `Content-Range: bytes */size`. Any other `Range` (several ranges, the last n bytes as in `bytes=-n`, another unit,
+anything that is no range) is ignored and the whole file comes with `200`, which HTTP allows. `HEAD` gives the headers
+that `GET` would. With `?download=1` the answer also carries `Content-Disposition: attachment; filename="..."`, and the
+ranges work the same. The name is `<nickname>-<type>-r<round>.mp4`, the type in lower case with `-` for `_` (`k4`,
+`clutch-1v3`, `smoke-kill`; `defuse` for a ninja defuse, as in the interface), and `<nickname>-compilation.mp4` for a
+compilation; every character of the nickname that is not a letter, a digit, `.`, `_` or `-` becomes `_`. The bytes are
+streamed from the storage and never held in memory; a browser that seeks drops the request it no longer needs, which is
+not an error in the log. In the Compose stack Nginx passes the video on as it arrives (`proxy_buffering off` in
+`frontend/nginx.conf`). The thumbnail is always sent whole.
+
+**Deleting and retention.** `DELETE` removes the row first, in one transaction under its lock, and then the files from
+the storage: the video and the thumbnail of every attempt the clip had (`clips/{id}-{attempt}.mp4` and
+`clips/{id}-{attempt}.jpg`, attempts counted from 1), and the files the row names if they are not among those. An attempt
+that was given up leaves its files in the storage, and a clip that went back to the queue has lost the keys of the row
+but not its objects, which is why the files are removed by their names and not by the row alone. A file the storage
+cannot remove is a warning in the log, the file stays, and the answer is `204` all the same. A job removes the clips that
+finished more than `clip.retention-days` days ago (`DONE` and `FAILED` ones, both have a finish time) in the same way,
+once a day at 04:30 server time (`clip.retention-cron`), and logs one line with the number it removed; a clip it cannot
+remove does not stop it. `0` days switches the job off, and then `expiresAt` is `null`.
+
 | Status | `code` | When |
 | --- | --- | --- |
 | 400 | `VALIDATION_ERROR` | The `quality` is not `"720p"` or `"1080p"`, the body cannot be read, the `playerId` of a compilation is missing or is neither a FACEIT player id nor `steam:<SteamID>`, or an id or paging parameter is malformed. A player known only from a demo has the id `steam:<SteamID>`, whose colon the id rule does not allow, so `GET /api/v1/players/{playerId}/clips` cannot name him (as for his highlights); his clips are in the list of the match. |
-| 401 | `UNAUTHORIZED` | The `POST` is missing a valid `X-API-Key` header. |
+| 401 | `UNAUTHORIZED` | The `POST` or the `DELETE` is missing a valid `X-API-Key` header. |
 | 404 | `HIGHLIGHT_NOT_FOUND` | There is no highlight with that id, or the demo of its match is not `ANALYZED` (a highlight is served only then, see [Highlights and statistics](#highlights-and-statistics)). |
 | 404 | `MATCH_NOT_FOUND`, `PLAYER_NOT_FOUND` | A compilation was requested for a match or a player the database does not know. |
-| 404 | `CLIP_NOT_FOUND` | There is no clip with that id. |
+| 404 | `CLIP_NOT_FOUND` | There is no clip with that id; for the video and the thumbnail also: the clip is not `DONE`, it has no thumbnail, or its file is missing from the storage. |
 | 409 | `DEMO_NOT_AVAILABLE` | A clip would have to be queued, but the demo file of the match is not in storage (the retention job removed it, see [Retention](#retention); upload the demo again) or the demo is not `PARSED` or `ANALYZED`. A request for a clip that exists is answered with that clip all the same. |
 | 409 | `PLAYER_STEAM_ID_UNKNOWN` | The backend does not know the SteamID of the player, and a recorder follows a player by it. |
 | 409 | `NO_KILLS` | A compilation was requested for a player who made no kill of an enemy in the match (he did not play in it, or got none). |
 | 409 | `CLIP_TOO_LONG` | The segments add up to more than `clip.max-duration-seconds`. |
+| 409 | `CLIP_IN_PROGRESS` | The clip to delete is being recorded, encoded or uploaded. Delete it when it is `DONE` or `FAILED`, or while it still waits. |
+| 416 | `RANGE_NOT_SATISFIABLE` | The `Range` of a request for the video starts at or beyond its end; `Content-Range: bytes */size` says how long it is. |
 | 429 | `CLIP_QUEUE_FULL` | `clip.max-queued` clips are waiting already. Ask again later. The limit is soft: two requests at the same moment may both get in. |
 
 The `POST` for a highlight checks in this order, and the first that fails ends the request: the highlight; the clip that is there
@@ -733,11 +773,11 @@ of the player; the queue; and last the length of the segments.
 | `clip.stale-after` | 3m | An active clip whose recorder has reported nothing for this long is taken back. |
 | `clip.worker-online-within` | 90s | A recorder seen this recently counts as online. |
 | `clip.upload-max-size` (`CLIP_UPLOAD_MAX_SIZE`) | 1GB | The most a recorder may upload for one clip (the video and the thumbnail each). |
-| `clip.retention-days` (`CLIP_RETENTION_DAYS`) | 30 | Days a finished clip is kept; `expiresAt` is worked out from it. `0` keeps every clip. |
+| `clip.retention-days` (`CLIP_RETENTION_DAYS`) | 30 | Days a finished clip (`DONE` or `FAILED`) is kept before the clean-up removes it with its files; `expiresAt` is worked out from it. `0` keeps every clip. |
 | `clip.worker-token` (`CLIP_WORKER_TOKEN`) | empty | The secret of the recorder's API; see [Worker API](#worker-api-the-recorder). |
 
-`clip.retention-cron` (`CLIP_RETENTION_CRON`, six cron fields, server time) is when the clean-up of old clips runs; it is
-normally left alone.
+`clip.retention-cron` (`CLIP_RETENTION_CRON`, six cron fields, server time) is when the clean-up of old clips runs, by
+default every day at 04:30; it is normally left alone.
 
 **Do not change `analysis.clip.pre-seconds` or `analysis.clip.post-seconds` once a clip exists.** A clip finds its
 highlight by the first tick of the highlight's window (`tick_start`), and that tick is worked out from `pre-seconds`
@@ -846,7 +886,8 @@ curl -X POST -H "$H" -H 'Content-Type: application/json' -d '{"worker": "pc-1", 
 A job removes the stored demo files that are older than `DEMO_RETENTION_DAYS` (default 30) once a day at 04:00 server
 time. It deletes the file and clears `demos.storage_key`; the status and the parsed facts (`rounds`, `round_players`,
 `kills`, `damages`, `heat_bins`) stay. It does nothing when the variable is `0`. A demo whose file is gone can be
-brought back by uploading it again.
+brought back by uploading it again. Clips have a clean-up of their own, at 04:30 and by `CLIP_RETENTION_DAYS`; see
+[Video clips](#video-clips).
 
 ## Metrics and dashboards
 

@@ -19,19 +19,22 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Asking for the clip of a highlight, and reading clips and the state of the recorder. The request is a {@code POST}
- * and needs the admin key like every other write; the reads are open and answer from the database only: an id the
- * database does not know gives an empty list, not a 404 (a single clip that does not exist is a 404). A
- * {@code quality} that is not one of the {@link ClipQuality} labels is a 400.
+ * Asking for the clip of a highlight, deleting a clip, and reading clips and the state of the recorder. The request and
+ * the delete are a {@code POST} and a {@code DELETE} and need the admin key like every other write; the reads are open
+ * and answer from the database only: an id the database does not know gives an empty list, not a 404 (a single clip
+ * that does not exist is a 404). A {@code quality} that is not one of the {@link ClipQuality} labels is a 400. The
+ * video and the thumbnail of a clip are served by {@link ClipMediaController}.
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -74,6 +77,16 @@ public class ClipController {
     @GetMapping("/clips/{clipId}")
     public ClipResponse getClip(@PathVariable long clipId) {
         return queries.get(clipId);
+    }
+
+    /**
+     * Deletes the clip and its files: 204. A clip a recorder is working on is a 409 {@code CLIP_IN_PROGRESS}; one that
+     * is only waiting can be deleted, which withdraws the request.
+     */
+    @DeleteMapping("/clips/{clipId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteClip(@PathVariable long clipId) {
+        clips.delete(clipId);
     }
 
     @GetMapping("/matches/{matchId}/clips")

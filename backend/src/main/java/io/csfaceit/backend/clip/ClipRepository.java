@@ -83,6 +83,18 @@ public interface ClipRepository extends JpaRepository<Clip, Long> {
                                         @Param("activeStatuses") Collection<ClipStatus> activeStatuses);
 
     /**
+     * The ids of the clips in one of {@code finishedStatuses} that finished before {@code cutoff}, the oldest first. A
+     * clip with no {@code finished_at} is never among them. A look, no lock: the caller deletes each clip the way a
+     * delete request does, under its lock.
+     */
+    @Query("""
+            select c.id from Clip c
+            where c.status in :finishedStatuses and c.finishedAt < :cutoff
+            order by c.finishedAt, c.id""")
+    List<Long> findFinishedBeforeIds(@Param("finishedStatuses") Collection<ClipStatus> finishedStatuses,
+                                     @Param("cutoff") Instant cutoff);
+
+    /**
      * The ids of the active clips whose recorder has given no sign of life since {@code cutoff}; a clip without a
      * heartbeat counts as silent. A look, no lock: the caller takes the lock of each clip and looks again.
      */

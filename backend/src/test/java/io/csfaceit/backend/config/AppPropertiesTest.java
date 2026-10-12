@@ -63,7 +63,7 @@ class AppPropertiesTest {
         assertThat(cors.getAllowedOrigins()).doesNotContain("*");
         assertThat(cors.getAllowedOriginPatterns()).isNull();
         assertThat(cors.getAllowCredentials()).isNotEqualTo(Boolean.TRUE);
-        assertThat(cors.getAllowedMethods()).containsExactly("GET", "POST", "OPTIONS");
+        assertThat(cors.getAllowedMethods()).containsExactly("GET", "POST", "DELETE", "OPTIONS");
         assertThat(cors.getAllowedHeaders()).containsExactly("Content-Type", "X-API-Key");
     }
 

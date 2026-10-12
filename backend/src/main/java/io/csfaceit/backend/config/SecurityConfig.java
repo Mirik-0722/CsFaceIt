@@ -92,7 +92,7 @@ public class SecurityConfig {
     CorsConfigurationSource corsConfigurationSource(AppProperties properties) {
         CorsConfiguration cors = new CorsConfiguration();
         cors.setAllowedOrigins(properties.cors().allowedOrigins());
-        cors.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        cors.setAllowedMethods(List.of("GET", "POST", "DELETE", "OPTIONS"));
         cors.setAllowedHeaders(List.of("Content-Type", ApiKeyAuthFilter.HEADER_NAME));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

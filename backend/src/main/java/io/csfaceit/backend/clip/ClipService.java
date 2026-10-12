@@ -15,18 +15,22 @@ import io.csfaceit.backend.match.Match;
 import io.csfaceit.backend.match.MatchRepository;
 import io.csfaceit.backend.player.Player;
 import io.csfaceit.backend.player.PlayerRepository;
+import io.csfaceit.backend.storage.StorageException;
+import io.csfaceit.backend.storage.StorageService;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 /**
- * Takes the requests for clips. Like {@code DemoService} it opens no transaction itself: the facts are read and the
- * segments worked out with none open, and the short database steps are the transactions of {@link ClipPersistence}.
- * What a request answers with, and every other read of clips, is {@link ClipQueryService}'s.
+ * Takes the requests for clips, and deletes them. Like {@code DemoService} it opens no transaction itself: the facts
+ * are read and the segments worked out with none open, and the short database steps are the transactions of
+ * {@link ClipPersistence}. What a request answers with, and every other read of clips, is {@link ClipQueryService}'s.
  *
  * <p>A clip is requested for a highlight and a quality. The highlight is read only through
  * {@link HighlightQueryService#find}, which knows when a highlight may be served (while the demo of its match is
@@ -62,10 +66,11 @@ public class ClipService {
     private final ClipPersistence persistence;
     private final ClipQueryService queries;
     private final ClipProperties properties;
+    private final StorageService storage;
 
     public ClipService(HighlightQueryService highlights, MatchRepository matches, PlayerRepository players,
                        DemoRepository demos, ClipFacts facts, ClipPersistence persistence, ClipQueryService queries,
-                       ClipProperties properties) {
+                       ClipProperties properties, StorageService storage) {
         this.highlights = highlights;
         this.matches = matches;
         this.players = players;
@@ -74,6 +79,7 @@ public class ClipService {
         this.persistence = persistence;
         this.queries = queries;
         this.properties = properties;
+        this.storage = storage;
     }
 
     /**
@@ -263,5 +269,56 @@ public class ClipService {
 
     private static NotFoundException highlightNotFound(long highlightId) {
         return new NotFoundException(HIGHLIGHT_NOT_FOUND, "Highlight not found: " + highlightId);
+    }
+
+    /**
+     * Deletes a clip and its files, for a delete request and for the clean-up of old clips alike. The row goes first,
+     * under its lock, in one transaction; then the files are removed from the storage with no transaction open. A clip
+     * that is waiting for a recorder can be deleted (that withdraws the request); one that a recorder is working on
+     * cannot.
+     *
+     * <p>Every attempt to record a clip uploaded its files under keys of its own, and an attempt that was given up
+     * left them there, so the files of every attempt are removed (see {@link #filesOf}), whatever the row names. A file
+     * that cannot be removed stays in the storage as an orphan, which is a warning; the clip is gone all the same, and
+     * so is the answer.
+     *
+     * @throws NotFoundException {@code CLIP_NOT_FOUND}
+     * @throws ConflictException {@code CLIP_IN_PROGRESS}
+     */
+    public void delete(long clipId) {
+        ClipPersistence.DeletedClip deleted = persistence.delete(clipId);
+        for (String key : filesOf(clipId, deleted)) {
+            removeFile(clipId, key);
+        }
+        log.info("Deleted clip {}", clipId);
+    }
+
+    /**
+     * The keys of every file a clip may have in the storage: the video and the thumbnail of each of the attempts it
+     * had, counted from 1 (a recorder uploads them under the names of {@link ClipFiles}), and the files its row named,
+     * which are among those or, for a clip made before every attempt had names of its own, under another name.
+     */
+    private static Set<String> filesOf(long clipId, ClipPersistence.DeletedClip deleted) {
+        Set<String> keys = new LinkedHashSet<>();
+        for (int attempt = 1; attempt <= deleted.attempts(); attempt++) {
+            keys.add(ClipFiles.video(clipId, attempt));
+            keys.add(ClipFiles.thumbnail(clipId, attempt));
+        }
+        if (deleted.videoKey() != null) {
+            keys.add(deleted.videoKey());
+        }
+        if (deleted.thumbnailKey() != null) {
+            keys.add(deleted.thumbnailKey());
+        }
+        return keys;
+    }
+
+    private void removeFile(long clipId, String key) {
+        try {
+            storage.delete(key);
+        } catch (StorageException e) {
+            log.warn("Deleted clip {}, but {} could not be removed and stays in the storage: {}", clipId, key,
+                    e.toString());
+        }
     }
 }

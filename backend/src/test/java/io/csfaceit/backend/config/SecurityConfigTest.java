@@ -206,7 +206,7 @@ class SecurityConfigTest extends AbstractIntegrationTest {
         preflight(FRONTEND_ORIGIN, "GET", null)
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", FRONTEND_ORIGIN))
-                .andExpect(header().string("Access-Control-Allow-Methods", "GET,POST,OPTIONS"))
+                .andExpect(header().string("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS"))
                 .andExpect(header().doesNotExist("Access-Control-Allow-Credentials"));
     }
 
@@ -246,8 +246,8 @@ class SecurityConfigTest extends AbstractIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"DELETE", "PUT", "PATCH"})
-    void corsRejectsMethodsOtherThanGetPostOptions(String method) throws Exception {
+    @ValueSource(strings = {"PUT", "PATCH"})
+    void corsRejectsMethodsOtherThanGetPostDeleteOptions(String method) throws Exception {
         preflight(FRONTEND_ORIGIN, method, null)
                 .andExpect(status().isForbidden())
                 .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
