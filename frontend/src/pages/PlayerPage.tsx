@@ -186,7 +186,8 @@ function PlayerProfile({ playerId }: { playerId: string }) {
         {player.isPending && (
           <>
             <p className="label-mono mb-2">{t.player.loading}</p>
-            <Skeleton className="h-26 w-full" />
+            {/* As tall as the header's avatar, so that what follows does not jump up when the player arrives. */}
+            <Skeleton className="h-18 w-full" />
           </>
         )}
         {playerFailed && <p className="text-sm text-destructive">{errorMessage(player.error, t)}</p>}

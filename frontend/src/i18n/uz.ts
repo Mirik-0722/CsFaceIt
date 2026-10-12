@@ -103,6 +103,7 @@ export const uz: Messages = {
     loadMore: "Yana ko'rsatish",
     elo: (elo) => `${elo} ELO`,
     level: (level) => `${level}-daraja`,
+    faceitLevel: (level) => `FACEIT ${level}-daraja`,
     noCs2Data: "CS2 ma'lumoti yo'q",
   },
   matchList: {
@@ -164,7 +165,7 @@ export const uz: Messages = {
   matches: {
     title: 'Matchlar',
     all: 'Hammasi',
-    allLabel: 'Barcha matchlar',
+    allLabel: 'Hammasi: barcha matchlar',
     filterLabel: 'Matchlarni saralash',
     loadedSoFar: 'yuklangan',
     needsDemo: 'Demo kerak',

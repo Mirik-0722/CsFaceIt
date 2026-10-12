@@ -88,7 +88,7 @@ function ProfileHeader({ player, aside }: { player: PlayerResponse; aside?: Reac
           <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
             {/* FACEIT sends the country code in lower case; it is shown as a code. */}
             {player.country && <span className="uppercase">{player.country}</span>}
-            {player.level !== null && <span>FACEIT {t.player.level(player.level)}</span>}
+            {player.level !== null && <span>{t.player.faceitLevel(player.level)}</span>}
             {player.elo !== null && <span>{t.player.elo(player.elo)}</span>}
             {!hasCs2Data && <span>{t.player.noCs2Data}</span>}
           </div>

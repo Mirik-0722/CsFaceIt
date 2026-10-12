@@ -111,6 +111,7 @@ export const en = {
     loadMore: 'Load more',
     elo: (elo: number) => `ELO ${elo}`,
     level: (level: number) => `Level ${level}`,
+    faceitLevel: (level: number) => `FACEIT Level ${level}`,
     noCs2Data: 'No CS2 data',
   },
   matchList: {
