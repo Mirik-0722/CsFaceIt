@@ -12,6 +12,13 @@ export type Mode = (typeof MODES)[number]
 /** The longest name the backend keeps for a recorder (`WorkerLimits.NAME`); a longer one is refused as invalid. */
 const MAX_NAME_LENGTH = 64
 
+/**
+ * What a name is made of (`WorkerLimits.PLAIN`): letters, digits, `.`, `_` and `-`. The backend answers every request
+ * of a recorder whose name has another character with a 400, so such a recorder would never get work: it is refused
+ * here, at start, instead.
+ */
+const NAME_PATTERN = /^[A-Za-z0-9._-]+$/
+
 /** The variable that holds the secret of the worker API: read here, and left out of what child processes inherit. */
 export const WORKER_TOKEN_VARIABLE = 'CLIP_WORKER_TOKEN'
 
@@ -94,9 +101,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   // The value is not repeated in a problem: it is a secret.
   const workerToken = required(WORKER_TOKEN_VARIABLE, 'the secret the backend was started with')
 
-  const workerName = text('WORKER_NAME') ?? hostname()
-  if (workerName.length === 0 || workerName.length > MAX_NAME_LENGTH) {
-    problems.push(`WORKER_NAME must be 1 to ${MAX_NAME_LENGTH} characters (the host name is the default)`)
+  const workerNameText = text('WORKER_NAME')
+  const workerName = workerNameText ?? hostname()
+  if (!NAME_PATTERN.test(workerName) || workerName.length > MAX_NAME_LENGTH) {
+    const rule = `1 to ${MAX_NAME_LENGTH} characters, only letters, digits, '.', '_' and '-'`
+    // The host name is the default, and on some machines it holds other characters (a space, an accent).
+    problems.push(
+      workerNameText === undefined
+        ? `WORKER_NAME is not set, and the host name '${workerName}' is not a name the backend accepts (${rule}): ` +
+            'set WORKER_NAME'
+        : `WORKER_NAME must be ${rule}, not '${workerName}'`,
+    )
   }
 
   const modeText = required('RECORDER_MODE', MODES.join(' or '))

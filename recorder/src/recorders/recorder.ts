@@ -4,6 +4,11 @@ import type { Stage, WorkerJob } from '../api.js'
  * What turns a job into a video: the fake recorder makes a test pattern with ffmpeg, the Windows one will drive the
  * game. The loop in `job.ts` knows nothing of which one it has; it hands over the job and the demo and takes back a
  * file, so everything that is true of only one of them stays in its own file.
+ *
+ * An implementation must bound its own recording: one that hangs (a game that never starts or never ends) has to be
+ * ended by a deadline of its own, which rejects with a `RecorderError`. The loop sets none, because the keep-alive that
+ * tells the backend the clip is still held is a timer of its own and goes on whether or not the recording does, so a
+ * recording that never ended would hold the clip in `RECORDING` for ever.
  */
 export interface Recorder {
   /**

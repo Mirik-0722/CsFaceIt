@@ -43,7 +43,7 @@ of at most 86400 (one day): it becomes a timer, and a number that is too large w
 | `BACKEND_URL` | none, required | The address of the backend, such as `http://backend:8080` (Compose) or `https://clips.example.com`. A redirect is an error, not followed: the token would go wherever it points. |
 | `CLIP_WORKER_TOKEN` | none, required | The secret the backend runs with (`CLIP_WORKER_TOKEN` there). It is sent in the `X-Worker-Token` header and is never written to the log. ffmpeg and ffprobe are started without it in their environment. |
 | `RECORDER_MODE` | none, required | `fake` or `csdm` (see above). There is no default on purpose: a recorder that was meant to play the game must not quietly make test patterns. |
-| `WORKER_NAME` | the host name | The name of this recorder, 1 to 64 characters. The backend keeps it with the clip it holds, so two recorders need two names. |
+| `WORKER_NAME` | the host name | The name of this recorder: 1 to 64 characters, only letters, digits, `.`, `_` and `-`. The backend answers every request of a recorder with another name with a `400`, so the program refuses it at start. The host name, which is the default, may hold other characters (a space, an accent): then `WORKER_NAME` has to be set. The backend keeps the name with the clip the recorder holds, so two recorders need two names. |
 | `WORK_DIR` | `./work` | Where the recorder keeps its files (see below). It must be writable. |
 | `POLL_SECONDS` | `5` | How long it waits before it asks for work again, after `204` or after an error (1 to 86400). It is also the shortest pause after a failed clip. |
 | `HEARTBEAT_SECONDS` | `30` | How often it says it is there (1 to 86400). |
@@ -111,9 +111,10 @@ Under `WORK_DIR`, and nowhere else:
 
 In the Compose service `WORK_DIR` is `/work`, a volume, so the demos survive a recreated container.
 
-A work directory belongs to one recorder. A start empties `jobs/`, so two recorders on one directory would wipe the clip
-the other is recording: a second recorder on the same machine, or a throwaway one for a test, gets its own `WORK_DIR`
-(and its own `WORKER_NAME`).
+A work directory belongs to one recorder. A start empties `jobs/` and removes the `.part` files of `demos/`, the
+downloads that a killed run left behind, so two recorders on one directory would wipe the clip the other is recording
+and the demo it is downloading: a second recorder on the same machine, or a throwaway one for a test, gets its own
+`WORK_DIR` (and its own `WORKER_NAME`).
 
 ## When something goes wrong
 
