@@ -180,16 +180,19 @@ export const en = {
   matches: {
     title: 'Matches',
     all: 'All',
-    // Heard after the visible word "All" by those who hear a page's links without their surroundings.
-    allSuffix: 'matches',
+    // The name of the link "All" beside the history of the profile, for those who hear a page's links without their
+    // surroundings.
+    allLabel: 'All matches',
     filterLabel: 'Filter matches',
+    // Heard after the count of a filter that is followed by "+": more matches are on the next page.
+    loadedSoFar: 'loaded so far',
     needsDemo: 'Needs a demo',
     emptyFilter: 'None of the loaded matches fits this filter',
     // The newest matches as squares in the header of the profile; `count` is how many there are (up to ten).
     form: {
-      label: (count: number) => `Last ${count} ${count === 1 ? 'match' : 'matches'}`,
+      label: (count: number) => (count === 1 ? 'Last match' : `Last ${count} matches`),
       name: (count: number, wins: number, losses: number, unknown: number) =>
-        `Last ${count} ${count === 1 ? 'match' : 'matches'}: ${wins} ${wins === 1 ? 'win' : 'wins'}, ` +
+        `${count === 1 ? 'Last match' : `Last ${count} matches`}: ${wins} ${wins === 1 ? 'win' : 'wins'}, ` +
         `${losses} ${losses === 1 ? 'loss' : 'losses'}${unknown > 0 ? `, ${unknown} unknown` : ''}`,
     },
     maps: {
@@ -218,7 +221,7 @@ export const en = {
     // Where the clips would be, for a match whose demo is on its way.
     analyzing: 'Analyzing',
     clips: {
-      active: (count: number) => `${count} recording`,
+      active: (count: number) => `${count} in progress`,
       ready: (count: number) => `${count} ready`,
       readyAlone: (count: number) => `${count} ${count === 1 ? 'clip' : 'clips'} ready`,
     },

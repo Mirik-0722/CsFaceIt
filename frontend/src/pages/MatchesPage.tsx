@@ -59,10 +59,11 @@ function PlayerMatches({ playerId }: { playerId: string }) {
           {player.data && (
             // The way back to the profile. The name is a small mono line, but 44px tall for the finger, and with 8px at its
             // sides, so that the focus ring does not touch the letters. The negative margins take back the 8px that the
-            // box is taller than the title beside it and the 8px it is wider than its text: the title keeps its place.
+            // box is taller than the title beside it and the 8px it is wider than its text on each side: the title keeps
+            // its place, and under the title on a phone the letters start at the same edge as the title's.
             <Link
               to={`/players/${encodeURIComponent(playerId)}`}
-              className="-my-1 -mr-2 inline-flex min-h-11 items-center px-2 font-mono text-xs text-subtle underline-offset-4 hover:text-foreground hover:underline"
+              className="-mx-2 -my-1 inline-flex min-h-11 items-center px-2 font-mono text-xs text-subtle underline-offset-4 hover:text-foreground hover:underline"
             >
               {player.data.nickname}
             </Link>
@@ -73,7 +74,9 @@ function PlayerMatches({ playerId }: { playerId: string }) {
         <p className="text-sm text-destructive">{errorMessage(player.error, t)}</p>
       ) : (
         <div className="flex flex-wrap items-start gap-8">
-          <div className="flex min-w-0 flex-[999_1_640px] flex-col gap-4">
+          {/* The basis is the least the table needs (`min-w-205` of the table), so that the recorder goes under it where the
+              table would have to scroll beside it. */}
+          <div className="flex min-w-0 flex-[999_1_820px] flex-col gap-4">
             <div className="flex flex-col">
               {items && items.length > 0 && (
                 // Toggle buttons that look like tabs (spec 3): 44px tall, a 2px light line under the chosen one. With
@@ -88,8 +91,15 @@ function PlayerMatches({ playerId }: { playerId: string }) {
                       className="inline-flex min-h-11 items-center gap-2 px-3.5 text-sm font-medium text-muted-foreground hover:text-foreground aria-pressed:text-foreground aria-pressed:shadow-[inset_0_-2px_0_var(--foreground)]"
                     >
                       {labels[kind]}
-                      <span className="font-mono text-xs font-normal text-subtle tabular-nums">
+                      <span className="font-mono text-xs text-subtle tabular-nums">
                         {items.filter((match) => isIn(kind, match)).length}
+                        {/* Another page is still to come: the count is of what is loaded so far, so it is "20+". */}
+                        {matches.hasNextPage && (
+                          <>
+                            <span aria-hidden="true">+</span>
+                            <span className="sr-only"> {t.matches.loadedSoFar}</span>
+                          </>
+                        )}
                       </span>
                     </button>
                   ))}

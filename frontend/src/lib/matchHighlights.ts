@@ -26,6 +26,12 @@ const BY_STRENGTH: readonly HighlightType[] = [
 /** How many kinds are named after the strongest one in a table row; the others are counted (`+2`). */
 const LISTED = 3
 
+/** The place of a kind in {@link BY_STRENGTH}; a kind this page does not know comes after all that it does. */
+function strength(type: HighlightType): number {
+  const place = BY_STRENGTH.indexOf(type)
+  return place === -1 ? BY_STRENGTH.length : place
+}
+
 function withCount(label: string, count: number): string {
   return count > 1 ? `${label} ×${count}` : label
 }
@@ -52,7 +58,7 @@ export function summarizeHighlights(
 ): { top: HighlightCount | null; rest: string } {
   const present = highlights
     .filter((kind) => kind.count > 0)
-    .sort((a, b) => BY_STRENGTH.indexOf(a.type) - BY_STRENGTH.indexOf(b.type))
+    .sort((a, b) => strength(a.type) - strength(b.type))
   const [top = null, ...others] = present
   const named = others.slice(0, LISTED).map((kind) => shortKindText(kind, t))
   const hidden = others.length - named.length

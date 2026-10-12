@@ -62,7 +62,9 @@ function PlayerOverview({ playerId }: { playerId: string }) {
   return (
     <div className="flex flex-wrap items-start gap-x-12 gap-y-7 pt-3">
       {(overview.isPending || failed || maps.length > 0) && (
-        <section className="flex min-w-0 flex-[999_1_560px] flex-col gap-3.5">
+        // The basis is the least the table needs (`min-w-160`), so that the second column goes under it where the table
+        // would have to scroll beside it.
+        <section className="flex min-w-0 flex-[999_1_640px] flex-col gap-3.5">
           <h2 id={mapsTitleId} className="heading-section">
             {t.matches.maps.title}
           </h2>
@@ -201,10 +203,10 @@ function PlayerProfile({ playerId }: { playerId: string }) {
             {hasMatches && (
               <Link
                 to={`/players/${encodeURIComponent(playerId)}/matches`}
+                aria-label={t.matches.allLabel}
                 className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4 hover:text-primary"
               >
                 {t.matches.all}
-                <span className="sr-only"> {t.matches.allSuffix}</span>
               </Link>
             )}
           </div>

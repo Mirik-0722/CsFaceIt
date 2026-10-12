@@ -163,8 +163,9 @@ export const uz: Messages = {
   matches: {
     title: 'Matchlar',
     all: 'Hammasi',
-    allSuffix: 'matchlar',
+    allLabel: 'Barcha matchlar',
     filterLabel: 'Matchlarni saralash',
+    loadedSoFar: 'yuklangan',
     needsDemo: 'Demo kerak',
     emptyFilter: "Yuklangan matchlar orasida bu filtrga mos keladigani yo'q",
     form: {
@@ -197,7 +198,7 @@ export const uz: Messages = {
     },
     analyzing: 'Tahlil qilinmoqda',
     clips: {
-      active: (count) => `${count} yozilmoqda`,
+      active: (count) => `${count} jarayonda`,
       ready: (count) => `${count} tayyor`,
       readyAlone: (count) => `${count} klip tayyor`,
     },

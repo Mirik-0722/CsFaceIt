@@ -27,9 +27,16 @@ export function usePlayerOverview(playerId: string) {
 const MATCHES_PAGE_SIZE = 20
 
 /**
+ * How often the list is asked for again while a clip of one of its matches is on its way to a video, so that the count
+ * of clips in progress does not stay what it was when the page was opened. The clips page asks every three seconds; a
+ * list of matches that is only a summary of them can wait longer.
+ */
+const CLIPS_POLL_MS = 15_000
+
+/**
  * A player's matches with their demos, highlights and clips, one page of `limit` at a time, as `usePlayerHistory` pages
  * the history: `fetchNextPage` appends the page that starts at `offset + limit`, and a page shorter than `limit` is the
- * last one.
+ * last one. While a loaded match has a clip in progress the pages are asked for again every 15 seconds.
  */
 export function usePlayerMatches(playerId: string, limit = MATCHES_PAGE_SIZE) {
   return useInfiniteQuery<
@@ -45,6 +52,11 @@ export function usePlayerMatches(playerId: string, limit = MATCHES_PAGE_SIZE) {
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
       lastPage.items.length < limit ? undefined : lastPageParam + limit,
+    // Only while some loaded match has a clip in progress; a list without one is not asked for again by itself.
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((page) => page.items.some((match) => match.clips.active > 0))
+        ? CLIPS_POLL_MS
+        : false,
     retry: retryUnlessClientError,
   })
 }

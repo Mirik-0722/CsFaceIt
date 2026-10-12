@@ -37,9 +37,11 @@ export interface ClipCounts {
 
 /**
  * One match of a player's list: the line of the history (`matchId`, `startedAt`, `finishedAt`, `result`, `score` are as
- * in `MatchSummary`) with what the backend stored about it. `mapName` is null while FACEIT has not published it;
- * `kills`, `deaths`, `assists` and `adr` are null without a stored line for the player; `demoStatus` is null for a
- * match without a demo, else the stage the demo is in.
+ * in `MatchSummary`) with what the backend stored about it. `mapName` is null while the match is not stored or has no
+ * map yet; `kills`, `deaths` and `assists` are null while there is no row of statistics for the player; `adr` is null
+ * unless the player's numbers in the match come from the analysis of a demo, which an analyzed match does not
+ * guarantee (a demo that does not hold the player leaves it null); `demoStatus` is null for a match without a demo,
+ * else the stage the demo is in.
  */
 export interface PlayerMatchResponse {
   matchId: string

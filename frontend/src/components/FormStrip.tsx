@@ -10,7 +10,7 @@ const STRIP_LENGTH = 10
 const SQUARE: Record<MatchResult, string> = {
   WIN: 'border-positive bg-positive',
   LOSS: 'border-negative',
-  UNKNOWN: 'border-line-strong',
+  UNKNOWN: 'border-ring',
 }
 
 /**

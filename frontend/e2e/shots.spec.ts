@@ -433,6 +433,12 @@ const SCENARIOS: Scenario[] = [
   { name: 'nobreakdown', pages: ['match'], backend: { breakdown: emptyBreakdownFixture } },
   // The breakdown cannot be had: the page is as without one, and nothing else on it fails.
   { name: 'breakdown-failed', pages: ['match'], backend: { breakdown: null } },
+  // Every match is on the first page: no "Show more", and the counts of the filters are exact (no "+").
+  {
+    name: 'short',
+    pages: ['matches'],
+    backend: { playerMatches: { ...playerMatchesFixture, items: playerMatchesFixture.items.slice(0, 8) } },
+  },
   // The demo panel opened: the admin key field and the three requests it guards.
   { name: 'manage', pages: ['match'], before: openDemoControls },
   // The first scoreboard scrolled to its right end, on a phone: the player column and the team header stay in place.

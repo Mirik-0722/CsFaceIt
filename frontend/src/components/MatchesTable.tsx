@@ -15,9 +15,21 @@ import type { DemoStatus } from '@/api/types'
 // takes what is left), the clips and the arrow.
 const COLUMNS = 'grid grid-cols-[150px_128px_132px_minmax(0,1fr)_180px_16px] items-center gap-4 px-1'
 
-/** A figure of the stored line of the match, or a dash where the backend has none. */
-function figure(value: number | null, digits = 0): string {
-  return value === null ? '—' : value.toFixed(digits)
+/**
+ * A figure of the stored line of the match. Where the backend has none it is a dash that screen readers do not read,
+ * with the words "No data" for them, as in the maps table and the statistics tiles.
+ */
+function Figure({ value, digits = 0 }: { value: number | null; digits?: number }) {
+  const t = useT()
+  if (value === null) {
+    return (
+      <>
+        <span aria-hidden="true">—</span>
+        <span className="sr-only">{t.statsCards.noData}</span>
+      </>
+    )
+  }
+  return value.toFixed(digits)
 }
 
 /** A demo that nothing has finished with yet: it is being fetched, read or analyzed. */
@@ -51,7 +63,8 @@ function HighlightsCell({ match }: { match: PlayerMatchResponse }) {
         {kindText(top, t)}
       </Badge>
       {rest && (
-        <span title={rest} className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+        // Two lines at most, so that the count of the kinds left out (`+3`) is not cut off with the rest of the text.
+        <span title={rest} className="line-clamp-2 min-w-0 font-mono text-xs text-muted-foreground">
           {rest}
         </span>
       )}
@@ -60,16 +73,16 @@ function HighlightsCell({ match }: { match: PlayerMatchResponse }) {
 }
 
 /**
- * The clips of the match: while one is on its way the REC dot blinks before how many are and how many are ready, else
- * how many are ready. A demo that is being analyzed says so where the clips would be. Nothing for a match without a
- * clip. Failed clips are not counted here; the page of the match shows them.
+ * The clips of the match: how many are in progress and how many are ready, or only how many are ready. `active` counts
+ * every clip that is neither finished nor failed, the queued ones too, so there is no REC dot here: on this site the dot
+ * says "being recorded now" (`StatusChip`), which this count does not. A demo that is being analyzed says so where the
+ * clips would be. Nothing for a match without a clip. Failed clips are not counted here; the page of the match shows them.
  */
 function ClipsCell({ clips, demoStatus }: { clips: ClipCounts; demoStatus: DemoStatus | null }) {
   const t = useT()
   if (clips.active > 0) {
     return (
-      <span className="inline-flex items-center gap-2 text-foreground">
-        <span aria-hidden="true" className="size-2 shrink-0 animate-rec rounded-full bg-rec" />
+      <span className="text-foreground">
         {t.matches.clips.active(clips.active)}
         {clips.done > 0 && ` · ${t.matches.clips.ready(clips.done)}`}
       </span>
@@ -117,10 +130,10 @@ function MatchRow({ match }: { match: PlayerMatchResponse }) {
         <span className="flex flex-col">
           <span className="font-mono text-sm">
             <span className="sr-only">{`${t.stats.kills} / ${t.stats.deaths} / ${t.stats.assists}: `}</span>
-            {`${figure(match.kills)} / ${figure(match.deaths)} / ${figure(match.assists)}`}
+            <Figure value={match.kills} /> / <Figure value={match.deaths} /> / <Figure value={match.assists} />
           </span>
           <span className="font-mono text-[11px] text-subtle">
-            {t.stats.adr} {figure(match.adr, 1)}
+            {t.stats.adr} <Figure value={match.adr} digits={1} />
           </span>
         </span>
         <span className="flex min-w-0 items-center gap-2">
