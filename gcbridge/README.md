@@ -45,8 +45,12 @@ The header `X-Bridge-Token` carries `BRIDGE_TOKEN`; the body is `{"shareCode": "
 | 500 | `{"code":"INTERNAL_ERROR"}` | A bug of the bridge (it is logged). |
 
 The requests to the game coordinator go **one at a time, at least 1.1 seconds apart**, through a queue of at most 20
-waiting requests; a request therefore can wait a long time, and the caller's timeout should allow for it. Of 25
-requests that arrive at once, one is served at once, 20 wait for their turn and 4 get `429`.
+waiting requests; a request therefore can wait a long time. **The worst case is a request that arrives behind 20 others
+that the coordinator does not answer: 20 x 15 seconds (plus the 1.1 second pauses), about 5 minutes and 20 seconds
+before its own turn, and up to 15 seconds more for its own answer**; the caller's timeout should allow for it, or give up
+sooner. A caller that gives up while its request is still waiting (its connection closes) is taken out of the line, and
+its request is never sent to the coordinator; one that is already being served is not interrupted. Of 25 requests that
+arrive at once, one is served at once, 20 wait for their turn and 4 get `429`.
 
 ### Where the replay address is in the coordinator's answer
 
@@ -77,7 +81,7 @@ two-factor code is ever logged or returned**, and a sharing code is logged only 
 | `BRIDGE_HOST` | `0.0.0.0` | The address it listens on. In the container it has to be left alone; on a development machine `127.0.0.1` keeps it off the network. |
 | `STEAM_BOT_REFRESH_TOKEN` | none | The refresh token of the bot account. **Preferred** when set. Get it with the sign-in helper below. |
 | `STEAM_BOT_USERNAME`, `STEAM_BOT_PASSWORD`, `STEAM_BOT_SHARED_SECRET` | none | Used when there is no refresh token, and then all three are needed: the account name, the password, and the shared secret of the account's mobile authenticator, from which the two-factor code is made (with the time of Steam, so that a clock that is a few seconds off does not matter). |
-| `BRIDGE_DATA_DIR` | `/data` | Where the Steam library keeps the little it needs between restarts (such as the id of the region it last connected to). The refresh token and the password are not kept there. The image makes it a volume. |
+| `BRIDGE_DATA_DIR` | `/data` | Where the Steam library keeps the little it needs between restarts (such as the id of the region it last connected to), and where the bridge keeps the times of its last sign-in attempts (`signin-attempts.json`, only numbers; see the table below). The refresh token and the password are not kept there. The image makes it a volume. |
 | `BRIDGE_FAKE` | `0` | `1` turns the [fake mode](#the-fake-mode) on: no connection to Steam at all, and no account needed. |
 | `BRIDGE_FAKE_REPLAY_URL` | a made-up address | The replay address that the fake mode answers with. |
 | `BRIDGE_FAKE_DELAY_MS` | `300` | How long one fake answer takes, so that the queue can be seen working. |
@@ -161,7 +165,7 @@ so in its log when another session is playing, and goes on when that stops.)
 4. **Get a refresh token with the sign-in helper**, which signs in once as a Steam client and prints the token:
 
    ```bash
-   docker compose -f docker-compose.cs2.yml run --rm gcbridge node src/login.js
+   docker compose -f docker-compose.yml -f docker-compose.cs2.yml run --rm gcbridge node src/login.js
    # or, with Node 22 and after `npm ci`, in this directory:  node src/login.js
    ```
 
@@ -169,7 +173,12 @@ so in its log when another session is playing, and goes on when that stops.)
    Steam Guard code, then prints the refresh token with one line that says which setting it goes into, and exits. It
    writes nothing to disk and logs nothing else. The question for the code comes only when the account needs it; leave
    the answer empty to confirm the sign-in in the Steam mobile app instead. (Compose wants `BRIDGE_TOKEN` to be set for
-   every command with this file, the helper's included; any value will do for this.)
+   every command with this file, the helper's included; any value will do for this.) The command runs a one-off
+   container under the Compose project of the stack (the name of the directory, `csfaceit` in a normal checkout), next
+   to the other services and without touching them. Compose may warn about "orphan containers": that is harmless. **Never
+   add `--remove-orphans` to a command with the overlay, and never run `down` with the overlay file alone** (it does not
+   know the other services of the project, and would treat them as orphans); to stop the bridge, stop that one service:
+   `docker compose -f docker-compose.yml -f docker-compose.cs2.yml stop gcbridge`.
 5. **Put the token into `.env`** as `STEAM_BOT_REFRESH_TOKEN`, and start the bridge (above). The account name, the
    password and the shared secret are then not needed. A value with a `$` in it goes between single quotes in `.env`.
 6. **Look at `/health`** from inside the stack, for example
@@ -188,10 +197,13 @@ other tools to get. It signs in with a full password login on every start; the r
 | Case | What happens |
 | --- | --- |
 | The connection to Steam drops | `/health` is 503, calls get 503; the library signs in again by itself and the bridge says again that the account plays Counter-Strike 2. |
-| A sign-in ends for a reason that may pass (Steam is down, no network) | It is tried again after 30 seconds, then 60, 120, … up to 10 minutes. |
-| Steam refuses the account (wrong password, revoked or expired token, banned, signed in elsewhere) | **No new attempt**: trying again would not help, and trying again and again could get the account or the address blocked. The bridge stays up, `/health` is 503 and the log says why. Fix the account or the settings and start it again. |
-| Steam asks for a two-factor code (password route) | It is made from the shared secret. After a wrong one the next comes after 30 seconds (as the documentation of `steam-user` demands), and after the third wrong one the bridge stops trying. An e-mail code cannot be given. |
-| The game coordinator refuses the account | `/health` is `{"steam":true,"gc":false}` and the log says why. |
+| A sign-in ends with an error that has no Steam result (no server list, no network), or with `NoConnection`, `Timeout`, `ServiceUnavailable`, `Fail`, `TryAnotherCM` or `BadResponse` | It is tried again after 30 seconds, then 60, 120, … up to 10 minutes. Only these results are retried. |
+| Steam is rate-limiting the sign-in (`RateLimitExceeded`, `AccountLoginDeniedThrottle`) | One new attempt after **one hour**, and again one hour after each such answer. Never faster: on the password route every attempt is a full login. |
+| Any other end of a sign-in (wrong password, revoked or expired token, banned, locked down or suspended account, signed in elsewhere, `PasswordRequiredToKickSession`, a result nobody has seen) | **No new attempt**: trying again would not change the answer, and trying again and again could get the account or the address blocked. The bridge stays up, `/health` is 503, and one log line names the result and says that the bridge has to be restarted once the cause (the account, its password or token, the settings) is fixed. |
+| The bridge is started again soon after a sign-in attempt (a crash loop, `restart: unless-stopped`) | The times of the last attempts are kept in `BRIDGE_DATA_DIR`. A bridge that finds the last attempt less than 60 seconds old waits until 60 seconds have passed, and one that finds three attempts inside the last 10 minutes waits until 10 minutes have passed since the last; the wait is logged. If the file cannot be written the bridge says so and goes on without that protection. |
+| Steam asks for a two-factor code (password route) | It is made from the shared secret. After a wrong one the next comes after 30 seconds (as the documentation of `steam-user` demands), and after the third wrong one the bridge stops trying. An e-mail code cannot be given (and the e-mail domain is not logged). |
+| The game coordinator refuses the account (a fatal error of the coordinator) | `/health` is `{"steam":true,"gc":false}` and the log says why. The library never opens that session again in the same process. When the bridge is signed in and the coordinator has been unavailable for **10 minutes** (an account that is playing elsewhere does not count), the bridge logs that and ends with a failure, so that the restart policy of the container starts it again; the wait above keeps that from becoming a sign-in loop. Outside a container this means that it ends and has to be started again. |
+| A request times out (no answer within 15 seconds) | The answer to it may still come, and an answer has no id to tell which request it belongs to. For 60 seconds after a timeout the bridge remembers that one answer is outstanding: the first match list that arrives is dropped, so that a late "empty" answer is not taken for the answer to the next request (it would be a final `404 MATCH_UNKNOWN` for a match that was never asked about). If the request that is then waiting gets nothing else, it ends as `503`, which the caller may ask again. |
 | `SIGTERM` (`docker stop`) | It signs out of Steam and ends. |
 
 ## Unofficial use of Steam
@@ -201,6 +213,15 @@ Valve offers no interface for this. The bridge does what a game client does: it 
 match from a sharing code. That is unofficial use, and Valve can change the protocol, rate-limit the account, or ban it,
 without notice. That is why the account is one of its own, why there is a pause of at least 1.1 seconds between
 requests, and why a refused account is not retried. Do not give it a valuable account.
+
+## Known advisories
+
+`npm audit --omit=dev` reports findings in `adm-zip` (which `steam-user` uses only for depot content) and in a
+`protobufjs` 6.x that is nested under `steam-appticket` (parsing of app tickets). The bridge never calls that code.
+The messages of Steam and of the game coordinator are decoded by the top-level `protobufjs`, which is outside the
+advisory range. No `overrides` is set for the nested copy, because forcing a newer `protobufjs` onto
+`steam-appticket` risks breaking it when it loads, and the only offered fix is a downgrade of `steam-user`. Look at the
+report again when `steam-user` is updated.
 
 ## What could not be tried without a real account
 
