@@ -138,7 +138,7 @@ function ClipActions({ clip, label }: { clip: ClipResponse; label: string }) {
         // Focusable while it is off: a `disabled` button lets the pointer through to the card's link, and a click on it
         // would open the clip's page.
         focusableWhenDisabled
-        className="relative ml-auto data-disabled:cursor-not-allowed data-disabled:opacity-50"
+        className="relative ml-auto data-disabled:cursor-not-allowed data-disabled:opacity-50 data-disabled:hover:bg-transparent"
         onClick={() => {
           if (busy || limitText !== null) {
             return

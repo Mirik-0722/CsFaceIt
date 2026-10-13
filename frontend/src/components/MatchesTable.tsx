@@ -189,7 +189,7 @@ function RowAction({ match, state, bringing }: { match: PlayerMatchResponse; sta
         title={limitText ?? undefined}
         disabled={limitText !== null}
         focusableWhenDisabled
-        className="pointer-events-auto bg-background data-disabled:cursor-not-allowed data-disabled:opacity-50"
+        className="pointer-events-auto bg-background data-disabled:cursor-not-allowed data-disabled:opacity-50 data-disabled:hover:bg-background"
         onClick={() => {
           if (limitText === null) {
             bringing.pick(match.matchId)
@@ -232,8 +232,9 @@ function MatchRow({
         className={cn(
           COLUMNS,
           'col-start-1 row-start-1 min-h-18 -outline-offset-2 group-hover:bg-secondary',
-          // Under `md` the link spans the action's row too, with room left under its figures for the action.
-          action && 'max-md:row-span-2 max-md:pb-14',
+          // Under `md` the link spans the action's row too, with room left under its figures for the action; the top
+          // padding keeps the figures where the other rows have them.
+          action && 'max-md:row-span-2 max-md:pt-3.5 max-md:pb-17',
           RESULT_ROW[match.result],
         )}
       >
