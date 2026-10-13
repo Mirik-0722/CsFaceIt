@@ -50,6 +50,7 @@
     --radius-4xl: calc(var(--radius) * 2.6);
     --animate-rec: rec 1.4s ease-in-out infinite;
     --animate-scene-in: scene-in 700ms ease-out both;
+    --animate-scene-drift: scene-drift 5s linear both;
     --animate-turn: turn 5s linear both;
 }
 
@@ -282,6 +283,35 @@
     );
 }
 
+/* Over the scenery in the landing page's sample frame, in the page's colour. The picture is the thing to look at there,
+   so the veil is only as dark as the frame's own texts need: the REC line at the top left and the two labels at the
+   bottom stand on a band, the kill feed on the right has a ground of its own, and the middle of the frame is left
+   nearly open. The bands are measured from the edges, not as shares of the height: the labels stand 16px from the edge
+   (the frame's brackets) whatever the frame's size, and a share would let a small frame's labels out of the band. */
+@utility scenery-veil-sample {
+    background-image: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--background) 62%, transparent) 0,
+        color-mix(in srgb, var(--background) 62%, transparent) 44px,
+        color-mix(in srgb, var(--background) 22%, transparent) calc(44px + 20%),
+        color-mix(in srgb, var(--background) 22%, transparent) calc(100% - 44px - 20%),
+        color-mix(in srgb, var(--background) 82%, transparent) calc(100% - 44px),
+        color-mix(in srgb, var(--background) 82%, transparent) 100%
+    );
+}
+
+/* A panel of frosted glass over a scenery: what is behind it is seen blurred, and the panel's own colour (`--card`) is
+   laid over it only as thick as the texts on it need (measured over the landing page's eight maps). Where the browser
+   cannot blur what is behind, the panel is as plain as it was before: the same colour, thicker. */
+@utility glass-panel {
+    background-color: color-mix(in srgb, var(--card) 85%, transparent);
+    @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+        background-color: color-mix(in srgb, var(--card) var(--glass-tint, 55%), transparent);
+        -webkit-backdrop-filter: blur(16px) saturate(1.2);
+        backdrop-filter: blur(16px) saturate(1.2);
+    }
+}
+
 /* Over the scenery of the match panel, in the panel's colour: one veil from the left, where the title stands, and one
    from the bottom, where the names, the score and the strip of rounds stand; the picture shows in the upper right and
    along the right edge. On a phone the picture is a band behind the map's title at the top of the panel, and the veil
@@ -356,6 +386,15 @@
     }
 }
 
+/* The picture in the landing page's sample frame, settling from a slightly closer view over one turn of the maps
+   (applied as `animate-scene-drift`; the frame sets the real duration). It ends at the picture's own size, so a picture
+   that is let go of stands where it ended. */
+@keyframes scene-drift {
+    from {
+        transform: scale(1.08);
+    }
+}
+
 /* The line under the active map of the landing page's strip, filling from the left over one turn (`animate-turn`; the
    strip sets the real duration). */
 @keyframes turn {
@@ -367,6 +406,7 @@
 @media (prefers-reduced-motion: reduce) {
     .animate-rec,
     .animate-scene-in,
+    .animate-scene-drift,
     .animate-turn {
         animation: none;
     }

@@ -1,6 +1,8 @@
-import { type FocusEvent, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { type FocusEvent, useEffect, useRef, useState } from 'react'
 import { loadImage } from '@/lib/loadImage'
 import { mapSceneryUrl } from '@/lib/mapArt'
+import { usePrefersReducedMotion } from '@/lib/usePrefersReducedMotion'
+import { useTabHidden } from '@/lib/useTabHidden'
 
 /** The maps the landing page turns through, in the order of its strip. Each has an emblem and scenery. */
 export const HERO_MAPS = [
@@ -19,28 +21,6 @@ export const TURN_MS = 5000
 // The next map's scenery is asked for this long before its turn: late, so that a visitor who leaves early has fetched
 // one picture only, and early enough for the picture to be there on an ordinary connection.
 const PRELOAD_LEAD_MS = 600
-
-const REDUCED_MOTION = '(prefers-reduced-motion: reduce)'
-
-// `matchMedia` is asked for with `?.`: the test environment (jsdom) has none, and there nothing is reduced.
-function subscribeToReducedMotion(onChange: () => void) {
-  const query = window.matchMedia?.(REDUCED_MOTION)
-  query?.addEventListener('change', onChange)
-  return () => query?.removeEventListener('change', onChange)
-}
-
-function prefersReducedMotion(): boolean {
-  return window.matchMedia?.(REDUCED_MOTION).matches ?? false
-}
-
-function subscribeToVisibility(onChange: () => void) {
-  document.addEventListener('visibilitychange', onChange)
-  return () => document.removeEventListener('visibilitychange', onChange)
-}
-
-function isTabHidden(): boolean {
-  return document.visibilityState === 'hidden'
-}
 
 export interface MapTurn {
   /** Which of `HERO_MAPS` has its turn. */
@@ -71,8 +51,8 @@ export interface MapTurn {
  * turning unless they press the button that starts it.
  */
 export function useMapTurn(): MapTurn {
-  const reducedMotion = useSyncExternalStore(subscribeToReducedMotion, prefersReducedMotion)
-  const hidden = useSyncExternalStore(subscribeToVisibility, isTabHidden)
+  const reducedMotion = usePrefersReducedMotion()
+  const hidden = useTabHidden()
   const [active, setActive] = useState(0)
   // What the visitor chose with the button or by pressing a map; until then the system's setting decides.
   const [stopped, setStopped] = useState<boolean | null>(null)

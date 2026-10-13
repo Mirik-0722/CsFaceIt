@@ -50,7 +50,7 @@ export const uz: Messages = {
     searching: 'Qidirilmoqda…',
     invalidNickname: "Nickname 2–32 belgi bo'lsin: harf, raqam, _ yoki -",
     sample: 'Namuna',
-    frameRound: (map) => `${map} · 14-RAUND`,
+    frameRound: (map, round) => `${map} · ${round}-RAUND`,
     steps: {
       title: 'Demodan klipgacha — uch qadam',
       demo: {

@@ -56,8 +56,9 @@ export const en = {
     invalidNickname: 'Nickname must be 2–32 characters: letters, digits, _ or -',
     // The sections under the search. The clip, the scoreboard and the names in them are made up: `sample` says so.
     sample: 'Sample',
-    // The corner label of the sample frame: the map is the one whose turn it is in the strip of maps.
-    frameRound: (map: string) => `${map} · ROUND 14`,
+    // The corner label of the sample frame: the map is the one whose turn it is in the strip of maps (or the sample
+    // video's map, when there is a video), and the round is the sample clip's.
+    frameRound: (map: string, round: number) => `${map} · ROUND ${round}`,
     steps: {
       title: 'From demo to clip in three steps',
       demo: {

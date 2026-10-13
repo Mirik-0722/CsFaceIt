@@ -670,7 +670,8 @@ async function openDemoControls(page: Page) {
 /** Presses "Nuke" in the landing page's strip of maps and waits until the backdrop shows that map's scenery. */
 async function pressOtherMap(page: Page) {
   await page.getByRole('button', { name: 'Nuke', exact: true }).click()
-  await page.locator('main img[src*="scenes/de_nuke"]').waitFor({ state: 'attached' })
+  // The backdrop's picture comes first in the page; the sample's frame draws the same file as well.
+  await page.locator('main img[src*="scenes/de_nuke"]').first().waitFor({ state: 'attached' })
   await settle(page)
 }
 

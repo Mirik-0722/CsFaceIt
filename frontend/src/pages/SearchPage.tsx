@@ -11,6 +11,7 @@ import MapStrip from '@/components/landing/MapStrip'
 import StatisticsSection from '@/components/landing/StatisticsSection'
 import StepsSection from '@/components/landing/StepsSection'
 import { HERO_MAPS, useMapTurn } from '@/components/landing/useMapTurn'
+import { useSceneStack } from '@/components/landing/useSceneStack'
 import PlayerHeader from '@/components/PlayerHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,8 +27,8 @@ const NICKNAME_PATTERN = /^[A-Za-z0-9_-]{2,32}$/
  * The home page (spec 4, screen 1): the landing page. Its hero offers signing in first and, under a line, the player
  * search for a visitor who does not want to. Under the hero come what the product does (three steps, two kinds of
  * clip, statistics) and a last call. The sections only tell about what the product does: none of them has a link. The
- * hero turns through the maps of its strip: the scenery behind it and the top bar, and the corner label of its sample
- * frame, are of the map whose turn it is.
+ * hero turns through the maps of its strip: the scenery behind it and the top bar, the picture in its sample frame and
+ * the frame's corner label are of the map whose turn it is.
  *
  * Two things arrive in the address. `?q=` is the nickname that the top bar's search handed over: the search for it
  * runs at once. `?login=failed` is a sign-in that did not work: the hero says so once, and the address is cleaned.
@@ -49,6 +50,8 @@ export default function SearchPage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const turn = useMapTurn()
   const activeMap = HERO_MAPS[turn.active]
+  // The scenery of the active map is drawn twice, by the backdrop and in the sample's frame; one stack keeps them in step.
+  const scenes = useSceneStack(activeMap)
 
   const loginInAddress = searchParams.has('login')
   useEffect(() => {
@@ -98,7 +101,7 @@ export default function SearchPage() {
           the buttons come first, so that they are the first stops of the keyboard after the top bar. Behind it all is
           the scenery of the active map, and at its foot the strip of maps. */}
       <section className="relative">
-        <MapBackdrop mapName={activeMap} />
+        <MapBackdrop scenes={scenes} />
         <div className="container-page pt-18 pb-8">
           {/* The columns take their widths from the mockup: 400px and 480px to start from, the free room shared 1 to
               1.35. They are top-aligned: the column on the left grows with a search (the skeleton, the card, an error),
@@ -172,7 +175,13 @@ export default function SearchPage() {
                 </div>
               </div>
             </div>
-            <HeroIllustration mapName={activeMap} className="lg:flex-[1.35_1_480px]" />
+            <HeroIllustration
+              mapName={activeMap}
+              scenes={scenes}
+              // The picture in the frame drifts with the turn: it waits where it is while the turn is held.
+              driftPaused={turn.turning && !turn.running}
+              className="lg:flex-[1.35_1_480px]"
+            />
           </div>
           <MapStrip turn={turn} className="mt-12 lg:mt-18" />
         </div>

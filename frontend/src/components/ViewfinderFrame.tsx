@@ -14,6 +14,11 @@ interface ViewfinderFrameProps {
    */
   scenery?: boolean
   /**
+   * A picture of the caller's own that fills the frame under the brackets and the labels (the landing page's sample: a
+   * moving scenery, or a video), laid over the scene and the still. It brings its own veil.
+   */
+  picture?: ReactNode
+  /**
    * `card` is the frame of a clip card (12px brackets), `large` the frame of a page (18px brackets). `clip` is the
    * frame of the clip's own page: `large` on a desktop, but on a phone, where the frame runs from edge to edge, 14px
    * brackets nearer the corners and 11px labels (the phone board), and on a desktop its labels stand as far from the
@@ -84,6 +89,7 @@ export default function ViewfinderFrame({
   mapName,
   imageUrl,
   scenery = true,
+  picture,
   size = 'card',
   topLeft,
   topRight,
@@ -133,6 +139,7 @@ export default function ViewfinderFrame({
           />
         </>
       )}
+      {picture}
       <div aria-hidden="true" className={cn('pointer-events-none absolute', place.inset)}>
         {BRACKETS.map((corner) => (
           <span key={corner} className={cn('absolute border-foreground', place.bracket, corner)} />
