@@ -1,11 +1,16 @@
 package io.csfaceit.backend.demo;
 
+import io.csfaceit.backend.auth.Access;
+import io.csfaceit.backend.auth.Actor;
+import io.csfaceit.backend.auth.ForbiddenException;
 import io.csfaceit.backend.common.api.BadRequestException;
 import io.csfaceit.backend.common.api.ConflictException;
 import io.csfaceit.backend.common.api.NotFoundException;
 import io.csfaceit.backend.demo.DemoPersistence.Queued;
 import io.csfaceit.backend.demo.dto.DemoResponse;
 import io.csfaceit.backend.faceit.FaceitGateway;
+import io.csfaceit.backend.faceit.FaceitNotFoundException;
+import io.csfaceit.backend.faceit.dto.FaceitMatch;
 import io.csfaceit.backend.match.MatchRepository;
 import io.csfaceit.backend.match.MatchService;
 import io.csfaceit.backend.messaging.DemoImportWorker;
@@ -35,6 +40,12 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
  * writes are the transactions of {@link DemoPersistence}, and the RabbitMQ message goes out only after they have
  * committed. Before a demo can be queued for parsing, the SteamIDs of the match's roster are stored
  * ({@link RosterSteamIdMapper}): the parser knows the players by SteamID only.
+ *
+ * <p>Each of the three requests is made by an {@link Actor}, and the first thing it does is ask {@link Access} whether
+ * the actor may: the admin key and an administrator always, a user only for a match they played. The roster is FACEIT's
+ * answer for the match (the cached gateway). When FACEIT cannot be asked and has no cached answer, the request of a
+ * user fails with the answer of a FACEIT that is unavailable, before anything is stored: a roster that cannot be read
+ * lets nobody in.
  */
 @Service
 public class DemoService {
@@ -42,6 +53,7 @@ public class DemoService {
     private static final String DEMO_NOT_FOUND = "DEMO_NOT_FOUND";
     private static final String DEMO_URL_UNAVAILABLE = "DEMO_URL_UNAVAILABLE";
     private static final String DEMO_NOT_PARSED = "DEMO_NOT_PARSED";
+    private static final String MATCH_NOT_FOUND = "MATCH_NOT_FOUND";
 
     private static final Logger log = LoggerFactory.getLogger(DemoService.class);
 
@@ -56,11 +68,12 @@ public class DemoService {
     private final DemoStoredPublisher storedPublisher;
     private final DemoUploadProperties uploadProperties;
     private final DemoMetrics metrics;
+    private final Access access;
 
     public DemoService(MatchService matchService, MatchRepository matches, DemoRepository demos,
                        DemoPersistence persistence, AmqpTemplate amqp, FaceitGateway faceit,
                        RosterSteamIdMapper rosterSteamIds, StorageService storage, DemoStoredPublisher storedPublisher,
-                       DemoUploadProperties uploadProperties, DemoMetrics metrics) {
+                       DemoUploadProperties uploadProperties, DemoMetrics metrics, Access access) {
         this.matchService = matchService;
         this.matches = matches;
         this.demos = demos;
@@ -72,6 +85,7 @@ public class DemoService {
         this.storedPublisher = storedPublisher;
         this.uploadProperties = uploadProperties;
         this.metrics = metrics;
+        this.access = access;
     }
 
     /**
@@ -85,11 +99,14 @@ public class DemoService {
      * therefore leaves one row and sends one message. The SteamIDs of the roster are stored first, so that they are
      * in place long before the stored demo reaches the parser.
      *
+     * @param actor who asks; a user has to be in the roster of the match
+     * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_IN_MATCH}: the user did not play the match
      * @throws NotFoundException {@code MATCH_NOT_FOUND}: FACEIT does not know the match
      * @throws ConflictException {@code DEMO_URL_UNAVAILABLE}: the demo would have to be downloaded, but FACEIT has
      *         no demo for the match (yet)
      */
-    public DemoResponse requestImport(String faceitMatchId) {
+    public DemoResponse requestImport(Actor actor, String faceitMatchId) {
+        requireMember(actor, faceitMatchId);
         String demoUrl = matchService.getMatch(faceitMatchId).demoUrl();
         boolean demoUrlAvailable = demoUrl != null && !demoUrl.isBlank();
         long matchRowId = mapRosterSteamIds(faceitMatchId);
@@ -121,13 +138,26 @@ public class DemoService {
      * stored first, and its roster's SteamIDs are mapped, before the file is looked at. Every temporary file is
      * deleted, whatever happens.
      *
+     * <p>That is what the admin key and an administrator do. A user has to be in the roster of the match, and cannot
+     * replace a demo that is PARSED or ANALYZED: it holds the statistics and the highlights of all ten players. Both
+     * are asked before the file is read, so a refused upload stores nothing. The status is looked at without a lock,
+     * because the file goes to the storage under the key the parsed demo has and cannot be taken back: a demo that
+     * becomes PARSED between the look and the {@code put} is parsed again from the user's file, which the analysis
+     * then checks against the roster like any other.
+     *
+     * @param actor who uploads
      * @param content the file, already known to be non-empty and to have a demo's file name; it is read once and not
      *        closed here
+     * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_IN_MATCH}: the user did not play the match
+     * @throws ConflictException {@code DEMO_ALREADY_PARSED}: a user uploads over a demo that has been parsed
      * @throws NotFoundException {@code MATCH_NOT_FOUND}: FACEIT does not know the match
      * @throws BadRequestException the file is a corrupt gzip archive
      * @throws MaxUploadSizeExceededException the file, or what it expands to, is larger than the allowed size
      */
-    public DemoResponse upload(String faceitMatchId, InputStream content) {
+    public DemoResponse upload(Actor actor, String faceitMatchId, InputStream content) {
+        requireMember(actor, faceitMatchId);
+        access.requireDemoReplaceable(actor,
+                demos.findByMatchFaceitMatchId(faceitMatchId).map(Demo::getStatus).orElse(null));
         matchService.getMatch(faceitMatchId);
         long matchRowId = mapRosterSteamIds(faceitMatchId);
 
@@ -150,17 +180,25 @@ public class DemoService {
      * analysis; an ANALYZED demo has passed that check and is analyzed again without FACEIT. Repeating the request is
      * harmless, the analysis is idempotent.
      *
+     * <p>A user has to be in the roster of the match (FACEIT's cached answer is asked for that) and can ask only for
+     * the analysis that is missing: while the demo is PARSED. Doing an analysis again is the admin key's and an
+     * administrator's, for whom FACEIT is not asked here at all.
+     *
+     * @param actor who asks
      * @throws NotFoundException {@code DEMO_NOT_FOUND}: the match has no demo
+     * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_IN_MATCH}: the user did not play the match
      * @throws ConflictException {@code DEMO_NOT_PARSED}: the demo is not PARSED or ANALYZED, so there are no facts to
-     *         analyze (yet, or any more)
+     *         analyze (yet, or any more); {@code DEMO_ALREADY_ANALYZED}: a user asks for an analysis that is done
      */
-    public DemoResponse requestAnalysis(String faceitMatchId) {
+    public DemoResponse requestAnalysis(Actor actor, String faceitMatchId) {
         Demo demo = demos.findByMatchFaceitMatchId(faceitMatchId)
                 .orElseThrow(() -> new NotFoundException(DEMO_NOT_FOUND, "Demo not found for match: " + faceitMatchId));
+        requireMember(actor, faceitMatchId);
         if (demo.getStatus() != DemoStatus.PARSED && demo.getStatus() != DemoStatus.ANALYZED) {
             throw new ConflictException(DEMO_NOT_PARSED,
                     "The demo of match " + faceitMatchId + " is " + demo.getStatus() + ", not parsed");
         }
+        access.requireDemoAwaitingAnalysis(actor, demo.getStatus());
         amqp.convertAndSend(DemoMessages.EXCHANGE, DemoMessages.Q_PARSED, new DemoParsed(demo.getId(), faceitMatchId));
         log.info("Announced demo {} of match {} on {} to have it analyzed again", demo.getId(), faceitMatchId,
                 DemoMessages.Q_PARSED);
@@ -172,6 +210,25 @@ public class DemoService {
         Demo demo = demos.findByMatchFaceitMatchId(faceitMatchId)
                 .orElseThrow(() -> new NotFoundException(DEMO_NOT_FOUND, "Demo not found for match: " + faceitMatchId));
         return toResponse(faceitMatchId, demo);
+    }
+
+    /**
+     * Asks {@link Access} whether the actor played the match. FACEIT is asked for the roster only when the rule needs
+     * it (never for the admin key or an administrator), and nothing has been stored or written when this refuses.
+     *
+     * @throws NotFoundException {@code MATCH_NOT_FOUND}: FACEIT does not know the match
+     * @throws io.csfaceit.backend.faceit.FaceitUnavailableException FACEIT cannot be asked and has no cached answer
+     */
+    private void requireMember(Actor actor, String faceitMatchId) {
+        access.requireMatchMember(actor, () -> roster(faceitMatchId));
+    }
+
+    private FaceitMatch roster(String faceitMatchId) {
+        try {
+            return faceit.getMatch(faceitMatchId);
+        } catch (FaceitNotFoundException e) {
+            throw new NotFoundException(MATCH_NOT_FOUND, "Match not found: " + faceitMatchId);
+        }
     }
 
     /**

@@ -3,6 +3,7 @@ package io.csfaceit.backend.demo;
 import static io.csfaceit.backend.match.MatchController.MATCH_ID_MESSAGE;
 import static io.csfaceit.backend.match.MatchController.MATCH_ID_PATTERN;
 
+import io.csfaceit.backend.auth.Access;
 import io.csfaceit.backend.common.api.BadRequestException;
 import io.csfaceit.backend.demo.dto.DemoResponse;
 import jakarta.validation.constraints.Pattern;
@@ -22,6 +23,12 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * Bringing the demo of a match (import, upload), asking for its analysis, and reading where it is. The three
+ * {@code POST}s take the admin key ({@code X-API-Key}) or a session: an administrator does what the key does, and any
+ * other signed-in user acts for the matches they played, which {@link DemoService} asks {@link Access} about. The
+ * controller only says who is acting.
+ */
 @RestController
 @RequestMapping("/api/v1/matches")
 @Validated
@@ -34,22 +41,26 @@ public class DemoController {
     private static final List<String> DEMO_FILE_SUFFIXES = List.of(".dem", ".dem.gz", ".dem.zst");
 
     private final DemoService service;
+    private final Access access;
 
-    public DemoController(DemoService service) {
+    public DemoController(DemoService service, Access access) {
         this.service = service;
+        this.access = access;
     }
 
-    /** Needs the {@code X-API-Key} header: {@code SecurityConfig} protects every request that is not a GET or HEAD. */
+    /** Needs the admin key or a session; a user has to be in the roster of the match (403 otherwise). */
     @PostMapping("/{matchId}/demo/import")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public DemoResponse requestImport(
             @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId) {
-        return service.requestImport(matchId);
+        return service.requestImport(access.current(), matchId);
     }
 
     /**
-     * Takes the demo of the match as a file instead of downloading it from FACEIT. Needs the {@code X-API-Key} header
-     * like every POST. The answer is 202 with the demo as it is once stored: STORED, and announced for parsing.
+     * Takes the demo of the match as a file instead of downloading it from FACEIT. Needs the admin key or a session; a
+     * user has to be in the roster of the match (403 otherwise) and cannot replace a demo that has been parsed (409
+     * {@code DEMO_ALREADY_PARSED}). The answer is 202 with the demo as it is once stored: STORED, and announced for
+     * parsing.
      */
     @PostMapping(path = "/{matchId}/demo/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -58,20 +69,21 @@ public class DemoController {
             @RequestPart(FILE_PART) MultipartFile file) throws IOException {
         requireDemoFile(file);
         try (InputStream content = file.getInputStream()) {
-            return service.upload(matchId, content);
+            return service.upload(access.current(), matchId, content);
         }
     }
 
     /**
-     * Has the parsed demo of the match analyzed again, from the facts that are in the database. Needs the
-     * {@code X-API-Key} header like every POST. The answer is 202 with the demo as it is now; the analysis runs in the
-     * background, so poll {@code GET .../demo} for the result.
+     * Has the parsed demo of the match analyzed again, from the facts that are in the database. Needs the admin key or
+     * a session; a user has to be in the roster of the match (403 otherwise) and can ask only for an analysis that is
+     * missing, that is, while the demo is PARSED (409 otherwise). The answer is 202 with the demo as it is now; the
+     * analysis runs in the background, so poll {@code GET .../demo} for the result.
      */
     @PostMapping("/{matchId}/demo/analyze")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public DemoResponse requestAnalysis(
             @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId) {
-        return service.requestAnalysis(matchId);
+        return service.requestAnalysis(access.current(), matchId);
     }
 
     @GetMapping("/{matchId}/demo")
