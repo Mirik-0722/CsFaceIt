@@ -143,10 +143,12 @@ public class DemoService {
 
     /**
      * Asks for the analysis of the match's parsed demo to be done again, by announcing the demo on {@code demo.parsed}
-     * as the parser does when it has parsed it. The facts the parser wrote are in the database, so neither the demo
-     * file nor FACEIT is needed, and nothing is written here: the listener analyzes the demo, and the answer is the
-     * demo as it is now, so a PARSED demo (the analysis failed, or has not been done yet) is still PARSED in it.
-     * Repeating the request is harmless, the analysis is idempotent.
+     * as the parser does when it has parsed it. The facts the parser wrote are in the database, so the demo file is
+     * not needed, and nothing is written here: the listener analyzes the demo, and the answer is the demo as it is now,
+     * so a PARSED demo (the analysis failed, or has not been done yet) is still PARSED in it. FACEIT is asked for the
+     * roster of the match (a cached answer) only for a PARSED demo, whose players are compared with it before the
+     * analysis; an ANALYZED demo has passed that check and is analyzed again without FACEIT. Repeating the request is
+     * harmless, the analysis is idempotent.
      *
      * @throws NotFoundException {@code DEMO_NOT_FOUND}: the match has no demo
      * @throws ConflictException {@code DEMO_NOT_PARSED}: the demo is not PARSED or ANALYZED, so there are no facts to

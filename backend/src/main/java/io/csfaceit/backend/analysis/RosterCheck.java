@@ -29,12 +29,15 @@ import org.springframework.stereotype.Component;
  * player since, the SteamID in his placeholder id {@code steam:<SteamID>} (the parser takes the placeholder for that
  * SteamID too).
  *
- * <p>The rule: among the roster's players whose SteamID is known, the share that is among the players of the demo
- * has to reach {@code demo.match-check.min-share}. Players of the demo who are not in the roster do not count
- * against it, and nor do roster players without a SteamID. Fewer than {@value #MIN_KNOWN_STEAM_IDS} roster players with
- * a known SteamID are too few to judge by, so the check is skipped, with one WARN that names the match and the two
- * counts. A match FACEIT no longer knows has no roster, and is skipped the same way; a FACEIT that cannot be reached
- * is no verdict, so its exception goes to the caller, and the analysis is tried again like for any other failure.
+ * <p>The rule: the roster's SteamIDs that are among the demo's are counted, and that count has to reach
+ * {@code demo.match-check.min-share} of the smaller of two numbers: the roster's players whose SteamID is known, and the
+ * demo's players that have a real 17-digit SteamID. The smaller, because a roster that lists substitutes (fourteen
+ * entries, say) cannot be wholly present in a demo of ten players, and a genuine demo must not fail for it. Players of
+ * the demo who are not in the roster do not count against it, and nor do roster players without a SteamID. Fewer than
+ * {@value #MIN_KNOWN_STEAM_IDS} roster players with a known SteamID are too few to judge by, and a demo none of whose
+ * players has a real SteamID has nothing to compare: either way the check is skipped, with one WARN that names the match
+ * and the counts. A match FACEIT no longer knows has no roster, and is skipped the same way; a FACEIT that cannot be
+ * reached is no verdict, so its exception goes to the caller, and the analysis is tried again like for any other failure.
  *
  * <p>No SteamID or nickname is written to a log or to a sentence that is stored: they are real people's.
  */
@@ -69,11 +72,16 @@ public class RosterCheck {
     }
 
     /**
-     * The result: {@code rosterPlayers} players in the roster, {@code known} of them with a known SteamID and
-     * {@code present} of those among the players of the demo (0 when the check was skipped, as the demo's players are
-     * not read then).
+     * The result: {@code rosterPlayers} players in the roster, {@code known} of them with a known SteamID,
+     * {@code demoPlayers} players of the demo with a real SteamID and {@code present} roster SteamIDs among them (the
+     * last two are 0 when the check was skipped before the demo's players were read).
      */
-    public record Verdict(Kind kind, int rosterPlayers, int known, int present) {
+    public record Verdict(Kind kind, int rosterPlayers, int known, int demoPlayers, int present) {
+
+        /** What {@code present} is measured against: the smaller of the known roster SteamIDs and the demo's. */
+        public int compared() {
+            return Math.min(known, demoPlayers);
+        }
 
         public boolean wrongMatch() {
             return kind == Kind.WRONG_MATCH;
@@ -81,8 +89,8 @@ public class RosterCheck {
 
         /** The sentence that goes to {@code demos.error} of a demo that is another match's. */
         public String sentence() {
-            return "The players of the demo are not the players of this match: only " + present + " of the " + known
-                    + " roster players with a known SteamID are among them";
+            return "The players of the demo are not the players of this match: only " + present + " of the " + compared()
+                    + " SteamIDs compared are among them";
         }
     }
 
@@ -114,12 +122,20 @@ public class RosterCheck {
             log.warn("Not checking the demo of match {} against its roster: only {} of the {} roster players have a "
                     + "known SteamID and {} are needed to judge by", faceitMatchId, known, roster.players(),
                     MIN_KNOWN_STEAM_IDS);
-            return new Verdict(Kind.SKIPPED, roster.players(), known, 0);
+            return new Verdict(Kind.SKIPPED, roster.players(), known, 0, 0);
         }
         Set<String> demoSteamIds = demoSteamIds(facts);
+        if (demoSteamIds.isEmpty()) {
+            log.warn("Not checking the demo of match {} against its roster: none of the demo's players has a SteamID "
+                    + "(the roster has {} players, {} of them with a known SteamID)", faceitMatchId, roster.players(),
+                    known);
+            return new Verdict(Kind.SKIPPED, roster.players(), known, 0, 0);
+        }
         int present = (int) roster.steamIds().stream().filter(demoSteamIds::contains).count();
-        boolean enough = (double) present / known >= properties.minShare();
-        return new Verdict(enough ? Kind.SAME_MATCH : Kind.WRONG_MATCH, roster.players(), known, present);
+        int compared = Math.min(known, demoSteamIds.size());
+        boolean enough = (double) present / compared >= properties.minShare();
+        return new Verdict(enough ? Kind.SAME_MATCH : Kind.WRONG_MATCH, roster.players(), known, demoSteamIds.size(),
+                present);
     }
 
     /** The roster of the match: how many players it lists and the distinct SteamIDs among them that are usable. */
@@ -160,6 +176,7 @@ public class RosterCheck {
         }
         return jdbc.sql(STEAM_IDS_SQL).param("ids", players).query(String.class).list().stream()
                 .filter(Objects::nonNull)
+                .filter(steamId -> STEAM_ID.matcher(steamId).matches())
                 .collect(Collectors.toSet());
     }
 }

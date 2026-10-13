@@ -8,6 +8,7 @@ import io.csfaceit.backend.analysis.highlight.HighlightDetector;
 import io.csfaceit.backend.analysis.stats.PlayerMatchStatsValues;
 import io.csfaceit.backend.analysis.stats.StatsCalculator;
 import io.csfaceit.backend.demo.DemoPersistence;
+import io.csfaceit.backend.demo.DemoStatus;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -22,11 +23,13 @@ import org.springframework.stereotype.Service;
  * {@link AnalysisPersistence}, the facts are read and the numbers computed with none open, and the result is
  * written in a second one.
  *
- * <p>Before anything is computed the players of the demo are compared with the roster of the match ({@link
- * RosterCheck}): a demo that is not the match's is FAILED with the code {@code WRONG_MATCH}, in a short transaction of
- * its own under the same guard as the result, and nothing of it is stored, so that a wrong file cannot replace the
- * statistics and the highlights of the match's players. A demo that has been failed this way is not analyzable any
- * more, so a message that arrives again finds nothing to do (see {@link AnalysisPersistence#claim}).
+ * <p>Before anything is computed, the first time the file of a PARSED demo is analyzed, its players are compared with
+ * the roster of the match ({@link RosterCheck}): a demo that is not the match's is FAILED with the code
+ * {@code WRONG_MATCH}, in a short transaction of its own under the same guard as the result, and nothing of it is
+ * stored, so that a wrong file cannot replace the statistics and the highlights of the match's players. A demo that
+ * has been failed this way is not analyzable any more, so a message that arrives again finds nothing to do (see
+ * {@link AnalysisPersistence#claim}). The analysis of an ANALYZED demo, which has passed the check, is not checked again:
+ * it asks FACEIT for nothing and can never turn the demo FAILED.
  *
  * <p>Analyzing is idempotent: the same facts give the same rows, and the highlights of the match are replaced rather
  * than added to, so an analysis can be repeated at any time (a duplicate {@code demo.parsed}, a request to analyze
@@ -100,16 +103,21 @@ public class AnalysisService {
                     noted ? "the error is noted on the demo" : "the demo is not PARSED, so it is left as it is");
             return Outcome.NO_ROSTERS;
         }
-        RosterCheck.Verdict verdict = rosterCheck.check(claim.faceitMatchId(), facts);
-        if (verdict.wrongMatch()) {
+        // Checked once, when the file is first analyzed: every new file passes through PARSED (an upload or an import
+        // resets the row), so an ANALYZED demo has been checked, and its repeated analysis neither asks FACEIT nor can
+        // lose a good analysis to a SteamID that changed since or to a FACEIT outage.
+        RosterCheck.Verdict verdict = claim.status() == DemoStatus.PARSED
+                ? rosterCheck.check(claim.faceitMatchId(), facts) : null;
+        if (verdict != null && verdict.wrongMatch()) {
             if (!persistence.failWrongMatch(claim, verdict.sentence())) {
                 log.info("Dropping the verdict on demo {} of match {}: the demo changed while it was checked, or "
                         + "another delivery of the message has failed it already", demoId, claim.faceitMatchId());
                 return Outcome.STALE;
             }
-            log.warn("Failed demo {} of match {} as WRONG_MATCH: {} of the {} roster players with a known SteamID are among "
-                    + "its players ({} players in the roster)", demoId, claim.faceitMatchId(), verdict.present(),
-                    verdict.known(), verdict.rosterPlayers());
+            log.warn("Failed demo {} of match {} as WRONG_MATCH: {} of the {} SteamIDs compared are among its players "
+                    + "({} players in the roster, {} with a known SteamID, {} players of the demo with a SteamID)",
+                    demoId, claim.faceitMatchId(), verdict.present(), verdict.compared(), verdict.rosterPlayers(),
+                    verdict.known(), verdict.demoPlayers());
             return Outcome.WRONG_MATCH;
         }
         Map<Long, PlayerMatchStatsValues> stats = calculator.calculate(facts);

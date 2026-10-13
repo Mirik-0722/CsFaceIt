@@ -45,8 +45,9 @@ public class AnalysisPersistence {
      */
     public static final int DEFAULT_TICK_RATE = 64;
 
-    /** The demo an analysis has taken over, as it was when it was read: {@code updatedAt} is its version. */
-    public record Claim(long demoId, long matchRowId, String faceitMatchId, int tickRate, Instant updatedAt) {
+    /** The demo an analysis has taken over, as it was when it was read: {@code updatedAt} is its version, {@code status} PARSED or ANALYZED. */
+    public record Claim(long demoId, long matchRowId, String faceitMatchId, int tickRate, Instant updatedAt,
+                        DemoStatus status) {
     }
 
     private static final Logger log = LoggerFactory.getLogger(AnalysisPersistence.class);
@@ -80,7 +81,7 @@ public class AnalysisPersistence {
         return demos.findById(demoId)
                 .filter(demo -> isAnalyzable(demo.getStatus()))
                 .map(demo -> new Claim(demoId, demo.getMatch().getId(), demo.getMatch().getFaceitMatchId(),
-                        tickRateOf(demo), demo.getUpdatedAt()));
+                        tickRateOf(demo), demo.getUpdatedAt(), demo.getStatus()));
     }
 
     /**
@@ -140,8 +141,8 @@ public class AnalysisPersistence {
      * row lock of the demo, and nothing of the analysis is written: the statistics and the highlights of the match stay
      * as the last analysis left them, and are not served while the demo is not ANALYZED.
      *
-     * <p>The guard is that of {@link #store}: the demo has to be PARSED or ANALYZED still, with the {@code updated_at}
-     * the claim saw. A demo that was uploaded or parsed again meanwhile is not failed for the sake of the file before
+     * <p>The guard is that of {@link #store}, narrowed: the demo has to be PARSED still (the check is made only for a
+     * PARSED demo, and an ANALYZED one is never failed by it), with the {@code updated_at} the claim saw. A demo that was uploaded or parsed again meanwhile is not failed for the sake of the file before
      * it, and a second delivery of the same message that comes after the first has failed the demo finds it FAILED and
      * writes nothing, so the failure is neither undone nor repeated (the claim of a FAILED demo is empty to begin with).
      *
@@ -150,7 +151,7 @@ public class AnalysisPersistence {
     @Transactional
     public boolean failWrongMatch(Claim claim, String error) {
         Demo demo = demos.findByIdForUpdate(claim.demoId()).orElse(null);
-        if (demo == null || !isAnalyzable(demo.getStatus()) || !claim.updatedAt().equals(demo.getUpdatedAt())) {
+        if (demo == null || demo.getStatus() != DemoStatus.PARSED || !claim.updatedAt().equals(demo.getUpdatedAt())) {
             return false;
         }
         demo.fail(error, DemoErrorCode.WRONG_MATCH);
