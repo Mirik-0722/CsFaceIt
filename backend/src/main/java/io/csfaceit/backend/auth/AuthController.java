@@ -4,6 +4,7 @@ import io.csfaceit.backend.auth.SessionService.NewSession;
 import io.csfaceit.backend.auth.dto.MeResponse;
 import io.csfaceit.backend.auth.dto.ProvidersResponse;
 import io.csfaceit.backend.common.api.NotFoundException;
+import io.csfaceit.backend.usage.UsageService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.util.Optional;
@@ -46,14 +47,16 @@ public class AuthController {
     private final SignInService signIn;
     private final SessionService sessions;
     private final KnownOrigins knownOrigins;
+    private final UsageService usage;
 
     public AuthController(AuthProperties properties, SteamOpenId steam, SignInService signIn,
-                          SessionService sessions, KnownOrigins knownOrigins) {
+                          SessionService sessions, KnownOrigins knownOrigins, UsageService usage) {
         this.properties = properties;
         this.steam = steam;
         this.signIn = signIn;
         this.sessions = sessions;
         this.knownOrigins = knownOrigins;
+        this.usage = usage;
     }
 
     /**
@@ -150,6 +153,10 @@ public class AuthController {
      * the browser print a failed request in the console of every visitor. It is the cookie that is asked, not what else
      * the request is authenticated as: the admin key does not turn a signed-in visitor into a signed-out one (see
      * {@link SessionAuthFilter}).
+     *
+     * <p>The answer also says what the user has left of the limits per day ({@code limits}; {@code null} for an
+     * administrator, who has none), and the request is what notes that the user is around (see
+     * {@link SessionService#seen}): every page makes it once.
      */
     @GetMapping("/me")
     public ResponseEntity<MeResponse> me(
@@ -157,7 +164,9 @@ public class AuthController {
         if (user == null) {
             return ResponseEntity.noContent().build();
         }
-        return ResponseEntity.ok(MeResponse.of(user));
+        sessions.seen(user.id());
+        return ResponseEntity.ok(MeResponse.of(user,
+                user.role() == UserRole.ADMIN ? null : usage.allowances(user.id())));
     }
 
     /** Ends the session of the request's cookie, if it has one, and clears the cookie. 204 either way. */

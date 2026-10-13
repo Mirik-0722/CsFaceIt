@@ -6,6 +6,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -39,6 +40,9 @@ public class SessionService {
     }
 
     private static final int TOKEN_BYTES = 32;
+
+    /** A visit is noted when the last one noted is older than this: often enough to know who is around, and no more. */
+    private static final Duration SEEN_EVERY = Duration.ofMinutes(15);
 
     /** What a token looks like: {@link #TOKEN_BYTES} bytes as URL-safe Base64 without padding. */
     private static final Pattern TOKEN_SHAPE = Pattern.compile("[A-Za-z0-9_-]{43}");
@@ -98,6 +102,17 @@ public class SessionService {
         UserRole role = user.steamId() != null && properties.adminSteamIds().contains(user.steamId())
                 ? UserRole.ADMIN : UserRole.USER;
         return new SignedInUser(user.id(), user.nickname(), user.avatarUrl(), role, user.steamId(), user.playerId());
+    }
+
+    /**
+     * Notes that the user is using the site now ({@code users.last_seen_at}), which says whose matches are worth
+     * fetching. The page asks who is signed in at every load, so the time is written only when none is noted or the
+     * one noted is older than {@link #SEEN_EVERY}: one conditional update that mostly changes nothing.
+     */
+    @Transactional
+    public void seen(long userId) {
+        Instant now = clock.instant();
+        users.markSeen(userId, now, now.minus(SEEN_EVERY));
     }
 
     /** Ends the session of the token, if there is one: its row is deleted. */
