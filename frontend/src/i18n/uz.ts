@@ -53,11 +53,11 @@ export const uz: Messages = {
   limits: {
     nextAt: (time, day) => (day ? `${day} kuni soat ${time} dan keyin` : `soat ${time} dan keyin`),
     UPLOAD_LIMIT_REACHED: (next) =>
-      `Demo yuklash cheklovi tugadi. ${next ? `Keyingisi ${next} mumkin.` : "Keyinroq urinib ko'ring."}`,
+      `Demo yuklash uchun bugungi limit tugadi. ${next ? `Keyingisi ${next} mumkin.` : "Keyinroq urinib ko'ring."}`,
     IMPORT_LIMIT_REACHED: (next) =>
-      `Demo olish so'rovlari cheklovi tugadi. ${next ? `Keyingisi ${next} mumkin.` : "Keyinroq urinib ko'ring."}`,
+      `FACEIT'dan demo olish uchun bugungi limit tugadi. ${next ? `Keyingisi ${next} mumkin.` : "Keyinroq urinib ko'ring."}`,
     CLIP_LIMIT_REACHED: (next) =>
-      `Klip buyurtmalari cheklovi tugadi. ${next ? `Keyingisi ${next} mumkin.` : "Keyinroq urinib ko'ring."}`,
+      `Klip buyurtmalari uchun bugungi limit tugadi. ${next ? `Keyingisi ${next} mumkin.` : "Keyinroq urinib ko'ring."}`,
   },
   home: {
     eyebrow: 'CS2 demo tahlili · highlight kliplar',
@@ -313,17 +313,21 @@ export const uz: Messages = {
       "FACEIT bu demoni avtomatik yuklashga ruxsat bermadi. Demoni FACEIT'dagi match xonasidan yuklab oling va pastda admin kaliti bilan fayl sifatida yuklang.",
     needsAccessMember:
       "FACEIT bu demoni avtomatik yuklashga ruxsat bermadi. Demoni FACEIT'dagi match xonasidan yuklab oling va pastda fayl sifatida yuklang.",
+    needsAccessPlain: 'FACEIT bu demoni avtomatik yuklashga ruxsat bermadi.',
     needsAccessLink: "FACEIT'dagi match xonasi",
     // Heard by a screen reader after the link's text, because the link opens another tab.
     newTab: '(yangi tabda ochiladi)',
     notParsed: "Demo hali o'qilmagan.",
     tooLarge: 'Fayl juda katta.',
-    alreadyParsed: "Bu matchning demosi allaqachon o'qilgan. Uni faqat administrator almashtira oladi.",
+    alreadyParsed: "Bu matchning demosi allaqachon o'qilgan. Uni faqat admin almashtira oladi.",
     alreadyAnalyzed: 'Demo allaqachon tahlil qilingan.',
+    uploadInterrupted:
+      "Yuklash uzilib qoldi. So'rov rad etilgan bo'lishi mumkin: qayta urinib ko'ring yoki qaytadan kiring.",
+    importFailedPlain: "Demoni FACEIT'dan olib bo'lmadi.",
     stages: {
       label: 'Demo bosqichlari',
       steps: {
-        download: 'Yuklash',
+        download: 'Olish',
         read: "O'qish",
         analysis: 'Tahlil',
         ready: 'Tayyor',
@@ -446,7 +450,7 @@ export const uz: Messages = {
       tooLong: 'Klip juda uzun chiqadi.',
       noKills: "Bu o'yinchining demoda kill'i yo'q.",
       inProgress: "Klip yozilmoqda, hozir o'chirib bo'lmaydi.",
-      notFailed: "Faqat xato bilan tugagan klipni qayta urinib ko'rish mumkin.",
+      notFailed: 'Faqat xato bilan tugagan klipni qayta buyurtma qilish mumkin.',
     },
     // Why a clip failed, by the code of `ClipResponse.errorCode`; a reason the recorder reports has no code and is shown
     // as the recorder wrote it.

@@ -66,11 +66,11 @@ export const en = {
   limits: {
     nextAt: (time: string, day: string | null) => (day ? `on ${day} at ${time}` : `at ${time}`),
     UPLOAD_LIMIT_REACHED: (next: string | null) =>
-      `You have reached the limit of demo uploads. ${next ? `The next one is possible ${next}.` : 'Try again later.'}`,
+      `You have reached today's limit of demo uploads. ${next ? `The next one is possible ${next}.` : 'Try again later.'}`,
     IMPORT_LIMIT_REACHED: (next: string | null) =>
-      `You have reached the limit of demo imports. ${next ? `The next one is possible ${next}.` : 'Try again later.'}`,
+      `You have reached today's limit of demo imports. ${next ? `The next one is possible ${next}.` : 'Try again later.'}`,
     CLIP_LIMIT_REACHED: (next: string | null) =>
-      `You have reached the limit of clip orders. ${next ? `The next one is possible ${next}.` : 'Try again later.'}`,
+      `You have reached today's limit of clip orders. ${next ? `The next one is possible ${next}.` : 'Try again later.'}`,
   },
   home: {
     eyebrow: 'CS2 demo analysis · highlight clips',
@@ -355,6 +355,8 @@ export const en = {
     // The same for a visitor who may upload without the key: a player of the match, or an administrator.
     needsAccessMember:
       "FACEIT did not let this site download the demo. Download it from the match's room on FACEIT and upload the file below.",
+    // The same for a signed-in visitor who cannot upload: what happened, without sending the visitor anywhere.
+    needsAccessPlain: 'FACEIT did not let this site download the demo.',
     needsAccessLink: "The match's room on FACEIT",
     // Heard by a screen reader after the link's text, because the link opens another tab.
     newTab: '(opens in a new tab)',
@@ -364,12 +366,17 @@ export const en = {
     // to a player of a match whose demo is read.
     alreadyParsed: 'A demo of this match has already been read. Only an administrator can replace it.',
     alreadyAnalyzed: 'The demo is already analyzed.',
+    // An upload by the session that ended without an answer: the backend refuses an upload before it reads the file
+    // and may close the connection, which the browser reports as a failed request.
+    uploadInterrupted: 'The upload was interrupted. It may have been refused: try again, or sign in again.',
+    // IMPORT_FAILED for a signed-in visitor who cannot upload (see `reasons` for everybody else).
+    importFailedPlain: 'The demo could not be fetched from FACEIT.',
     // The line of four steps under the status: its name for a screen reader, the steps (shown in upper case), and the
     // state of a step in words, heard after its name.
     stages: {
       label: 'Stages of the demo',
       steps: {
-        download: 'Download',
+        download: 'Fetch',
         read: 'Read',
         analysis: 'Analysis',
         ready: 'Ready',

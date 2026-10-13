@@ -536,6 +536,8 @@ function ClipView({ clip }: { clip: ClipResponse }) {
   const t = useT()
   const adminKey = useAdminKey()
   // Whoever ordered the clip, and an administrator, manage it by the session; the admin key does for anybody else.
+  // Until it is known who is signed in nobody does by the session, so the controls wait; they stand in the row of
+  // "Copy link", which is there from the start, so nothing moves when they arrive.
   const manages = useViewer().canManageClip(clip).allowed || adminKey !== null
   const belowNotice = useHasUnlinkedNotice()
   const video = useRef<HTMLVideoElement>(null)

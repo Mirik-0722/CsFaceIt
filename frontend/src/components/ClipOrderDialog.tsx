@@ -114,7 +114,8 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
   const viewer = useViewer()
   const permission = viewer.canOrderFor(order.kind === 'highlight' ? order.highlight.playerId : order.playerId)
   const storedKey = useAdminKey()
-  const keyField = storedKey === null && (!viewer.signedIn || keyOpen)
+  // Not until it is known who is signed in: see the demo panel.
+  const keyField = storedKey === null && !viewer.loading && (!viewer.signedIn || keyOpen)
   // The key that goes with the order, if any: see the demo panel.
   const apiKey = storedKey ?? (keyField ? typedKey.trim() : '')
   const withKey = apiKey.length > 0
@@ -217,6 +218,8 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
           ))}
         </div>
       </fieldset>
+      {/* Until it is known who is signed in, the room of the key field, so that it does not arrive with a jump. */}
+      {viewer.loading && storedKey === null && <div aria-hidden="true" className="h-16" />}
       {/* Why not, before the key field: a signed-in visitor is never left with a bare key field. */}
       {denial !== null && <p className="text-sm leading-normal text-muted-foreground">{denial}</p>}
       {keyField && (

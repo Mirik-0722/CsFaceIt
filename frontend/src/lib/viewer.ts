@@ -39,6 +39,11 @@ function denied(reason: DenialReason): Permission {
 
 /** What the pages know about the visitor, and what the visitor may do without the admin key. */
 export interface Viewer {
+  /**
+   * Who is signed in is not known yet (the first answer of `/auth/me` is on its way): everything below reads as for a
+   * visitor meanwhile, so whatever is shown to a visitor only (the admin key field) waits until this is false.
+   */
+  loading: boolean
   /** Somebody is signed in. False also while the answer is on its way, and when it failed. */
   signedIn: boolean
   /** The session is an administrator's: everything is allowed, and nothing is counted. */
@@ -54,7 +59,7 @@ export interface Viewer {
   canManageDemo: (match: Pick<MatchResponse, 'teams'>) => Permission
   /** A clip of that player's highlight, or the compilation of that player's kills. For the player. */
   canOrderFor: (playerId: string) => Permission
-  /** Cancel, delete or retry a clip. For whoever ordered it. */
+  /** Cancel, delete or retry a clip. For whoever ordered it, with or without a linked FACEIT player. */
   canManageClip: (clip: Pick<ClipResponse, 'mine'>) => Permission
 }
 
@@ -63,7 +68,7 @@ export interface Viewer {
  * will be accepted, and say why for the rest. The backend still decides; a refusal of something offered here is shown
  * with the same words. Not a hook itself, so that the rules can be read without a query client.
  */
-export function viewerOf(me: MeResponse | null | undefined): Viewer {
+export function viewerOf(me: MeResponse | null | undefined, loading = false): Viewer {
   const admin = me?.role === 'ADMIN'
   const playerId = me?.playerId ?? null
   /** What holds before the rule of the action itself: an administrator may, and a visitor without a player may not. */
@@ -77,6 +82,7 @@ export function viewerOf(me: MeResponse | null | undefined): Viewer {
     return playerId === null ? denied('FACEIT_NOT_LINKED') : null
   }
   return {
+    loading,
     signedIn: Boolean(me),
     admin,
     playerId,
@@ -87,13 +93,19 @@ export function viewerOf(me: MeResponse | null | undefined): Viewer {
         ? ALLOWED
         : denied('NOT_IN_MATCH')),
     canOrderFor: (ofPlayerId) => general() ?? (ofPlayerId === playerId ? ALLOWED : denied('NOT_YOUR_PLAYER')),
+    // The backend asks only who ordered the clip, so the owner manages it whether or not a FACEIT player is linked.
     // `=== true`: a backend that does not say whose a clip is yet leaves the field out.
-    canManageClip: (clip) => general() ?? (clip.mine === true ? ALLOWED : denied('NOT_YOUR_CLIP')),
+    canManageClip: (clip) => {
+      if (!me) {
+        return denied('SIGNED_OUT')
+      }
+      return admin || clip.mine === true ? ALLOWED : denied('NOT_YOUR_CLIP')
+    },
   }
 }
 
 /** The signed-in visitor and what the visitor may do: see {@link viewerOf}. */
 export function useViewer(): Viewer {
-  const me = useMe().data
-  return useMemo(() => viewerOf(me), [me])
+  const { data: me, isPending } = useMe()
+  return useMemo(() => viewerOf(me, isPending), [me, isPending])
 }

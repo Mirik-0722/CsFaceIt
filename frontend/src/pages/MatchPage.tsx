@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useT } from '@/i18n'
+import { useAdminKey } from '@/lib/adminKey'
 import { clipFor, compilationFor } from '@/lib/clips'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatClock, formatDate, formatMatchDay } from '@/lib/formatDate'
@@ -29,7 +30,7 @@ import { mapSceneryUrl } from '@/lib/mapArt'
 import { mapLabel } from '@/lib/mapTint'
 import { byNumber, startingSides } from '@/lib/matchRounds'
 import { cn } from '@/lib/utils'
-import { useViewerPlayerId } from '@/lib/viewer'
+import { useViewer, useViewerPlayerId } from '@/lib/viewer'
 import type { ApiError } from '@/api/client'
 import type { MatchResponse, MatchStatsResponse, TeamStatsResponse } from '@/api/types'
 
@@ -272,6 +273,24 @@ function SectionTabs({ matchId }: { matchId: string }) {
 
 type HighlightFilter = 'all' | 'mine' | HighlightGroup
 
+/**
+ * Whose clips the visitor has a way to order, so that the page offers only orders that can be made: with the admin
+ * key on the page, anybody's; signed in without it, what the session allows (a player's own, an administrator's
+ * anybody's); not signed in, anybody's as before, since the order dialog is where that visitor is invited to sign in
+ * or to type the key. `known` is false until it is known who is signed in: what depends on it waits.
+ */
+function useOrderAccess() {
+  const viewer = useViewer()
+  const adminKey = useAdminKey()
+  const byKey = adminKey !== null
+  return {
+    known: byKey || !viewer.loading,
+    /** A signed-in player without the key: the only clips to order are the player's own. */
+    ownOnly: !byKey && viewer.signedIn && !viewer.admin,
+    mayOrderFor: (playerId: string) => byKey || !viewer.signedIn || viewer.canOrderFor(playerId).allowed,
+  }
+}
+
 /** How many highlights the list shows before "show more" is asked for. */
 const VISIBLE_HIGHLIGHTS = 6
 
@@ -287,12 +306,14 @@ interface MatchHighlightsProps {
  * The highlights of the match with a filter by kind above them, and the visitor's own when there are any. The filter
  * works on what is already loaded; each button carries the number of highlights it would show. The list shows the
  * first six, and a button under it the rest. Every card ends with what can be done about the clip of its highlight:
- * any highlight can be recorded, of whatever kind. A failure stays inside the section.
+ * any highlight can be recorded, of whatever kind, by whoever has a way to order it (see {@link useOrderAccess}); a
+ * signed-in visitor is not offered the clips of other players' highlights. A failure stays inside the section.
  */
 function MatchHighlights({ matchId, viewerPlayerId, onOrder, children }: MatchHighlightsProps) {
   const t = useT()
   const highlights = useMatchHighlights(matchId)
   const clips = useMatchClips(matchId)
+  const orders = useOrderAccess()
   const [filter, setFilter] = useState<HighlightFilter>('all')
   const [expanded, setExpanded] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
@@ -366,13 +387,16 @@ function MatchHighlights({ matchId, viewerPlayerId, onOrder, children }: MatchHi
           <HighlightList
             items={shown}
             showMatch={false}
-            // Until the clips of the match are known, a card cannot say whether its highlight has one. While they are
-            // on their way the row is kept free, so that the cards do not grow under the reader when they arrive.
+            // Until the clips of the match are known, a card cannot say whether its highlight has one, and until it is
+            // known who is signed in, whether its clip can be ordered. While either is on its way the row is kept
+            // free, so that the cards do not grow under the reader when they arrive. A card with nothing to offer
+            // keeps the row as well: the cards of a row of the grid stay alike.
             action={
-              matchClips
+              matchClips && orders.known
                 ? (highlight) => (
                     <ClipButton
                       clip={clipFor(highlight, matchClips)}
+                      canOrder={orders.mayOrderFor(highlight.playerId)}
                       onOrder={() => onOrder({ kind: 'highlight', highlight })}
                       subject={[
                         highlightLabel(highlight.type, t),
@@ -381,7 +405,7 @@ function MatchHighlights({ matchId, viewerPlayerId, onOrder, children }: MatchHi
                       ].join(' · ')}
                     />
                   )
-                : clips.isPending
+                : clips.isPending || (matchClips && !orders.known)
                   ? () => <span aria-hidden="true" />
                   : undefined
             }
@@ -416,7 +440,9 @@ interface CompilationProps {
  * One video of every kill of a player in the match (spec 4, the compilation panel). It is cut from the kills of the
  * demo, so the panel is there once the demo has been parsed. The players to choose from are those of the scoreboard
  * and, after them, players the highlights name that the scoreboard does not (a player the backend knows only from
- * the demo). Beside the chosen player stands the state of that player's compilation, as on a highlight card.
+ * the demo); of those, only the players the visitor has a way to order for (see {@link useOrderAccess}): a signed-in
+ * player's own, already chosen, and without any there is no panel. Beside the chosen player stands the state of that
+ * player's compilation, as on a highlight card.
  */
 function Compilation({ matchId, mapName, teams, onOrder }: CompilationProps) {
   const t = useT()
@@ -424,16 +450,22 @@ function Compilation({ matchId, mapName, teams, onOrder }: CompilationProps) {
   const demo = useDemo(matchId)
   const highlights = useMatchHighlights(matchId)
   const clips = useMatchClips(matchId)
+  const orders = useOrderAccess()
   const [chosenId, setChosenId] = useState('')
   const status = demo.data?.status
   const players = [...(teams ?? []).flatMap((team) => team.players), ...(highlights.data ?? [])]
     .map(({ playerId, nickname }) => ({ playerId, nickname }))
     .filter((player, index, all) => all.findIndex((other) => other.playerId === player.playerId) === index)
+    // Only the players the visitor has a way to order for: a signed-in player's own, anybody's for the others.
+    .filter((player) => orders.mayOrderFor(player.playerId))
   const matchClips = clips.data
-  if ((status !== 'PARSED' && status !== 'ANALYZED') || players.length === 0 || !matchClips) {
+  if ((status !== 'PARSED' && status !== 'ANALYZED') || players.length === 0 || !matchClips || !orders.known) {
     return null
   }
-  const chosen = players.find((player) => player.playerId === chosenId)
+  // A signed-in player has one player to choose, so it is chosen already.
+  const preselected = orders.ownOnly ? players[0].playerId : ''
+  const selectedId = chosenId || preselected
+  const chosen = players.find((player) => player.playerId === selectedId)
   const record = t.clip.compilationPanel.record
   return (
     <section className="flex flex-wrap items-end gap-x-8 gap-y-4 border border-border px-6 py-5.5">
@@ -448,11 +480,11 @@ function Compilation({ matchId, mapName, teams, onOrder }: CompilationProps) {
           </label>
           <select
             id={playerFieldId}
-            value={chosenId}
+            value={selectedId}
             onChange={(event) => setChosenId(event.target.value)}
             className="h-11 max-w-full min-w-48 rounded-lg border border-border bg-card px-3 text-base text-foreground"
           >
-            <option value="">{t.clip.compilationPanel.choosePlayer}</option>
+            {!preselected && <option value="">{t.clip.compilationPanel.choosePlayer}</option>}
             {players.map((player) => (
               <option key={player.playerId} value={player.playerId}>
                 {player.nickname}

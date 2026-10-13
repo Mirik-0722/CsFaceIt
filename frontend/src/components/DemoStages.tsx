@@ -52,11 +52,15 @@ interface DemoStagesProps {
 /**
  * Where a demo is on its way to an analysis, as a line of four steps: download → read → analysis → ready. It is drawn
  * from the demo it is given and nothing else, so it moves on whenever whoever shows it asks for the demo again (the
- * demo panel does, every three seconds while the demo is in progress).
+ * demo panel does, every three seconds while the demo is in progress). A demo that failed without saying where has no
+ * line: nothing is drawn.
  */
 export default function DemoStages({ demo, compact = false, className }: DemoStagesProps) {
   const t = useT()
   const states = demoStages(demo)
+  if (states === null) {
+    return null
+  }
   // A demo that went all the way: the last step is the result, in the colour of the "analyzed" tag.
   const finished = states.every((state) => state === 'done')
   return (

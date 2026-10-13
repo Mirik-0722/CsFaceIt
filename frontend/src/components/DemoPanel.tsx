@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input'
 import { useT, type Messages } from '@/i18n'
 import { setAdminKey, useAdminKey } from '@/lib/adminKey'
 import { denialText, errorMessage, reasonText } from '@/lib/errorMessage'
+import { demoStages } from '@/lib/demoStages'
+import { nextPossible } from '@/lib/limits'
 import { useViewer } from '@/lib/viewer'
 import type { ApiError } from '@/api/client'
 import type { DemoStatus, MatchResponse } from '@/api/types'
@@ -34,10 +36,24 @@ const DOWNLOAD_NEEDS_ACCESS = 'DOWNLOAD_NEEDS_ACCESS'
 /** The code of a demo whose import failed on every attempt: the upload is the way out, as it is for the code above. */
 const IMPORT_FAILED = 'IMPORT_FAILED'
 
-/** What a failed action says. A rejected upload is about the file: the backend checks nothing else of the request. */
-function failureText(action: Action, error: ApiError, t: Messages): string {
+interface Failure {
+  action: Action
+  error: ApiError
+  /** The request went out with the admin key (and not as the signed-in visitor). */
+  withKey: boolean
+}
+
+/**
+ * What a failed action says. A rejected upload is about the file: the backend checks nothing else of the request. An
+ * upload by the session that got no answer at all was most likely refused: the backend refuses before it reads the
+ * file and may close the connection, which the browser reports as a network failure.
+ */
+function failureText({ action, error, withKey }: Failure, t: Messages): string {
   if (action === 'upload' && error.code === 'VALIDATION_ERROR') {
     return t.demo.invalidFile
+  }
+  if (action === 'upload' && error.code === 'NETWORK_ERROR' && !withKey) {
+    return t.demo.uploadInterrupted
   }
   return errorMessage(error, t)
 }
@@ -82,15 +98,16 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
   const [sessionEnded, setSessionEnded] = useState(false)
   // A signed-in visitor opened the key field (an operator's way in where the session is not enough).
   const [keyOpen, setKeyOpen] = useState(false)
-  const [failure, setFailure] = useState<{ action: Action; error: ApiError } | null>(null)
+  const [failure, setFailure] = useState<Failure | null>(null)
   const [accepted, setAccepted] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
   const viewer = useViewer()
   const permission = viewer.canManageDemo(match)
   const storedKey = useAdminKey()
-  // The field is the way in of a visitor who is not signed in, and of a signed-in one who asked for it.
-  const keyField = storedKey === null && (!viewer.signedIn || keyOpen)
+  // The field is the way in of a visitor who is not signed in, and of a signed-in one who asked for it. Until it is
+  // known who is signed in it is not shown: a member would see it flash.
+  const keyField = storedKey === null && !viewer.loading && (!viewer.signedIn || keyOpen)
   // The key that goes with a request: the one the page holds, else what stands in the field while it is shown. With
   // none the request is the signed-in visitor's own.
   const apiKey = storedKey ?? (keyField ? typedKey.trim() : '')
@@ -102,16 +119,27 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
   // A player of the match, acting by the session: the backend lets a player bring the first demo and have it analyzed
   // once, and leaves replacing a demo that is read, and repeating an analysis, to an administrator.
   const asPlayer = permission.allowed && !viewer.admin && !withKey
+  // The day's limits count what a player does by the session. One that is used up is foreseen: the action is off and
+  // the panel says from when it is possible again (an upload that is refused may not even get an answer). Without
+  // limits in `/auth/me` nothing is claimed.
+  const limits = asPlayer ? viewer.limits : null
+  const uploadsOut = limits !== null && limits.demoUploads.remaining <= 0
+  const importsOut = limits !== null && limits.demoImports.remaining <= 0
+  // Whether the instruction of a failed download ("upload the file below") is for this visitor: for whoever may act
+  // by the session, and for whoever is on the key path. A signed-in visitor who may not act is told what failed only.
+  const instructed = offered
   const demo = useDemo(matchId, watching)
   // A demo that FACEIT did not let the site download, or that could not be imported, is fixed by the controls: the
-  // explanation sends the visitor to the upload and to the admin key. So the first time the demo is seen in that state
-  // the controls are open, and after that the visitor decides (state adjusted while rendering, so that there is no
-  // frame with them closed).
+  // explanation sends the visitor to the upload (and, on the key path, to the admin key). So the first time the demo is
+  // seen in that state by a visitor the explanation is for, the controls are open, and after that the visitor decides
+  // (state adjusted while rendering, so that there is no frame with them closed).
   const needsAccess = demo.data?.errorCode === DOWNLOAD_NEEDS_ACCESS
   // The wording of the other codes the page knows; a code it does not know shows the backend's sentence.
-  const reason = reasonText(demo.data?.errorCode ?? null, t.demo.reasons)
+  const importFailed = demo.data?.errorCode === IMPORT_FAILED
+  const reason =
+    importFailed && !instructed ? t.demo.importFailedPlain : reasonText(demo.data?.errorCode ?? null, t.demo.reasons)
   const [openedForAccess, setOpenedForAccess] = useState(false)
-  if ((needsAccess || demo.data?.errorCode === IMPORT_FAILED) && !openedForAccess) {
+  if ((needsAccess || importFailed) && !viewer.loading && instructed && !openedForAccess) {
     setOpenedForAccess(true)
     setOpen(true)
   }
@@ -136,7 +164,9 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
   if (status !== undefined && status !== 'ANALYZED' && !sawUnfinished) {
     setSawUnfinished(true)
   }
-  const stagesShown = demo.data && (status !== 'ANALYZED' || sawUnfinished)
+  // A demo that failed without saying where has no line at all (see `demoStages`).
+  const stagesShown =
+    demo.data && (status !== 'ANALYZED' || sawUnfinished) && demoStages(demo.data) !== null
   // The backend ignores an import request for a parsed or analyzed demo, so the button is not offered there. For a
   // queued or stored demo the request does something once the demo has stood still for ten minutes (it is queued or
   // announced again): the way to revive a demo whose message was lost, so the button stays for those two.
@@ -213,7 +243,7 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
           setKeyRejected(true)
           requests[action].reset()
         } else {
-          setFailure({ action, error })
+          setFailure({ action, error, withKey: sentKey !== null })
         }
       },
     }
@@ -258,7 +288,10 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
           is one); any other is the backend's own words about what went wrong, as they are: a technical message. */}
       <div aria-live="polite">
         {demo.data?.error &&
-          (needsAccess ? (
+          (needsAccess && !instructed ? (
+            // A signed-in visitor who may not act, or one not known yet: what failed, and no errand.
+            <p className="border-t border-border px-4 py-3 text-sm text-negative">{t.demo.needsAccessPlain}</p>
+          ) : needsAccess ? (
             <div className="flex flex-col items-start gap-0.5 border-t border-border px-4 py-3 text-sm">
               {/* Whoever may upload by the session is not sent to the admin key. */}
               <p className="text-negative">{permission.allowed ? t.demo.needsAccessMember : t.demo.needsAccess}</p>
@@ -281,6 +314,9 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
       </div>
       {open && (
         <div id={controlsId} className="flex flex-col gap-4 border-t border-border p-4">
+          {/* Until it is known who is signed in: the room of the first row (a label and a field), which is the key
+              field of a visitor and the file field of a member, so that neither arrives with a jump. */}
+          {viewer.loading && storedKey === null && <div aria-hidden="true" className="h-16" />}
           {/* Why not, before anything else: a signed-in visitor is never left with a bare key field. */}
           {denial !== null && <p className="max-w-190 text-sm leading-normal text-muted-foreground">{denial}</p>}
           {keyField && (
@@ -317,7 +353,7 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
               <Button
                 type="button"
                 variant="outline"
-                disabled={disabled || file === null}
+                disabled={disabled || uploadsOut || file === null}
                 onClick={() =>
                   file && uploadDemo.mutate({ apiKey: withKey ? apiKey : undefined, file }, callbacks('upload'))
                 }
@@ -330,13 +366,19 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
           {offered && !canUpload && (
             <p className="max-w-190 text-sm leading-normal text-muted-foreground">{t.demo.alreadyParsed}</p>
           )}
+          {/* Not a failure: the button above is off, and this is why and until when. */}
+          {offered && canUpload && uploadsOut && limits && (
+            <p className="-mt-1 max-w-190 text-sm leading-normal">
+              {t.limits.UPLOAD_LIMIT_REACHED(nextPossible(limits.demoUploads.resetsAt, t))}
+            </p>
+          )}
           {offered && (canImport || canAnalyze) && (
             <div className="flex flex-wrap gap-3">
               {canImport && (
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={disabled}
+                  disabled={disabled || importsOut}
                   onClick={() => importDemo.mutate({ apiKey: withKey ? apiKey : undefined }, callbacks('import'))}
                 >
                   {t.demo.importFromFaceit}
@@ -346,13 +388,18 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={disabled}
+                  disabled={disabled || importsOut}
                   onClick={() => analyzeDemo.mutate({ apiKey: withKey ? apiKey : undefined }, callbacks('analyze'))}
                 >
                   {status === 'ANALYZED' ? t.demo.reanalyze : t.demo.analyze}
                 </Button>
               )}
             </div>
+          )}
+          {offered && (canImport || canAnalyze) && importsOut && limits && (
+            <p className="-mt-1 max-w-190 text-sm leading-normal">
+              {t.limits.IMPORT_LIMIT_REACHED(nextPossible(limits.demoImports.resetsAt, t))}
+            </p>
           )}
           {/* Always in the page, so that its first message is announced; while empty it takes back the gap above. */}
           <div id={messagesId} aria-live="polite" className="text-sm empty:-mt-4">
@@ -361,7 +408,7 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
             )}
             {keyRejected && <p className="text-destructive">{t.demo.wrongKey}</p>}
             {sessionEnded && <p className="text-destructive">{t.auth.sessionEnded}</p>}
-            {failure && <p className="text-destructive">{failureText(failure.action, failure.error, t)}</p>}
+            {failure && <p className="text-destructive">{failureText(failure, t)}</p>}
             {accepted && <p className="text-muted-foreground">{t.demo.accepted}</p>}
           </div>
           {/* The operator's way in for a signed-in visitor: the key field, which the session makes unnecessary for

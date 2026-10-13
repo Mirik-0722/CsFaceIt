@@ -26,10 +26,10 @@ const FAILED_AT: Record<string, number> = {
 /**
  * The state of each of {@link DEMO_STEPS} for a demo, from its status and the reason of its failure. A failure marks
  * the step its code names; without a telling code, the step the demo was at (a `PARSED` demo with an error is a failed
- * analysis). A `FAILED` demo whose reason tells nothing has no step to mark: every step is then "still ahead", and the
- * panel's own status and reason say that it failed.
+ * analysis). A `FAILED` demo whose reason tells nothing has no step to mark: the answer is null, there is no line to
+ * draw, and the status and the reason beside it say that the demo failed.
  */
-export function demoStages(demo: Pick<DemoResponse, 'status' | 'error' | 'errorCode'>): DemoStepState[] {
+export function demoStages(demo: Pick<DemoResponse, 'status' | 'error' | 'errorCode'>): DemoStepState[] | null {
   if (demo.status === 'ANALYZED') {
     return DEMO_STEPS.map(() => 'done')
   }
@@ -41,7 +41,7 @@ export function demoStages(demo: Pick<DemoResponse, 'status' | 'error' | 'errorC
   const named = demo.errorCode !== null && Object.hasOwn(FAILED_AT, demo.errorCode) ? FAILED_AT[demo.errorCode] : undefined
   const failedAt = named ?? working
   if (failedAt === undefined) {
-    return DEMO_STEPS.map(() => 'waiting')
+    return null
   }
   return DEMO_STEPS.map((_step, index) => (index < failedAt ? 'done' : index === failedAt ? 'failed' : 'waiting'))
 }

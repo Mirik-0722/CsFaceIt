@@ -21,6 +21,12 @@ interface ClipButtonProps {
    * the button or link, so that a list of the page's controls does not read "Record clip" thirty times.
    */
   subject?: string
+  /**
+   * Whether the visitor has a way to order this clip; true when left out. False for a signed-in visitor without the
+   * admin key whose clip this could not be (another player's highlight): the button that records and "Try again" are
+   * then left out, since the order dialog would only refuse; what there is to follow or watch stays.
+   */
+  canOrder?: boolean
 }
 
 /**
@@ -28,11 +34,21 @@ interface ClipButtonProps {
  * while there is none, follow it while it is queued or being recorded (the row then links to the clip's page), watch
  * it once it is ready, and try again after a failure.
  */
-export default function ClipButton({ clip, onOrder, label, variant = 'default', subject }: ClipButtonProps) {
+export default function ClipButton({
+  clip,
+  onOrder,
+  label,
+  variant = 'default',
+  subject,
+  canOrder = true,
+}: ClipButtonProps) {
   const t = useT()
   // The name starts with the words on the control, so that it can still be asked for by what it shows.
   const named = (words: string) => (subject ? `${words}: ${subject}` : undefined)
   if (!clip) {
+    if (!canOrder) {
+      return null
+    }
     return (
       <Button type="button" variant={variant} aria-label={named(label ?? t.clip.record)} onClick={onOrder}>
         <RecDot />
@@ -74,16 +90,18 @@ export default function ClipButton({ clip, onOrder, label, variant = 'default', 
             </span>
           )}
         </span>
-        <Button
-          type="button"
-          variant="link"
-          size="sm"
-          className="-mr-3.5"
-          aria-label={named(t.clip.retry)}
-          onClick={onOrder}
-        >
-          {t.clip.retry}
-        </Button>
+        {canOrder && (
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="-mr-3.5"
+            aria-label={named(t.clip.retry)}
+            onClick={onOrder}
+          >
+            {t.clip.retry}
+          </Button>
+        )}
       </>
     )
   }

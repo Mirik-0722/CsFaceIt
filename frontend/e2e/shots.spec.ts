@@ -105,6 +105,8 @@ interface ShotPage {
   tabs: number
   /** Only a signed-in visitor sees it (the account menu): scenarios without one leave it out. */
   signedIn?: true
+  /** Photographed only by the scenarios that name it in `pages`: one that photographs every page leaves it out. */
+  onRequest?: true
   /** Takes the page from `path` to the state that is photographed, when opening the URL is not enough. */
   open?: (page: Page, backend: Backend) => Promise<void>
 }
@@ -155,7 +157,8 @@ const PAGES = [
   { name: 'clips', path: '/clips', tabs: 7 }, // the first clip card
   { name: 'clip', path: `/clips/${READY_CLIP_ID}`, tabs: 7 }, // the play button of the frame over the video
   { name: 'clip-recording', path: `/clips/${RECORDING_CLIP_ID}`, tabs: 7 }, // the link to the match
-  { name: 'clip-failed', path: `/clips/${FAILED_CLIP_ID}`, tabs: 7 }, // the link to the match
+  // A failed clip, for the scenario of its owner only (so `tabs` is never used: the `focus` scenario leaves it out).
+  { name: 'clip-failed', path: `/clips/${FAILED_CLIP_ID}`, tabs: 0, onRequest: true },
   { name: 'notfound', path: '/there-is-no-such-page', tabs: 7 }, // the link back to the search
   // The sign-in: the dialog that "Sign in" of the top bar opens over the home page. Its focus picture is of what one
   // Tab reaches from where the dialog put the focus (the close button): the Steam button.
@@ -263,10 +266,13 @@ const UNLINKED_USER: MeResponse = {
   playerId: null,
 }
 
-/** What is left of a day's limits: every demo request, and `clipOrders` of the five clip orders. */
-function limitsWith(clipOrders: number): MeLimits {
+/**
+ * What is left of a day's limits: `clipOrders` of the five clip orders, every demo import, and every demo upload or
+ * `demoUploads` of the ten.
+ */
+function limitsWith(clipOrders: number, demoUploads = 10): MeLimits {
   return {
-    demoUploads: { limit: 10, remaining: 10, resetsAt: null },
+    demoUploads: { limit: 10, remaining: demoUploads, resetsAt: demoUploads < 10 ? '2023-11-15T06:30:00Z' : null },
     demoImports: { limit: 20, remaining: 20, resetsAt: null },
     // A fixed moment, never "today" when the pictures are taken: the sentence then names the day as well as the hour.
     clipOrders: { limit: 5, remaining: clipOrders, resetsAt: clipOrders < 5 ? '2023-11-15T06:30:00Z' : null },
@@ -582,14 +588,28 @@ const SCENARIOS: Scenario[] = [
     pages: ['match'],
     backend: { me: MEMBER, demo: null, breakdown: emptyBreakdownFixture, highlights: [], clips: [] },
   },
+  // The same player on a match without a demo, with no demo upload left today: the upload is off, and the panel says
+  // when the next is possible; the import is still offered.
+  {
+    name: 'session-nouploads',
+    pages: ['match'],
+    languages: ['uz', 'en'],
+    backend: {
+      me: { ...MEMBER, limits: limitsWith(3, 0) },
+      demo: null,
+      breakdown: emptyBreakdownFixture,
+      highlights: [],
+      clips: [],
+    },
+  },
   // The same player ordering the clip of an own highlight (no clip exists, so the first card is the player's): no key
   // field, and three of five orders left.
   { name: 'session-member', pages: ['order'], languages: ['uz', 'en'], backend: { me: MEMBER, clips: [] } },
-  // A signed-in visitor who did not play in the match: the reason in the opened demo panel and in the order dialog
-  // (the first highlight without a clip is another player's), each with the switch to the key field.
+  // A signed-in visitor who did not play in the match: the reason in the opened demo panel, with the switch to the key
+  // field, and no card that offers to record a clip (none is the visitor's), so there is no order dialog to open.
   {
     name: 'session-outsider',
-    pages: ['match', 'order'],
+    pages: ['match'],
     languages: ['uz', 'en'],
     backend: { me: OUTSIDER },
     before: openDemoControlsOnMatch,
@@ -822,7 +842,8 @@ function defineShots() {
     const backend: Backend = { ...DEFAULT_BACKEND, ...scenario.backend }
     const pages = PAGES.filter(
       (shotPage) =>
-        (!scenario.pages || scenario.pages.includes(shotPage.name)) && (!('signedIn' in shotPage) || backend.me !== null),
+        (scenario.pages ? scenario.pages.includes(shotPage.name) : !('onRequest' in shotPage)) &&
+        (!('signedIn' in shotPage) || backend.me !== null),
     )
 
     for (const language of scenario.languages ?? ['uz']) {
