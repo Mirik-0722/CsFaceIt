@@ -54,10 +54,14 @@ function waitBeforeSignIn(attempts, now = Date.now()) {
 
 // Some waits must outlive the process: Steam rate-limited the sign-in (no attempt for an hour), or the previous run ended
 // because the game coordinator stayed unavailable (no attempt for 30 minutes). The time before which no sign-in is to be
-// made is kept in a second small file; a start finds it and waits.
+// made is kept in a second small file; a start finds it and waits. A hold is never longer than HOLD_CAP_MS from now:
+// one written under a clock that ran ahead would otherwise keep the bridge from signing in for days (and a wait of more
+// than about 24.8 days overflows setTimeout, which then fires at once). A stored hold that is further ahead than the cap
+// counts as the cap.
 const HOLD_FILE_NAME = 'signin-not-before.json';
+const HOLD_CAP_MS = 60 * 60 * 1000;
 
-function readHold(dir) {
+function readStoredHold(dir) {
   try {
     const time = JSON.parse(fs.readFileSync(path.join(dir, HOLD_FILE_NAME), 'utf8'));
     return Number.isFinite(time) ? time : 0;
@@ -66,16 +70,26 @@ function readHold(dir) {
   }
 }
 
-// No sign-in before `time` (milliseconds since 1970). A later hold already kept is not shortened. False when the file
-// could not be written.
-function holdSignInUntil(dir, time) {
+// The time before which not to sign in, at most HOLD_CAP_MS after now; 0 when there is none.
+function readHold(dir, now = Date.now()) {
+  return Math.min(readStoredHold(dir), now + HOLD_CAP_MS);
+}
+
+// No sign-in before `time` (at most HOLD_CAP_MS from now). The stored hold is replaced by the new one; the later of the
+// two is kept only when both are within the cap, so that a far-future value written by a wrong clock never survives.
+// False when the file could not be written.
+function holdSignInUntil(dir, time, now = Date.now()) {
   try {
+    const limit = now + HOLD_CAP_MS;
+    const stored = readStoredHold(dir);
+    const next = Math.min(time, limit);
+    const kept = stored > now && stored <= limit ? Math.max(stored, next) : next;
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, HOLD_FILE_NAME), JSON.stringify(Math.max(time, readHold(dir))));
+    fs.writeFileSync(path.join(dir, HOLD_FILE_NAME), JSON.stringify(kept));
     return true;
   } catch {
     return false;
   }
 }
 
-module.exports = { readAttempts, recordAttempt, waitBeforeSignIn, readHold, holdSignInUntil };
+module.exports = { HOLD_CAP_MS, readAttempts, recordAttempt, waitBeforeSignIn, readHold, holdSignInUntil };

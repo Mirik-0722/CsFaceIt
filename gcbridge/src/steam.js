@@ -4,7 +4,7 @@ const GlobalOffensive = require('globaloffensive');
 const SteamTotp = require('steam-totp');
 const SteamUser = require('steam-user');
 
-const { holdSignInUntil, readAttempts, readHold, recordAttempt, waitBeforeSignIn } = require('./attempts');
+const { HOLD_CAP_MS, holdSignInUntil, readAttempts, readHold, recordAttempt, waitBeforeSignIn } = require('./attempts');
 const { describeError } = require('./log');
 const { badRequest, unavailable } = require('./errors');
 const { decode } = require('./sharecode');
@@ -48,9 +48,9 @@ const COORDINATOR_DOWN_EXIT_MS = 10 * 60 * 1000;
 // With the 10 minutes of waiting for the coordinator, a lasting problem costs one sign-in about every 40 minutes.
 const AFTER_COORDINATOR_EXIT_WAIT_MS = 30 * 60 * 1000;
 
-// A request that timed out may still be answered. An answer has no id to tell it by, so every timeout adds an entry to a
-// list of answers still owed, each good for this long; see the match list handler.
-const OUTSTANDING_ANSWER_MS = 60 * 1000;
+// A request that timed out may still be answered, and an answer has no id to tell which request it belongs to. For this
+// long after the last timeout an empty match list is therefore never taken for "no such match"; see the match list handler.
+const LATE_ANSWER_WINDOW_MS = 60 * 1000;
 
 // A two-factor code for the account, made from the shared secret of its mobile authenticator. steam-totp can ask Steam
 // for the time and allow for the difference of the clocks (its documentation: getAuthCode with a callback); when Steam
@@ -138,7 +138,8 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
   let wrongCodes = 0;
   let blocked = false;
   let stopped = false;
-  const owed = []; // the times (ms) up to which the answer of a request that timed out may still come, oldest first
+  let lastTimeoutAt = null; // when a request last timed out (not when one was refused at once)
+  let holdWriteFailed = false;
   let downTimer = null;
 
   const ready = () => state.steam && state.gc;
@@ -152,6 +153,14 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
     }
   }
 
+  // Writes down that no sign-in is to be made for the next `ms`, for a restart to honour. A write that fails is said once.
+  function hold(ms) {
+    if (!holdSignInUntil(dataDir, Date.now() + ms) && !holdWriteFailed) {
+      holdWriteFailed = true;
+      log.warn(`The wait before the next sign-in could not be written to ${dataDir}; a restart would not keep it.`);
+    }
+  }
+
   // Signed in, but without the coordinator and not by somebody else's game: after a while the bridge ends (see
   // COORDINATOR_DOWN_EXIT_MS). Looked at again whenever one of the two states changes.
   function watchCoordinator() {
@@ -161,7 +170,7 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
         log.error('Signed in to Steam, but the game coordinator has been unavailable for '
           + `${COORDINATOR_DOWN_EXIT_MS / 60000} minutes and the library does not open the session again. The bridge ends so that it is started again.`);
         // The restart must not sign in at once: the next start waits (see start()).
-        holdSignInUntil(dataDir, Date.now() + AFTER_COORDINATOR_EXIT_WAIT_MS);
+        hold(AFTER_COORDINATOR_EXIT_WAIT_MS);
         onFatal();
       }, COORDINATOR_DOWN_EXIT_MS);
     } else if (!down && downTimer !== null) {
@@ -242,7 +251,7 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
     if (SLOW.has(error.eresult)) {
       log.warn(`Steam is rate-limiting the sign-in (${result}); the next attempt is in ${RETRY_SLOW_MS / 3600000} hour.`);
       // A restart must keep this wait too.
-      holdSignInUntil(dataDir, Date.now() + RETRY_SLOW_MS);
+      hold(RETRY_SLOW_MS);
       scheduleRetry(RETRY_SLOW_MS);
       return;
     }
@@ -314,43 +323,29 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
     log.error(`The game coordinator refused the account: ${describeError(error)}.`);
   });
 
-  // The answers still owed: one entry for every request that timed out (and was not already given its own answer, see
-  // lookup), each good for OUTSTANDING_ANSWER_MS. Entries that ran out are removed whenever the list is looked at.
-  function forgetExpiredAnswers() {
-    const now = Date.now();
-    while (owed.length > 0 && owed[0] <= now) {
-      owed.shift();
-    }
-  }
-
   // The answer to requestGame. The event can come at other times too, and a list has no id of the request it answers, so:
   // - a list that names the match asked for is the answer;
-  // - a non-empty list of other matches is ignored; it was the answer to the oldest request that is still owed one, if any;
-  // - an empty list means "no such match", but while an answer is owed (a request timed out) it is more likely the late
-  //   answer to that request: the oldest owed entry is removed and the list is dropped, and the current request remembers
-  //   that one list was dropped during its wait. Taking it for the answer to the current request would be a final 404
-  //   for a match that was never asked about. If the current request then gets nothing it ends as 503, which the caller
-  //   may ask again;
-  // - a list that comes when no request waits pays the oldest owed entry.
+  // - a non-empty list of other matches is ignored;
+  // - an empty list means "no such match" - except for LATE_ANSWER_WINDOW_MS after a request timed out, when it may well
+  //   be the late answer to that request. It is then never taken for the answer of the request that waits (that would be
+  //   a final 404 for a match that was never asked about): that request is refused at once with 503, which the caller may
+  //   ask again, and when no request waits the list is ignored. A refusal is not a timeout and does not extend the
+  //   window, so nothing chains on beyond one window after the last real timeout.
   csgo.on('matchList', (matches) => {
     const request = pending;
     const list = Array.isArray(matches) ? matches : [];
-    forgetExpiredAnswers();
     if (!request) {
-      owed.shift();
       return;
     }
     const info = list.find((candidate) => sameMatch(candidate.matchid, request.matchId));
     if (!info && list.length > 0) {
-      owed.shift();
       log.warn(`A match list of ${list.length} matches arrived, none of them the one asked for; waiting for the answer.`);
       return;
     }
-    if (!info && owed.length > 0) {
-      owed.shift();
-      request.droppedList = true;
-      log.warn('An empty match list arrived while the answer to a request that timed out was owed; it is taken for that '
-        + 'answer and dropped.');
+    if (!info && lastTimeoutAt !== null && Date.now() - lastTimeoutAt < LATE_ANSWER_WINDOW_MS) {
+      log.warn('An empty match list arrived soon after a request had timed out; it may be the late answer to that one, '
+        + 'so it is not taken for "no such match" and the request is refused with 503.');
+      failPending(unavailable('an empty answer soon after a timeout cannot be told from a late one'));
       return;
     }
 
@@ -399,11 +394,8 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
           if (pending === request) {
             pending = null;
           }
-          // Its answer may still come. But if a list was dropped during its own wait, that list may have been its own
-          // answer; owing another one would start the chain again (every later request would lose its answer).
-          if (!request.droppedList) {
-            owed.push(Date.now() + OUTSTANDING_ANSWER_MS);
-          }
+          // Its answer may still come: see the match list handler.
+          lastTimeoutAt = Date.now();
           reject(unavailable('the game coordinator did not answer in time'));
         }, requestTimeoutMs);
         pending = request;
@@ -422,8 +414,9 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
     start() {
       const now = Date.now();
       const sinceAttempts = waitBeforeSignIn(readAttempts(dataDir), now);
-      const sinceHold = Math.max(0, readHold(dataDir) - now);
-      const wait = Math.max(sinceAttempts, sinceHold);
+      const sinceHold = Math.max(0, readHold(dataDir, now) - now);
+      // Never more than the cap, so the timer cannot overflow whatever the files say.
+      const wait = Math.min(Math.max(sinceAttempts, sinceHold), HOLD_CAP_MS);
       if (wait <= 0) {
         return signIn();
       }
