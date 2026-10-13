@@ -63,7 +63,9 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
 The demo panel shows the status of the match's demo to everyone. Behind "Manage" it has the requests that need the
 admin key (`X-API-Key`): import from FACEIT (not offered for a parsed or analyzed demo, for which the backend
 ignores it; for a queued or stored one it revives a demo that has stood still for ten minutes), upload a file, and analyze (offered for a `PARSED` demo, as "Re-analyze" for an
-`ANALYZED` one). The key is typed once and kept in the memory of the page only - never in `localStorage`,
+`ANALYZED` one). A demo that failed because FACEIT did not let the site download it (`errorCode` `DOWNLOAD_NEEDS_ACCESS`)
+is not shown with the English sentence but with an explanation in the visitor's language and a link to the match's room on
+FACEIT, from where the file is taken and uploaded under "Manage". The key is typed once and kept in the memory of the page only - never in `localStorage`,
 `sessionStorage` or a cookie - so reloading the page forgets it, and a key the backend rejects is forgotten at once.
 
 Every highlight card of the match page ends with a row about its clip. "Record clip" opens the order: the quality
@@ -102,6 +104,8 @@ Then edit `.env`:
 | `CLIP_WORKER_TOKEN` | The secret the recorder sends in the `X-Worker-Token` header (see [Worker API](#worker-api-the-recorder)). It opens `/api/worker/**` and nothing else, and the admin key does not open that. Choose a long random value, for example `openssl rand -hex 32`, and give the same one to the recorder. While it is empty the backend logs a warning and rejects every request of a recorder. The fake-FACEIT mode sets `dev-worker-token`. | empty |
 | `AUTH_ADMIN_STEAM_IDS` | The SteamID64s (17 digits, comma separated) of the people who get the role `ADMIN` when they sign in with Steam (see [Signing in](#signing-in)). The role is in the answer of `GET /api/v1/auth/me` (the site does not show it) and does not yet let anyone act without `APP_API_KEY`. | empty |
 | `FACEIT_OAUTH_CLIENT_ID`, `FACEIT_OAUTH_CLIENT_SECRET` | The FACEIT OAuth application, for signing in with FACEIT. The sign-in with FACEIT itself is not written yet, so the two are read and nothing more: `GET /api/v1/auth/providers` answers `faceit: false` whatever they hold, and only Steam is offered. The secret is never logged. | empty |
+| `FACEIT_DOWNLOADS_TOKEN` | The access token for FACEIT's Downloads API (`faceit.downloads.token`), the only way to get a demo file; it is not the Data API key, which that API refuses. Applied for at FACEIT (see [How the import gets the file](#how-the-import-gets-the-file)). Empty means no access: the import then fails at once with `DOWNLOAD_NEEDS_ACCESS`, and the demo is uploaded by hand. Never logged. | empty |
+| `FACEIT_DOWNLOADS_URL` | The address of the Downloads API (`faceit.downloads.url`); override it only to point the backend at a fake FACEIT. Commented out in `.env.example`. | `https://open.faceit.com/download/v2/demos/download` |
 | `FACEIT_BASE_URL` | FACEIT Data API address; override it only to point the backend at a fake FACEIT. Commented out in `.env.example`. | `https://open.faceit.com/data/v4` |
 | `FACEIT_HISTORY_LOOKBACK` | How far back a player's match history reaches (`faceit.history-lookback`). FACEIT itself returns only the last month unless the request names a start time, so the backend always sends one. Commented out in `.env.example`. | `365d` |
 | `FAKE_SPEED` | Only for the stack without a FACEIT key (`docker-compose.fake.yml`): the seconds of video its `recorder-fake` makes per second of real time. `1` is real time, `0` is as fast as ffmpeg goes (see [The fake recorder](#the-fake-recorder)). Commented out in `.env.example`. | `1` |
@@ -222,6 +226,7 @@ the parser connects with.
 | `FACEIT_API_KEY` | **Must be set.** Your FACEIT Data API key; the backend does not start without it. |
 | `APP_API_KEY` | **Must be set.** The admin key, sent in `X-API-Key` by whoever uploads a demo, has it analyzed or orders a clip. `docker-compose.prod.yml` refuses to start without it. |
 | `CLIP_WORKER_TOKEN` | **Must be set to have clips recorded**, by the recorder you connect (see the end of this section). While it is empty every request of a recorder is refused. |
+| `FACEIT_DOWNLOADS_TOKEN` | Optional. The access token for FACEIT's Downloads API, which lets the site import a demo from FACEIT by itself (see [How the import gets the file](#how-the-import-gets-the-file)). Without it every demo is uploaded by an admin. |
 | `AUTH_ADMIN_STEAM_IDS` | Optional. The SteamID64 of each person who should get the role `ADMIN` when they sign in with Steam (see [Signing in](#signing-in)). Nothing depends on the role yet. |
 | `DB_PASSWORD` | **Should be changed.** The default is public. |
 | `RABBITMQ_USER`, `RABBITMQ_PASSWORD` | **Should be changed.** The defaults are `guest` / `guest`. |
@@ -395,9 +400,11 @@ override, Grafana without a password does not stop with its message but restarts
   pattern, is not started by `docker-compose.prod.yml`. An ordered clip waits in the queue (up to 50, then the API
   answers `429`) and never finishes. A recorder, when there is one, runs on another machine and uses the API of the
   site with `CLIP_WORKER_TOKEN`.
-- **Demo files are uploaded by an admin.** The import from FACEIT needs access to FACEIT's Downloads API, which a Data
-  API key does not give: such an import ends `FAILED`, with a message that says to upload the file. Upload the `.dem`
-  of a match on its page, under "Manage", with the admin key.
+- **Demo files are uploaded by an admin until the site has access to FACEIT's Downloads API.** The import from FACEIT
+  needs that access, which a Data API key does not give (see [How the import gets the file](#how-the-import-gets-the-file)).
+  Without the token `FACEIT_DOWNLOADS_TOKEN` such an import ends `FAILED` at once, and the page tells the visitor to
+  take the demo from the match's room on FACEIT. Upload the `.dem` of a match on its page, under "Manage", with the admin
+  key.
 - **There is no rate limiting.** Reads are public and anyone may send as many as they like; each lookup that is not in
   the cache uses the quota of your FACEIT key.
 - **There are no automatic backups and no alerts when something fails**, and all recorders share one token
@@ -643,7 +650,8 @@ facts in PostgreSQL.
 ```
 POST .../demo/import  (or .../demo/upload with a file)
   -> demos row QUEUED -> demo.import
-  -> backend import worker: download from FACEIT, compress to zstd, store in MinIO  -> STORED -> demo.parse
+  -> backend import worker: download from FACEIT (see "How the import gets the file"), compress to zstd, store in MinIO
+     -> STORED -> demo.parse
   -> Rust parser: read from MinIO, parse, write rounds / round_players / kills / damages / heat_bins
      -> PARSED -> demo.parsed
   -> backend listener: analyze the facts into the statistics and the highlights of the players -> ANALYZED
@@ -658,7 +666,7 @@ The status of a demo is one of:
 | `STORED` | The file is in storage (always as `demos/<matchId>.dem.zst`) and waits for the parser. |
 | `PARSED` | The parser has written the facts of the demo to the database; the analysis is next. It is also the status of a demo whose analysis failed, then `error` says so (see [Analysis](#analysis)). |
 | `ANALYZED` | The facts have been analyzed and the statistics of the players and the highlights of the match are stored. |
-| `FAILED` | Something went wrong; `error` says what, in one sentence. Importing or uploading again starts over. |
+| `FAILED` | Something went wrong; `error` says what, in one sentence, and `errorCode` names the reason when a page can explain it (see [Why a demo failed](#why-a-demo-failed)). Importing or uploading again starts over. |
 
 The allowed moves are `QUEUED` -> `STORED` -> `PARSED` -> `ANALYZED`, any status -> `FAILED`, `FAILED` -> `QUEUED`
 (import again), and, for a manual upload, any status -> `STORED` (a `PARSED` or `ANALYZED` demo is then parsed again).
@@ -682,6 +690,45 @@ parse is older than `V3`, see [The facts](#the-facts)), that request answers `20
 the demo stays `PARSED` and its `error` says that the file has to be uploaded again. Upload it, and the new parse
 writes the rosters and is analyzed on its own.
 
+### How the import gets the file
+
+The `demo_url` that FACEIT gives for a match is an address in its private cloud (a host under `faceit-cdn.net`, for
+example) that does not resolve outside FACEIT. The file can only be had through FACEIT's
+[Downloads API](https://docs.faceit.com/getting-started/Guides/download-api), which answers the **Data API key with
+`403 no valid scope provided`**: it takes an access token of its own, with the Downloads API scope. FACEIT gives that
+token to an application that applies for it (<https://fce.gg/downloads-api-application>; an answer within 30 days).
+
+- **With `FACEIT_DOWNLOADS_TOKEN`** the worker asks `POST FACEIT_DOWNLOADS_URL` (the header `Authorization: Bearer <token>`
+  and the body `{"resource_url": "<the demo_url of the match>"}`) for a signed address, takes it from
+  `payload.download_url` and downloads from that, with the same limits (`demo.download.*`: timeouts, the largest size,
+  gzip and zstd) as for any download. The call has the timeouts of the other FACEIT calls. The signed address is a
+  credential for the file: it is never logged (only its host is), never stored and never part of an `error`. The answers:
+  - `401` or `403`: FACEIT does not let this token have the file. The demo is `FAILED` at once, with the code
+    `DOWNLOAD_NEEDS_ACCESS`; the message is not retried.
+  - `404`, another `4xx`, or an answer without `payload.download_url`: the demo is `FAILED` at once with a plain
+    sentence in `error` (and no code).
+  - `5xx`, `429`, a timeout or a broken connection: the failure may go away, so the message is tried again, three
+    times in all (see above), and then the demo is `FAILED` with "Importing the demo failed after 3 attempts".
+- **Without a token** the worker downloads `demo_url` as it is. That works for a host that really serves the file (the
+  [fake FACEIT](dev/fake-faceit/README.md) does) and for no real FACEIT match: when the host does not resolve or answers
+  `401` or `403`, the demo is `FAILED` at once with `DOWNLOAD_NEEDS_ACCESS`. (A host that does not resolve is taken for
+  FACEIT's private cloud whatever the reason, so a DNS outage on the server fails the demo the same way; the import can be
+  requested again.)
+
+Either way the way out is the same: take the demo from the match's room on FACEIT and upload it (below). The token and the
+endpoint are never logged, and `faceit.downloads.*` prints them as `***` wherever the settings are printed.
+
+### Why a demo failed
+
+`error` is an English sentence for the logs and for a client that has nothing better. `errorCode` (the column
+`demos.error_code`, `null` when there is none) is the same reason as a code that a page can translate. It is set together
+with `error` and cleared with it, by a new import or an upload; every failure that is not listed here has `errorCode`
+`null`.
+
+| `errorCode` | Meaning |
+| --- | --- |
+| `DOWNLOAD_NEEDS_ACCESS` | FACEIT did not let this site download the demo: its Downloads API refused the token (`401` or `403`), or the site has no token and the `demo_url` is FACEIT's private cloud (it does not resolve, or answers `401` or `403`). Asking again changes nothing. The site tells the visitor to take the demo from the match's room on FACEIT and upload it. |
+
 ### Endpoints
 
 All four are under `/api/v1/matches/{matchId}`, where `matchId` is the FACEIT match id (letters, digits and `-`, at
@@ -695,17 +742,17 @@ request is safe and queues nothing new while the demo is `QUEUED`, `STORED`, `PA
 ```bash
 curl -X POST -H 'X-API-Key: dev-admin-key' \
   http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/demo/import
-# {"demoId":1,"matchId":"1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","status":"QUEUED","error":null,"updatedAt":"..."}
+# {"demoId":1,"matchId":"1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","status":"QUEUED","error":null,"errorCode":null,"updatedAt":"..."}
 ```
 
 Read the status (open, no key needed; `404 DEMO_NOT_FOUND` before the first import or upload):
 
 ```bash
 curl http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/demo
-# {"demoId":1,"matchId":"...","status":"PARSED","error":null,"updatedAt":"..."}
+# {"demoId":1,"matchId":"...","status":"PARSED","error":null,"errorCode":null,"updatedAt":"..."}
 ```
 
-Upload the demo yourself when FACEIT's cannot be downloaded (no demo URL, a `403`, a `404`). The multipart part is
+Upload the demo yourself when FACEIT's cannot be downloaded (no demo URL, no access to the Downloads API, a `404`). The multipart part is
 named `file` and the file name must end in `.dem`, `.dem.gz` or `.dem.zst`; it is stored as zstd whatever it came as.
 The demo becomes `STORED` at once, from any status, and is announced to the parser. Uploading for a `PARSED` demo
 deliberately parses it again, and the rows of the earlier parse are replaced:
@@ -729,14 +776,17 @@ then, and the demo's `error` says to upload the file again (see [Analysis](#anal
 ```bash
 curl -X POST -H 'X-API-Key: dev-admin-key' \
   http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/demo/analyze
-# {"demoId":1,"matchId":"...","status":"PARSED","error":null,"updatedAt":"..."}   (read GET .../demo for the result)
+# {"demoId":1,"matchId":"...","status":"PARSED","error":null,"errorCode":null,"updatedAt":"..."}   (read GET .../demo for the result)
 ```
 
 ### Try it without a FACEIT key
 
 With the [fake FACEIT](dev/fake-faceit/README.md) the main match's demo URL serves a 1 KiB placeholder that is not a real
-demo, so its import ends in `FAILED` at the parser; the matches `1-ffffffff-0000-0000-0000-000000000403` and
-`...000404` end in `FAILED` at the download. To see a demo parsed to the end, serve a real demo through the fake as
+demo, so its import ends in `FAILED` at the parser. The fake plays the Downloads API too (`docker-compose.fake.yml` gives
+the backend a made-up token and the fake's address for it), so the import goes the way it goes with real access: the main
+match is downloaded through a signed address; the matches `1-ffffffff-0000-0000-0000-000000000403` (the Downloads API
+refuses it) and `...000502` (a `demo_url` whose host does not resolve) end in `FAILED` at once with the `errorCode`
+`DOWNLOAD_NEEDS_ACCESS`; and `...000404` ends in `FAILED` at once with a plain sentence. To see a demo parsed to the end, serve a real demo through the fake as
 dev/fake-faceit/README.md describes, or upload one with the command above.
 
 ### The facts

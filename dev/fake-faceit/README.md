@@ -39,6 +39,9 @@ backend (the fake does not check the key).
 | `GET /demos/sample.dem` | A 1 KiB placeholder file. |
 | `GET /demos/forbidden.dem` | HTTP 403. |
 | `GET /demos/missing.dem` | HTTP 404. |
+| `POST /download/v2/demos/download` with `Authorization: Bearer fake-downloads-token` and the body `{"resource_url": "http://fake-faceit:8080/demos/sample.dem"}` | FACEIT's Downloads API for the main match: `{"payload": {"download_url": "http://fake-faceit:8080/demos/sample.dem?signature=made-up-signature"}}`, an address that serves the placeholder above. |
+| The same with `"resource_url": "http://fake-faceit:8080/demos/missing.dem"` | HTTP 404 with a FACEIT-style error body. |
+| any other `POST /download/v2/demos/download` (another `resource_url`, another or no token) | HTTP 403 `{"errors":[{"code":"err_f0","message":"no valid scope provided"}]}`, what FACEIT answers a token without the scope for the file (and the Data API key). |
 | any other `/players` (another nickname, another SteamID), `/players/...`, `/matches/...` | HTTP 404 with a FACEIT-style JSON error body (the backend maps it to `PLAYER_NOT_FOUND` / `MATCH_NOT_FOUND`, and a sign-in with a SteamID that gets it signs in unlinked). |
 
 The data are copies of the backend's test fixtures (`backend/src/test/resources/faceit/`), so their shape is known to
@@ -50,16 +53,39 @@ deserialize.
 | --- | --- | --- |
 | Player `s1mple` | `11111111-1111-1111-1111-111111111111` | |
 | Main match (`de_mirage`, 13:9) | `1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee` | `http://fake-faceit:8080/demos/sample.dem` |
-| Match whose demo download is forbidden | `1-ffffffff-0000-0000-0000-000000000403` | `http://fake-faceit:8080/demos/forbidden.dem` |
+| Match whose demo download is forbidden (with the token: the Downloads API refuses it, 403) | `1-ffffffff-0000-0000-0000-000000000403` | `http://fake-faceit:8080/demos/forbidden.dem` |
 | Match whose demo is missing | `1-ffffffff-0000-0000-0000-000000000404` | `http://fake-faceit:8080/demos/missing.dem` |
+| Match whose demo address does not resolve, as FACEIT's private cloud addresses do not (with the token: the Downloads API refuses it, 403) | `1-ffffffff-0000-0000-0000-000000000502` | `https://demos.faceit-cdn.invalid/cs2/1-ffffffff-0000-0000-0000-000000000502.dem.zst` (`.invalid` never resolves) |
 
-The two failure matches exist to exercise the error paths of a demo download; apart from the id and `demo_url` they are
+The three failure matches exist to exercise the error paths of a demo download; apart from the id and `demo_url` they are
 copies of the main match. They are not listed in the player's history. The second match in the history
 (`1-bbbbbbbb-cccc-dddd-eeee-ffffffffffff`) has no details stub and answers 404.
 
 The other players of the fake matches are `playerA2`..`playerA5` (ids `2222...` to `5555...`) and `playerB1`..`playerB5`
 (ids `6666...`, `7777...`, `8888...`, `9999...`, `aaaaaaaa-...`). Every roster player carries a `game_player_id`
 (a SteamID64): `76561198000000001` for `s1mple`, then `...002` to `...010` in roster order, the same in every match.
+
+## The fake Downloads API
+
+The real import asks FACEIT's Downloads API for a signed address (see "How the import gets the file" in the main README).
+`docker-compose.fake.yml` gives the backend the made-up token `fake-downloads-token` and the fake's own address for the API
+(`FACEIT_DOWNLOADS_URL`), so the stack takes the same way: the main match is downloaded through the signed address in the
+table above, the forbidden and the unresolvable matches fail at once with the code `DOWNLOAD_NEEDS_ACCESS` (the API
+refuses them with the real 403 body), and the missing one fails at once with a plain sentence. `GET /__admin/requests`
+lists what the fake was asked, including each POST with its `Authorization` header and `resource_url`.
+
+To see the import without access, start the backend with an empty token, for example with a file of your own passed as a
+third `-f`:
+
+```yaml
+services:
+  backend:
+    environment:
+      FACEIT_DOWNLOADS_TOKEN: ""
+```
+
+The import then fetches each `demo_url` as it is: the main match still downloads, the forbidden one answers 403 and the
+unresolvable one does not resolve, and both end `FAILED` at once with `DOWNLOAD_NEEDS_ACCESS`.
 
 ## The fake Steam
 
