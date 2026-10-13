@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "test": "vitest",
     "e2e": "playwright test",
+    "shots": "SHOTS=1 playwright test e2e/shots.spec.ts",
     "preview": "vite preview"
   },
   "dependencies": {
