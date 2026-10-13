@@ -758,7 +758,9 @@ The status of a demo is one of:
 
 The allowed moves are `QUEUED` -> `STORED` -> `PARSED` -> `ANALYZED`, any status -> `FAILED`, `FAILED` -> `QUEUED`
 (import again), and, for a manual upload, any status -> `STORED` (a `PARSED` or `ANALYZED` demo is then parsed again).
-An analysis that fails is not a move: the demo stays `PARSED` or `ANALYZED` (see [Analysis](#analysis)).
+An analysis that fails is not a move: the demo stays `PARSED` or `ANALYZED` (see [Analysis](#analysis)). The one
+verdict of the analysis that is a move is the demo of another match: it goes to `FAILED` with `WRONG_MATCH` (see
+[A demo of another match](#a-demo-of-another-match)).
 A message that arrives late or twice never undoes progress: delivery is at least once, so every worker checks the
 status first. A message that fails in a backend listener (`demo.import`, `demo.parsed`) is tried three times, one
 second apart and then two, and then sent to the dead-letter queue `demo.dlq`.
@@ -825,6 +827,7 @@ succeeds); every failure that is not listed here has `errorCode` `null`. A clien
 | `IMPORT_FAILED` | The import failed on every attempt: the message of the import was dead-lettered after three tries, each of which failed in a way that may go away (a FACEIT error, a timeout, a broken connection), and `error` is `Importing the demo failed after 3 attempts`. The site tells the visitor that the demo can be uploaded as a file. |
 | `PARSE_FAILED` | The parsing failed on every attempt: the message of the parse was dead-lettered after three tries, and `error` is `Parsing the demo failed after 3 attempts`. The site says that the file may be damaged. A parse that the parser itself gives up on records its own sentence and has no code. |
 | `ANALYSIS_FAILED` | The analysis of a parsed demo failed on every attempt: the demo stays `PARSED` (not `FAILED`) with `error` `Analyzing the demo failed after 3 attempts. The parsed data is kept; start the analysis again.` and this code. Starting the analysis again, or uploading the file, clears both. |
+| `WRONG_MATCH` | The demo was parsed, but its players are not the players of the match it was uploaded or imported for (see [A demo of another match](#a-demo-of-another-match)). `error` says how many of the roster's players with a known SteamID are among the demo's, for example `The players of the demo are not the players of this match: only 3 of the 10 roster players with a known SteamID are among them`. Nothing of the demo was analyzed, so the match shows no analysis. Uploading or importing the right file starts over. |
 
 ### Endpoints
 
@@ -864,9 +867,30 @@ and the SteamIDs of its roster are loaded before anything else, because the pars
 so an upload for a match FACEIT does not know is a `404 MATCH_NOT_FOUND`. The upload replaces only the download of the
 demo file. Through Nginx an upload may be up to 1 GB (see `DEMO_UPLOAD_MAX_SIZE`).
 
+#### A demo of another match
+
+Nothing else tells a file of another game from the match's own (the parser reads whatever it is given), so the analysis
+checks it before it stores anything. When the parser has written the facts, the backend compares the players of the demo
+with the roster of the match: FACEIT's answer for the match (the cached one that the upload or the import has just
+loaded), where a roster player's `game_player_id` is his SteamID. Of the roster's players **whose SteamID is known**, at
+least `demo.match-check.min-share` (0.8, so 8 of 10) must be among the players of the demo, or the demo is `FAILED` with
+the `errorCode` `WRONG_MATCH` and nothing is stored: the statistics and the highlights that an earlier analysis of the
+match left are not replaced, and the match shows no analysis, because its breakdown and its highlights are served only
+while the demo is `ANALYZED`. Players of the demo who are not in the roster do not count against it. **The check is skipped** when fewer than 6 roster players have a known SteamID (FACEIT gave too few
+`game_player_id`s, or no longer knows the match): there is too little to judge by, one `WARN` names the match and the
+counts, and the demo is analyzed as before. A `FAILED` demo is replaced like any other, by uploading or importing the
+right file. The setting is a plain value of `application.yml` (`demo.match-check.min-share`, from 0 to 1, checked when the
+backend starts; 0 switches the check off), which Spring's relaxed binding lets an environment variable of the backend
+container override.
+On the fake FACEIT a real demo fits no fake match, so it ends in `FAILED` with `WRONG_MATCH` there; the
+[fake FACEIT's README](dev/fake-faceit/README.md#a-local-match-that-fits-a-real-demo) has a script that makes a match
+whose roster it does fit. The SteamIDs of a real demo are real players' personal data: they are never written to a log
+or to an `error`.
+
 Have a parsed demo analyzed again (see [Analysis](#analysis)). The answer is `202` with the demo as it is now, before the
-analysis has run: it needs neither FACEIT nor the demo file, only the parsed facts, so it also works after the retention
-job has removed the file. `404 DEMO_NOT_FOUND` when the match has no demo, `409 DEMO_NOT_PARSED` when the demo is not
+analysis has run: it needs no demo file, only the parsed facts, so it also works after the retention job has removed the
+file; it asks FACEIT for the roster of the match once (see [A demo of another match](#a-demo-of-another-match)), which is
+nearly always a cached answer. `404 DEMO_NOT_FOUND` when the match has no demo, `409 DEMO_NOT_PARSED` when the demo is not
 `PARSED` or `ANALYZED`. The answer is `202` also for a demo that was parsed without round rosters: nothing is analyzed
 then, and the demo's `error` says to upload the file again (see [Analysis](#analysis)). Repeating the request is safe:
 
@@ -883,8 +907,9 @@ demo, so its import ends in `FAILED` at the parser. The fake plays the Downloads
 the backend a made-up token and the fake's address for it), so the import goes the way it goes with real access: the main
 match is downloaded through a signed address; the matches `1-ffffffff-0000-0000-0000-000000000403` (the Downloads API
 refuses it) and `...000502` (a `demo_url` whose host does not resolve) end in `FAILED` at once with the `errorCode`
-`DOWNLOAD_NEEDS_ACCESS`; and `...000404` ends in `FAILED` at once with a plain sentence. To see a demo parsed to the end, serve a real demo through the fake as
-dev/fake-faceit/README.md describes, or upload one with the command above.
+`DOWNLOAD_NEEDS_ACCESS`; and `...000404` ends in `FAILED` at once with a plain sentence. A real demo uploaded to any of these matches is parsed and
+then `FAILED` with `WRONG_MATCH`, because its players are not the fake roster's; to see one analyzed to the end, make the
+local match that fits it, as dev/fake-faceit/README.md describes.
 
 ### The facts
 
@@ -911,8 +936,10 @@ them, and is not analyzed until the demo file is uploaded again and the new pars
 When the parser announces a demo on `demo.parsed`, the backend analyzes it: it reads the facts of the match from the
 database, computes the statistics of every player who played a round, writes them to `player_match_stats` (one row per
 player and match), finds the highlights of the match and writes them to `highlights` (see "Highlights" below), and
-moves the demo to `ANALYZED`. The analysis needs neither the demo file nor FACEIT, only the facts,
-and it is idempotent: the same facts give the same rows, so it can be repeated at any time with
+moves the demo to `ANALYZED`. Before it computes anything it checks that the demo is the match's own (see
+[A demo of another match](#a-demo-of-another-match)). The analysis needs no demo file, only the facts and, for that
+check, the roster of the match (a cached answer of FACEIT in all but the rarest cases; when FACEIT cannot be reached and
+nothing is cached, the analysis fails like any other and is tried again), and it is idempotent: the same facts give the same rows, so it can be repeated at any time with
 `POST .../demo/analyze` (see [Endpoints](#endpoints)) and a `demo.parsed` that arrives twice does no harm. A demo that
 was uploaded or parsed again while it was being analyzed is not overwritten with the old result: the new upload
 announces itself.
@@ -1608,7 +1635,7 @@ pipeline:
 | --- | --- |
 | `demo_pipeline_stage_duration_seconds_count`, `_sum`, `_max` (`stage="import"`) | How long an import took, from taking over the message to the announcement on `demo.parse`, failed imports included. |
 | `demo_pipeline_stage_duration_seconds_count`, `_sum`, `_max` (`stage="analyze"`) | How long one handling of a `demo.parsed` message took, the analysis of the demo from reading its facts to storing the statistics and the highlights; an attempt that failed and a message that found nothing to analyze are included. |
-| `demo_pipeline_failed_total` (`stage` = `import`, `parse` or `analyze`) | Failures, each counted once, in the stage it failed in. `import`: a rejected download, a dead letter from `demo.import`, and a demo whose `demo.import` or `demo.parse` message could not be published because the broker was unavailable. `parse`: the parser's own failures (it records `FAILED` and rejects the message; the backend counts the rejection when it reads the dead letter) and a dead letter from `demo.parse` for a demo that was still `STORED`. These demos went to `FAILED`. `analyze`: an analysis that failed three times (a dead letter from `demo.parsed`) for a demo that is `PARSED` or `ANALYZED`; the demo does not go to `FAILED` (see [Analysis](#analysis)). A demo set to `FAILED` by hand in the database is not counted. |
+| `demo_pipeline_failed_total` (`stage` = `import`, `parse` or `analyze`) | Failures, each counted once, in the stage it failed in. `import`: a rejected download, a dead letter from `demo.import`, and a demo whose `demo.import` or `demo.parse` message could not be published because the broker was unavailable. `parse`: the parser's own failures (it records `FAILED` and rejects the message; the backend counts the rejection when it reads the dead letter) and a dead letter from `demo.parse` for a demo that was still `STORED`. These demos went to `FAILED`. `analyze`: an analysis that failed three times (a dead letter from `demo.parsed`) for a demo that is `PARSED` or `ANALYZED`; the demo does not go to `FAILED` (see [Analysis](#analysis)); and a demo refused as another match's, which does (`WRONG_MATCH`). A demo set to `FAILED` by hand in the database is not counted. |
 | `demo_pipeline_parsed_total` | `demo.parsed` messages handled by the backend, each time the listener handles one: a message whose analysis fails is tried three times and counts three times. It also counts messages for a demo that is not there or is no longer `PARSED`, which the analysis skips. |
 | `clips_requested_total` (`kind` = `HIGHLIGHT` or `COMPILATION`) | Requests that queued a new clip. A request answered with the clip that was already there (a repeated request, also one from a second browser) is not counted, and neither is one that was refused. |
 | `clips_finished_total` (`status` = `DONE` or `FAILED`) | Every arrival of a clip in a final status, whoever caused it: a recorder's `complete`; a recorder's `fail` that may not be retried or has no attempt left; the check that takes back the clip of a silent recorder when no attempt is left; a `claim` that found the demo file gone or the player's SteamID unknown. A clip deleted, by a request or by the retention job, is not counted. |
