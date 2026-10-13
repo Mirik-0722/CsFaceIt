@@ -1,6 +1,7 @@
 package io.csfaceit.backend.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.csfaceit.backend.auth.KnownOrigins;
 import io.csfaceit.backend.auth.SessionAuthFilter;
 import io.csfaceit.backend.auth.SessionService;
 import io.csfaceit.backend.clip.ClipProperties;
@@ -39,9 +40,12 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  * which a session would satisfy and which would make every signed-in visitor an administrator. The sign-in itself is
  * open (its redirects and their callbacks, the list of providers), and so are {@code /api/v1/auth/me} and
  * {@code /api/v1/auth/logout}, which answer a visitor without a session themselves instead of with this chain's 401.
- * There is no CSRF protection to add for the cookie: it is {@code SameSite=Lax}, so the browser does not send it with
- * a request made from another site, and the one request that acts on it, the logout, only ends the session. CORS stays
- * without credentials, so a page of another origin cannot read what a session would show.
+ * There is no CSRF token for the cookie. It is {@code SameSite=Lax}, so the browser does not send it with a request
+ * made from another site, and {@link SessionAuthFilter} adds a rule behind that: a write that carries the cookie and
+ * not the admin key is answered 403 {@code CROSS_SITE_REQUEST} unless its {@code Origin} header is one of the
+ * {@link KnownOrigins} (the logout included). CORS stays without credentials, so a page of another origin cannot read
+ * what a session would show, and its filter comes first: a request of another origin that is not in its list is
+ * answered 403 before the rule is asked.
  *
  * <p>A request without a valid credential is answered 401. One that is authenticated but not allowed on its path (the
  * admin key on the worker API, a session on anything that needs the key) is answered 403 {@code FORBIDDEN}; the worker
@@ -84,7 +88,8 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, AppProperties properties, ClipProperties clip,
-                                            SessionService sessions, ObjectMapper mapper) throws Exception {
+                                            SessionService sessions, KnownOrigins knownOrigins,
+                                            ObjectMapper mapper) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -101,8 +106,8 @@ public class SecurityConfig {
                 .addFilterAfter(new WorkerTokenAuthFilter(clip.workerToken()), ApiKeyAuthFilter.class)
                 // Last of the three, and it leaves a request alone that one of the others has authenticated: a
                 // request with a session cookie and the admin key is the admin's, and one with the worker token is the
-                // worker's.
-                .addFilterAfter(new SessionAuthFilter(sessions), WorkerTokenAuthFilter.class)
+                // worker's. It is also where a write that rides on the cookie from outside the site is refused.
+                .addFilterAfter(new SessionAuthFilter(sessions, knownOrigins, mapper), WorkerTokenAuthFilter.class)
                 .authorizeHttpRequests(requests -> {
                     // First, because the rules are tried in order: the public reads below then never include a GET of
                     // the worker API, and the last rule cannot let the admin key in.
