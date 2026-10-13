@@ -39,6 +39,8 @@ backend (the fake does not check the key).
 | `GET /demos/sample.dem` | A 1 KiB placeholder file. |
 | `GET /demos/forbidden.dem` | HTTP 403. |
 | `GET /demos/missing.dem` | HTTP 404. |
+| `GET /links/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1-1.dem` | The placeholder below, under the name FACEIT gives the main match's demo: a link to paste (see [Demo links](#demo-links)). |
+| `GET /links/redirect/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1-1.dem` | HTTP 302 to `http://backend:8080/`: a link that tries to lead the backend to itself. |
 | `POST /download/v2/demos/download` with `Authorization: Bearer fake-downloads-token` and the body `{"resource_url": "http://fake-faceit:8080/demos/sample.dem"}` | FACEIT's Downloads API for the main match: `{"payload": {"download_url": "http://fake-faceit:8080/demos/sample.dem?signature=made-up-signature"}}`, an address that serves the placeholder above. |
 | The same with `"resource_url": "http://fake-faceit:8080/demos/missing.dem"` | HTTP 404 with a FACEIT-style error body. |
 | any other `POST /download/v2/demos/download` (another `resource_url`, another or no token) | HTTP 403 `{"errors":[{"code":"err_f0","message":"no valid scope provided"}]}`, what FACEIT answers a token without the scope for the file (and the Data API key). |
@@ -89,6 +91,23 @@ services:
 
 The import then fetches each `demo_url` as it is: the main match still downloads, the forbidden one answers 403 and the
 unresolvable one does not resolve, and both end `FAILED` at once with `DOWNLOAD_NEEDS_ACCESS`.
+
+## Demo links
+
+A signed-in member of a match can paste the link their browser downloaded the demo from (`POST .../demo/import` with
+`{"url": "..."}`, see "Bringing a demo by a link" in the main README). The backend fetches it itself, from the origins of
+`DEMO_LINK_ALLOWED_ORIGINS` only and from public addresses only. `docker-compose.fake.yml` sets the list to
+`http://fake-faceit:8080` and lets the name `fake-faceit` through the address check (`DEMO_LINK_PRIVATE_HOSTS`), because the
+fake lives on the stack's private network; the backend logs a WARN about it at startup. Inside the stack:
+
+- `http://fake-faceit:8080/links/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1-1.dem` for the main match: `202`, then `STORED`
+  (and `FAILED` at the parser, as the placeholder is no demo).
+- The same link for another match: `400 DEMO_LINK_MISMATCH`.
+- `http://fake-faceit:8080/links/redirect/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1-1.dem`: `202`, then `FAILED` with
+  `Demo download rejected: the demo link, or an address it redirects to, is not one this site downloads from`; the
+  backend never connects to `backend:8080`, and its log names the refused host.
+- `http://localhost:8080/...`, `http://169.254.169.254/...`, any other host: `400 DEMO_LINK_HOST_NOT_ALLOWED` or
+  `400 DEMO_LINK_INVALID` at once.
 
 ## The fake Steam
 

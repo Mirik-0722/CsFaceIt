@@ -129,6 +129,7 @@ Then edit `.env`:
 | `MINIO_BUCKET` | Bucket the demo files go to; the backend creates it when it is missing. | `csfaceit` |
 | `MINIO_IMAGE` | MinIO server image of the Compose stack (see [Operational notes](#operational-notes)). Commented out in `.env.example`. | a digest-pinned `alpine/minio` build |
 | `DEMO_UPLOAD_MAX_SIZE` | The most a manual demo upload may be, and the most a gzip upload may expand to: a size with a unit such as `1GB` or `512MB`. Nginx accepts 1 GB for the upload path (`frontend/nginx.conf`); raise both to allow more. | `1GB` |
+| `DEMO_LINK_ALLOWED_ORIGINS` | Where a demo link that a player pastes may lead (`demo.link.allowed-origins`): origins `scheme://host` or `scheme://host:port`, comma separated, the host exact or `*.` and a domain for any name under it. The link and every redirect of it have to be on the list, and every address of the host has to be public (see [Bringing a demo by a link](#bringing-a-demo-by-a-link)). | `https://*.faceit-cdn.net,https://*.backblazeb2.com` |
 | `DEMO_RETENTION_DAYS` | Stored demo files older than this many days are deleted once a day; the parsed facts and the demo's status stay. `0` keeps the files forever. | `30` |
 | `DEMO_RETENTION_CRON` | When that clean-up runs: Spring's six cron fields (second minute hour day month weekday), server time. Normally left alone. Commented out in `.env.example`; keep the quotes there, the value has spaces and asterisks. | `0 0 4 * * *` |
 | `CLIP_UPLOAD_MAX_SIZE` | The most a recorder may upload for one clip (the video and the thumbnail each): a size with a unit such as `1GB` or `512MB`. Nginx accepts 1 GB for the upload path (`frontend/nginx.conf`); raise both to allow more. | `1GB` |
@@ -512,6 +513,7 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | Status | `code` | When |
 | --- | --- | --- |
 | 400 | `VALIDATION_ERROR` | A nickname, id, highlight `type` or paging parameter is malformed; for the upload also a bad file name, an empty or corrupt file, or a multipart body that is malformed or was cut off. |
+| 400 | `DEMO_LINK_INVALID`, `DEMO_LINK_HOST_NOT_ALLOWED`, `DEMO_LINK_MISMATCH` | A pasted demo link is not usable (not `http` or `https`, a user name in it, an IP address instead of a host name, a host that does not resolve), leads to a host that is not on `DEMO_LINK_ALLOWED_ORIGINS` or that resolves to an address that is not public, or names the file of another match; see [Bringing a demo by a link](#bringing-a-demo-by-a-link). |
 | 401 | `UNAUTHORIZED` | A protected request has neither a valid `X-API-Key` header nor (where a session is enough) a live session; a request to the recorder's API (`/api/worker/**`) is missing a valid `X-Worker-Token` header. |
 | 403 | `FORBIDDEN` | The request has a valid credential that its path does not accept: the admin key on the recorder's API, the session of a `USER` on a request that needs the admin key or an administrator. |
 | 403 | `FACEIT_NOT_LINKED`, `NOT_IN_MATCH`, `NOT_YOUR_PLAYER`, `NOT_YOUR_CLIP` | A signed-in `USER` asked for something that is not theirs: no FACEIT player is linked to them; they are not in the roster of the match; the clip was asked for another player; the clip was ordered by someone else (see [What a signed-in player can do](#what-a-signed-in-player-can-do)). |
@@ -704,7 +706,7 @@ What a `USER` may ask for without the key, and when:
 
 | Request | Rule | Refused with |
 | --- | --- | --- |
-| `POST /api/v1/matches/{id}/demo/import` | they are in the roster of the match | `403 FACEIT_NOT_LINKED`, `403 NOT_IN_MATCH` |
+| `POST /api/v1/matches/{id}/demo/import` | they are in the roster of the match; with a link, the link passes its checks ([Bringing a demo by a link](#bringing-a-demo-by-a-link)) | `403 FACEIT_NOT_LINKED`, `403 NOT_IN_MATCH`; `400 DEMO_LINK_INVALID`, `400 DEMO_LINK_HOST_NOT_ALLOWED`, `400 DEMO_LINK_MISMATCH` |
 | `POST /api/v1/matches/{id}/demo/upload` | they are in the roster; the demo has not been parsed yet (the key and an administrator may upload over a `PARSED` or `ANALYZED` demo) | the same two; `409 DEMO_ALREADY_PARSED` |
 | `POST /api/v1/matches/{id}/demo/analyze` | they are in the roster; the demo is `PARSED`, that is, its analysis is missing (the key and an administrator may have an `ANALYZED` demo analyzed again) | the same two; `409 DEMO_ALREADY_ANALYZED` (and `409 DEMO_NOT_PARSED` as for anyone) |
 | `POST /api/v1/highlights/{id}/clips`, `POST /api/v1/matches/{id}/clips` | the highlight's player, or the `playerId` of the compilation, is their own FACEIT player | `403 FACEIT_NOT_LINKED`, `403 NOT_YOUR_PLAYER` |
@@ -1003,6 +1005,52 @@ Both the import and the upload need the FACEIT API (or its fake, or a cached ans
 and the SteamIDs of its roster are loaded before anything else, because the parser knows the players by SteamID only,
 so an upload for a match FACEIT does not know is a `404 MATCH_NOT_FOUND`. The upload replaces only the download of the
 demo file. Through Nginx an upload may be up to 1 GB (see `DEMO_UPLOAD_MAX_SIZE`).
+
+#### Bringing a demo by a link
+
+A player who has downloaded the demo from the match's room on FACEIT can paste the address the browser downloaded it
+from instead of uploading the file: the same import request, with the body `{"url": "<the link>"}`. The server then
+downloads the file itself, so the link is held to strict rules, all of them checked before anything connects:
+
+1. **Shape**: `http` or `https`; no user name or password; a host name in plain ASCII, never an IP address (in any
+   spelling, `http://169.254.169.254/` or `http://[::1]/` as much as `http://2130706433/`). Otherwise `400 DEMO_LINK_INVALID`;
+   so is a host that does not resolve, and a link longer than 2048 characters.
+2. **Allow-list**: the scheme, host and port are one of `demo.link.allowed-origins` (`DEMO_LINK_ALLOWED_ORIGINS`, by
+   default `https://*.faceit-cdn.net,https://*.backblazeb2.com`; `*.` stands for any name under the domain, a port that is
+   not written is the scheme's own). Otherwise `400 DEMO_LINK_HOST_NOT_ALLOWED`, with the host named in the message.
+3. **Addresses**: every address the host resolves to is public. Loopback, link-local (the cloud metadata address
+   `169.254.169.254` among them), private (`10/8`, `172.16/12`, `192.168/16`), multicast, `0.0.0.0/8`,
+   `100.64.0.0/10`, `192.0.0.0/24`, `198.18.0.0/15`, `240.0.0.0/4`, `fc00::/7` and `64:ff9b::/96`, also inside an IPv6
+   address that carries an IPv4 one, are refused, one is enough: `400 DEMO_LINK_HOST_NOT_ALLOWED`. The download then
+   connects to the very addresses that were checked; the name is not looked up again in between.
+4. **The match**: the file the link names (the last segment of its path, the query aside) has to be this match's demo,
+   `<match id>-1-1.dem` or a compressed `.dem.gz`, `.dem.zst`: otherwise `400 DEMO_LINK_MISMATCH`. Only the first map is
+   taken, as everywhere on the site.
+
+The first three are asked again when the worker downloads the link, and for every redirect before it is followed (at
+most five). A redirect that breaks a rule, an answer `401`, `403`, `404` or `410` (the link has expired), a file larger
+than `demo.download.max-size` and a download that takes longer than `demo.link.max-duration` (10 minutes, redirects
+included) end the demo `FAILED` at once with a plain sentence; a connection that fails or stalls, or a server error, is
+tried again like any import. The roster rule, the limit per day (a link always counts as an import, even without
+`FACEIT_DOWNLOADS_TOKEN`) and the rest of the import are as without a link: a demo that is there or under way is reported
+as it is and the link is not used.
+
+The link can carry a signature, so it is a secret like the signed address of the Downloads API: it comes in the body
+(no access log on the way keeps it), never goes into the `demo.import` message (the backend holds it in memory for the
+worker, at most 15 minutes; after a restart the import goes the way it goes without a link, or the link is pasted
+again), and is never logged, stored or written into `error`. A refused host is named in the `400` and in the log, so one
+real link that is refused shows what to add to the list; for a refused redirect only the log names it.
+
+```bash
+# Signed in as in "Trying it without Steam" (jar.txt holds the session cookie); a made-up link.
+curl -b jar.txt -X POST -H 'Origin: http://localhost:3000' -H 'Content-Type: application/json' \
+  -d '{"url": "https://demos-example.faceit-cdn.net/cs2/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1-1.dem.gz"}' \
+  http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/demo/import
+```
+
+`demo.link.private-hosts` (`DEMO_LINK_PRIVATE_HOSTS`, empty) names hosts that skip the third rule only. It exists for the
+[fake FACEIT](dev/fake-faceit/README.md#demo-links), which lives on the stack's private network, and the backend logs a
+`WARN` at startup when it is set; never set it on a server.
 
 #### A demo of another match
 
