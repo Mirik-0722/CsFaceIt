@@ -1,6 +1,7 @@
 package io.csfaceit.backend.player;
 
 import io.csfaceit.backend.common.api.NotFoundException;
+import io.csfaceit.backend.common.log.SteamIds;
 import io.csfaceit.backend.faceit.FaceitGateway;
 import io.csfaceit.backend.faceit.FaceitNotFoundException;
 import io.csfaceit.backend.faceit.dto.FaceitGame;
@@ -143,12 +144,12 @@ public class PlayerService {
         Player holder = players.findBySteamId(steamId).orElse(null);
         if (holder != null && !holder.getId().equals(player.getId())) {
             if (!holder.getFaceitId().startsWith(STEAM_PLACEHOLDER_PREFIX)) {
-                log.warn("SteamID {} belongs to player {} already; not giving it to player {}", steamId,
-                        holder.getFaceitId(), player.getFaceitId());
+                log.warn("SteamID {} belongs to player {} already; not giving it to player {}", SteamIds.mask(steamId),
+                        SteamIds.maskPlayerId(holder.getFaceitId()), SteamIds.maskPlayerId(player.getFaceitId()));
                 return false;
             }
-            log.warn("SteamID {} was held by the placeholder player {}; moving it to player {}", steamId,
-                    holder.getFaceitId(), player.getFaceitId());
+            log.warn("SteamID {} was held by the placeholder player {}; moving it to player {}", SteamIds.mask(steamId),
+                    SteamIds.maskPlayerId(holder.getFaceitId()), SteamIds.maskPlayerId(player.getFaceitId()));
             holder.setSteamId(null);
             // The unique index must be free before the same value is written to the other row.
             players.saveAndFlush(holder);

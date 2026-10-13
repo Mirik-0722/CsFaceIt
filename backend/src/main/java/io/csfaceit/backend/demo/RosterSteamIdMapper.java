@@ -1,5 +1,6 @@
 package io.csfaceit.backend.demo;
 
+import io.csfaceit.backend.common.log.SteamIds;
 import io.csfaceit.backend.demo.RosterSteamIdPersistence.Entry;
 import io.csfaceit.backend.faceit.dto.FaceitMatch;
 import io.csfaceit.backend.faceit.dto.FaceitMatchTeam;
@@ -96,7 +97,8 @@ public class RosterSteamIdMapper {
                 String steamId = player.gamePlayerId();
                 if (!STEAM_ID.matcher(steamId).matches()) {
                     log.warn("Ignoring the game player id '{}' of FACEIT player {} in match {}: it is not a "
-                            + "17-digit SteamID", printable(steamId), printable(player.playerId()), match.matchId());
+                            + "17-digit SteamID", printable(SteamIds.mask(steamId)), printable(player.playerId()),
+                            match.matchId());
                     continue;
                 }
                 if (byPlayer.containsKey(player.playerId())) {
@@ -106,7 +108,7 @@ public class RosterSteamIdMapper {
                 }
                 if (!steamIds.add(steamId)) {
                     log.warn("Ignoring SteamID {} of FACEIT player {} in match {}: another player of the roster has "
-                            + "it", steamId, printable(player.playerId()), match.matchId());
+                            + "it", SteamIds.mask(steamId), printable(player.playerId()), match.matchId());
                     continue;
                 }
                 byPlayer.put(player.playerId(), new Entry(player.playerId(), player.nickname(), steamId));
