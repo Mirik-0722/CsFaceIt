@@ -90,8 +90,18 @@ public class FaceitDownloadsApi {
                     .exchange((request, response) -> {
                         int status = response.getStatusCode().value();
                         // The body is read for an answer that is used and for a refusal, whose FACEIT error code is logged.
-                        boolean wanted = status >= 200 && status < 300 || status == 401 || status == 403;
-                        byte[] body = wanted ? response.getBody().readNBytes(MAX_ANSWER_BYTES) : new byte[0];
+                        byte[] body = new byte[0];
+                        if (status >= 200 && status < 300) {
+                            // The address is in this body: a body that cannot be read is a failure to try again.
+                            body = response.getBody().readNBytes(MAX_ANSWER_BYTES);
+                        } else if (status == 401 || status == 403) {
+                            try {
+                                body = response.getBody().readNBytes(MAX_ANSWER_BYTES);
+                            } catch (IOException e) {
+                                // The body only tells which refusal this is, for the log. Without it the refusal
+                                // stands, logged with no code and no message: a refused token is not tried again.
+                            }
+                        }
                         return new Answer(status, body);
                     });
         } catch (ResourceAccessException e) {
@@ -149,7 +159,8 @@ public class FaceitDownloadsApi {
             code = printable(first.path("code").asText(null));
             message = printable(first.path("message").asText(null));
         } catch (IOException | RuntimeException e) {
-            // An answer that is not JSON has no code; the status is logged all the same.
+            // An answer that is not JSON, or has no body at all (see signedAddress), has no code; the status is logged
+            // all the same.
         }
         log.warn("FACEIT's Downloads API refused the token: HTTP {}, error code {}, message {}", status, code, message);
     }
