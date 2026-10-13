@@ -62,8 +62,9 @@ auth:
   # The SteamID64s (17 digits, comma separated) of the people who get the role ADMIN when they sign in; every other
   # visitor is a USER. The role is stored and shown by /api/v1/auth/me; it does not yet let anyone act without the admin key.
   admin-steam-ids: ${AUTH_ADMIN_STEAM_IDS:}
-  # The FACEIT OAuth application. The sign-in with FACEIT is on only while a client id is set, and its flow is not written
-  # yet: /api/v1/auth/providers says it is available then, and its endpoints still answer 404. Neither value is logged.
+  # The FACEIT OAuth application. The sign-in with FACEIT is meant to be on only while a client id is set, but its flow is
+  # not written yet: /api/v1/auth/providers answers `faceit: false` whatever is set here (AuthController says why), and the
+  # flow's endpoints answer 404, as for a provider that is off. Neither value is logged.
   faceit:
     client-id: ${FACEIT_OAUTH_CLIENT_ID:}
     client-secret: ${FACEIT_OAUTH_CLIENT_SECRET:}

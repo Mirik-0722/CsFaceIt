@@ -48,7 +48,10 @@ function LevelLine({ playerId }: { playerId: string }) {
     parts.push(t.player.elo(formatInteger(elo, locale)))
   }
   return (
-    <span className="block h-4 truncate font-mono text-[11px] leading-4 tracking-[0.06em] text-subtle uppercase">
+    // The line takes the padding on its right as well (`-mr-4`; the nickname above it does not, so a long one stops where
+    // the room beside the picture ends): "FACEIT 10-DARAJA · 3 500 ELO" is a little wider than that room, and cut short
+    // it would lose the ELO it ends with.
+    <span className="-mr-4 block h-4 truncate font-mono text-[11px] leading-4 tracking-[0.06em] text-subtle uppercase">
       {parts.join(' · ')}
     </span>
   )
@@ -92,9 +95,7 @@ export default function AccountMenu({ me, onSignedOut }: { me: MeResponse; onSig
               >
                 <Face me={me} />
               </span>
-              {/* The column takes the padding on its right as well: "FACEIT 10-DARAJA · 3 500 ELO" is a little wider than the
-                  room beside the picture, and cut short it would lose the ELO it ends with. */}
-              <div className="-mr-4 flex min-w-0 flex-col gap-0.5">
+              <div className="flex min-w-0 flex-col gap-0.5">
                 <Popover.Title render={<p />} className="truncate text-[15px] font-semibold">
                   {me.nickname}
                 </Popover.Title>
