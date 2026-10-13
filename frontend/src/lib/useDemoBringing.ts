@@ -42,7 +42,7 @@ function failureText(error: Error, t: Messages, upload: boolean): string {
  * the rows and the feed to draw, and it refuses at once what the backend would refuse (a demo that has been read, a
  * day's limit that is used up) and what cannot be told which match it is for.
  */
-export function useDemoBringing(items: PlayerMatchResponse[] | undefined) {
+export function useDemoBringing(items: PlayerMatchResponse[] | undefined, complete: boolean) {
   const viewer = useViewer()
   // `mutateAsync` and not `mutate`: the callbacks of `mutate` are dropped when another request is made meanwhile, and
   // two files may be on their way at once.
@@ -52,9 +52,9 @@ export function useDemoBringing(items: PlayerMatchResponse[] | undefined) {
   const [notice, setNotice] = useState<BringNotice | null>(null)
   // What the callbacks below read, so that they stay the same function between renders (the page's drop listeners hold
   // them): the rows are renewed every few seconds.
-  const latest = useRef({ items, viewer })
+  const latest = useRef({ items, viewer, complete })
   useEffect(() => {
-    latest.current = { items, viewer }
+    latest.current = { items, viewer, complete }
   })
 
   useEffect(() => {
@@ -90,16 +90,28 @@ export function useDemoBringing(items: PlayerMatchResponse[] | undefined) {
 
   /**
    * Uploads a file. For a row's own action the match is given; for a file that was dropped or chosen in the box it is
-   * the one the name names.
+   * the one the name names. A file chosen for a row whose name names another match is refused at once (a name with no
+   * id is the visitor's word for it), and so is a file named for a match that is not in the visitor's list once every
+   * page of the list is loaded (while more pages may come, the match may be on one of them, and the backend decides).
    */
   const bringFile = useCallback(
     (file: File, forMatchId?: string) => {
-      const matchId = forMatchId ?? matchIdFromDemoName(file.name)
+      const named = matchIdFromDemoName(file.name)
+      const matchId = forMatchId ?? named
       if (matchId === null) {
         setNotice({ kind: 'noMatchId', name: file.name })
         return
       }
       setNotice(null)
+      if (forMatchId !== undefined && named !== null && named !== forMatchId.toLowerCase()) {
+        put(forMatchId, { phase: 'failed', text: (t) => t.demo.reasons.WRONG_MATCH })
+        return
+      }
+      const { items: rows, viewer: who, complete: allLoaded } = latest.current
+      if (forMatchId === undefined && !who.admin && allLoaded && !rows?.some((match) => match.matchId === matchId)) {
+        put(matchId, { phase: 'failed', text: (t) => t.access.NOT_IN_MATCH })
+        return
+      }
       const refused = refusal(matchId, 'demoUploads')
       if (refused) {
         put(matchId, { phase: 'failed', text: refused })
@@ -114,25 +126,29 @@ export function useDemoBringing(items: PlayerMatchResponse[] | undefined) {
     [put, refusal, sendFile],
   )
 
-  /** Has the backend fetch the demo that a pasted link points to; the match is the one the link's file names. */
+  /**
+   * Has the backend fetch the demo that a pasted link points to; the match is the one the link's file names. False when
+   * the link was refused at once, so that the box keeps it in its field to be put right.
+   */
   const bringLink = useCallback(
-    (link: string) => {
+    (link: string): boolean => {
       const matchId = matchIdFromDemoLink(link)
       if (matchId === null) {
         setNotice({ kind: 'noLinkId' })
-        return
+        return false
       }
       setNotice(null)
       const refused = refusal(matchId, 'demoImports')
       if (refused) {
         put(matchId, { phase: 'failed', text: refused })
-        return
+        return false
       }
       put(matchId, { phase: 'sending', percent: null })
       sendLink({ matchId, url: link.trim() }).then(
         () => put(matchId, { phase: 'sent' }),
         (error: Error) => put(matchId, { phase: 'failed', text: (t) => failureText(error, t, false) }),
       )
+      return true
     },
     [put, refusal, sendLink],
   )

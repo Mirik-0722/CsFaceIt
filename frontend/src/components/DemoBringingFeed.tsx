@@ -53,12 +53,14 @@ export default function DemoBringingFeed({ states, notice, items, onDismiss, onD
             <MatchName matchId={matchId} items={items} />
             {state.phase === 'sending' && (
               <>
-                <p className="text-sm">
+                {/* Not announced: the percent changes with every chunk, and "Sent" or the failure is what is said. */}
+                <p aria-live="off" className="text-sm">
                   {state.percent === null ? t.matches.bring.fetching : t.matches.bring.sending(state.percent)}
                 </p>
                 {state.percent !== null && (
                   <div
                     role="progressbar"
+                    aria-live="off"
                     aria-label={t.matches.bring.sending(state.percent)}
                     aria-valuemin={0}
                     aria-valuemax={100}

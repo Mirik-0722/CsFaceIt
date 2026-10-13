@@ -1,5 +1,5 @@
 import { Download, RotateCcw } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useDeleteClip, useRetryClip } from '@/api/queries'
 import MapEmblem from '@/components/MapEmblem'
@@ -11,6 +11,7 @@ import { clipFailureText, clipLabel, formatBytes, frameLabel } from '@/lib/clips
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/formatDate'
 import { formatDuration } from '@/lib/highlightLabels'
+import { nextPossible } from '@/lib/limits'
 import { mapLabel } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
 import { useViewer } from '@/lib/viewer'
@@ -64,9 +65,24 @@ function ClipActions({ clip, label }: { clip: ClipResponse; label: string }) {
   const t = useT()
   const remove = useDeleteClip()
   const retry = useRetryClip()
+  const { limits } = useViewer()
   const [confirming, setConfirming] = useState(false)
   const [failure, setFailure] = useState<ApiError | null>(null)
   const busy = remove.isPending || retry.isPending
+  // "Cancel" comes back when the visitor answers "No": the focus returns to it, not to the page's start.
+  const cancelButton = useRef<HTMLButtonElement>(null)
+  const refocusCancel = useRef(false)
+  useEffect(() => {
+    if (!confirming && refocusCancel.current) {
+      refocusCancel.current = false
+      cancelButton.current?.focus()
+    }
+  }, [confirming])
+  // A new order counts against the day's limit, so a used-up limit turns "Try again" off and the line says why.
+  const limitText =
+    clip.status === 'FAILED' && limits !== null && limits.clipOrders.remaining <= 0
+      ? t.limits.CLIP_LIMIT_REACHED(nextPossible(limits.clipOrders.resetsAt, t))
+      : null
   const failed = (error: ApiError) => {
     setConfirming(false)
     setFailure(error)
@@ -89,12 +105,19 @@ function ClipActions({ clip, label }: { clip: ClipResponse; label: string }) {
           >
             {t.clip.card.confirmYes}
           </Button>
-          <Button type="button" variant="ghost" size="sm" autoFocus disabled={busy} onClick={() => setConfirming(false)}>
+          <Button type="button" variant="ghost" size="sm" autoFocus
+            disabled={busy}
+            onClick={() => {
+              refocusCancel.current = true
+              setConfirming(false)
+            }}
+          >
             {t.clip.card.keep}
           </Button>
         </span>
       ) : (
         <Button
+          ref={cancelButton}
           type="button"
           variant="outline"
           size="sm"
@@ -111,7 +134,7 @@ function ClipActions({ clip, label }: { clip: ClipResponse; label: string }) {
         variant="outline"
         size="sm"
         aria-label={t.clip.card.retryFor(label)}
-        disabled={busy}
+        disabled={busy || limitText !== null}
         className="relative ml-auto"
         onClick={() => {
           setFailure(null)
@@ -138,7 +161,7 @@ function ClipActions({ clip, label }: { clip: ClipResponse; label: string }) {
       {buttons}
       {/* Under the state line, whatever the line holds: always in the page, so that its first message is announced. */}
       <p aria-live="polite" className="basis-full text-xs leading-normal text-negative empty:hidden">
-        {failure && (failure.status === 401 ? t.auth.sessionEnded : errorMessage(failure, t))}
+        {failure ? (failure.status === 401 ? t.auth.sessionEnded : errorMessage(failure, t)) : limitText}
       </p>
     </>
   )

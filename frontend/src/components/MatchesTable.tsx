@@ -13,7 +13,9 @@ import { mapLabel } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
 import { isDemoInProgress, type ClipCounts, type PlayerMatchResponse } from '@/api/overview'
 import type { Bringing } from '@/lib/useDemoBringing'
-import type { DemoStatus, MatchResult } from '@/api/types'
+import { useViewer } from '@/lib/viewer'
+import { nextPossible } from '@/lib/limits'
+import type { MatchResult } from '@/api/types'
 
 // The columns of the header and of every row: the map with where the match is from and its date, the score, K / D / A,
 // the highlights (the one that takes what is left), the clips and the arrow. The first one holds the emblem and, on one
@@ -66,13 +68,14 @@ function offersUpload(match: PlayerMatchResponse, state: Bringing | undefined): 
  * analyzed demo there is nothing to show: a match that has no demo, or whose demo failed, says that it has none, one
  * that is on its way shows the stages it has been through.
  */
-function HighlightsCell({ match }: { match: PlayerMatchResponse }) {
+function HighlightsCell({ match, onItsWay }: { match: PlayerMatchResponse; onItsWay: boolean }) {
   const t = useT()
   if (match.demoStatus === null || match.demoStatus === 'FAILED') {
     return <span className="font-mono text-xs text-subtle">{t.demo.none}</span>
   }
   // A demo on its way: where it has got to, as the line of its stages (the same as the demo panel of the match shows).
-  if (match.demoStatus !== null && isDemoInProgress(match.demoStatus)) {
+  // One that has stayed PARSED too long is not counted as on its way and gets the dash below.
+  if (onItsWay) {
     return <DemoStages demo={{ status: match.demoStatus, error: null, errorCode: null }} compact />
   }
   const { top, rest } = summarizeHighlights(match.highlights, t)
@@ -106,7 +109,7 @@ function HighlightsCell({ match }: { match: PlayerMatchResponse }) {
  * says "being recorded now" (`StatusChip`), which this count does not. A demo that is being analyzed says so where the
  * clips would be. Nothing for a match without a clip. Failed clips are not counted here; the page of the match shows them.
  */
-function ClipsCell({ clips, demoStatus }: { clips: ClipCounts; demoStatus: DemoStatus | null }) {
+function ClipsCell({ clips, onItsWay }: { clips: ClipCounts; onItsWay: boolean }) {
   const t = useT()
   if (clips.active > 0) {
     return (
@@ -119,7 +122,7 @@ function ClipsCell({ clips, demoStatus }: { clips: ClipCounts; demoStatus: DemoS
   if (clips.done > 0) {
     return <span>{t.matches.clips.readyAlone(clips.done)}</span>
   }
-  if (isDemoInProgress(demoStatus)) {
+  if (onItsWay) {
     return (
       <span className="font-mono text-[11px] tracking-[0.06em] text-foreground uppercase">{t.matches.analyzing}</span>
     )
@@ -131,19 +134,21 @@ function ClipsCell({ clips, demoStatus }: { clips: ClipCounts; demoStatus: DemoS
  * The action of a player's own row that brings a demo, drawn over the right-hand end of the row, where the clips column
  * is (a match without a demo has no clips): "Upload a demo" while there is nothing to start from, the percent while a
  * file goes. It is the row's sibling, not inside the link: a button in a link is two interactive elements in one. It
- * sits at the row's right edge, past the arrow's column (16px of arrow, 16px of gap and the row's 4px).
+ * sits at the row's right edge, past the arrow's column (16px of arrow, 16px of gap and the row's 4px). The wrapper is
+ * sticky, so that on a phone, where the table scrolls sideways, the action stays at the edge of what is on screen; it
+ * lets the pointer through to the row's link everywhere but on the button itself. A used-up day's limit turns the
+ * button off and says when it frees up.
  */
 function RowAction({ match, state, bringing }: { match: PlayerMatchResponse; state: Bringing | undefined; bringing: RowBringing }) {
   const t = useT()
   const locale = useLocale()
+  const { limits } = useViewer()
   const label = `${mapLabel(match.mapName) ?? t.match.unknownMap}, ${formatMatchTime(match.startedAt, locale)}`
+  const wrapper = 'pointer-events-none sticky right-9 z-10 col-start-1 row-start-1 self-center justify-self-end'
   if (state?.phase === 'sending') {
     // Not pressable and not read twice (the feed above the rows is the live region): the row only shows the figure.
     return (
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute top-1/2 right-9 flex w-36 -translate-y-1/2 flex-col items-end gap-1.5"
-      >
+      <span aria-hidden="true" className={cn(wrapper, 'flex w-36 flex-col items-end gap-1.5')}>
         <span className="font-mono text-[11px] tracking-[0.06em] uppercase">
           {state.percent === null ? t.matches.bring.fetching : t.matches.bring.sending(state.percent)}
         </span>
@@ -158,18 +163,26 @@ function RowAction({ match, state, bringing }: { match: PlayerMatchResponse; sta
   if (!offersUpload(match, state)) {
     return null
   }
+  const limitText =
+    limits !== null && limits.demoUploads.remaining <= 0
+      ? t.limits.UPLOAD_LIMIT_REACHED(nextPossible(limits.demoUploads.resetsAt, t))
+      : null
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      aria-label={t.matches.bring.rowFor(label)}
-      className="absolute top-1/2 right-9 -translate-y-1/2"
-      onClick={() => bringing.pick(match.matchId)}
-    >
-      <Upload aria-hidden="true" />
-      {t.matches.bring.row}
-    </Button>
+    <span className={wrapper}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        aria-label={limitText ? `${t.matches.bring.rowFor(label)}. ${limitText}` : t.matches.bring.rowFor(label)}
+        title={limitText ?? undefined}
+        disabled={limitText !== null}
+        className="pointer-events-auto bg-background"
+        onClick={() => bringing.pick(match.matchId)}
+      >
+        <Upload aria-hidden="true" />
+        {t.matches.bring.row}
+      </Button>
+    </span>
   )
 }
 
@@ -178,17 +191,31 @@ function RowAction({ match, state, bringing }: { match: PlayerMatchResponse; sta
  * also carry an action beside the link, which is why the row is a box with the link and the action in it, not the link
  * alone.
  */
-function MatchRow({ match, bringing }: { match: PlayerMatchResponse; bringing: RowBringing | undefined }) {
+function MatchRow({
+  match,
+  bringing,
+  stalled,
+}: {
+  match: PlayerMatchResponse
+  bringing: RowBringing | undefined
+  stalled: boolean
+}) {
   const t = useT()
   const locale = useLocale()
+  const onItsWay = isDemoInProgress(match.demoStatus) && !stalled
   const resultClass = match.result === 'WIN' ? 'text-positive' : match.result === 'LOSS' ? 'text-negative' : undefined
   const resultWord =
     match.result === 'WIN' ? t.matchList.win : match.result === 'LOSS' ? t.matchList.loss : t.matchList.unknown
   return (
-    <li className="group relative border-b border-border">
+    // A grid of one cell: the link and the action share it, the action over the link's right-hand end.
+    <li className="group grid border-b border-border">
       <Link
         to={`/matches/${encodeURIComponent(match.matchId)}`}
-        className={cn(COLUMNS, 'min-h-18 -outline-offset-2 group-hover:bg-secondary', RESULT_ROW[match.result])}
+        className={cn(
+          COLUMNS,
+          'col-start-1 row-start-1 min-h-18 -outline-offset-2 group-hover:bg-secondary',
+          RESULT_ROW[match.result],
+        )}
       >
         <span className="flex min-w-0 items-center gap-3">
           <MapEmblem mapName={match.mapName} size={44} />
@@ -219,10 +246,10 @@ function MatchRow({ match, bringing }: { match: PlayerMatchResponse; bringing: R
           </span>
         </span>
         <span className="flex min-w-0 items-center gap-2">
-          <HighlightsCell match={match} />
+          <HighlightsCell match={match} onItsWay={onItsWay} />
         </span>
         <span className="flex items-center justify-end gap-2 text-[13px] text-muted-foreground">
-          <ClipsCell clips={match.clips} demoStatus={match.demoStatus} />
+          <ClipsCell clips={match.clips} onItsWay={onItsWay} />
         </span>
         <ChevronRight aria-hidden="true" className="size-4 text-subtle" />
       </Link>
@@ -237,7 +264,16 @@ function MatchRow({ match, bringing }: { match: PlayerMatchResponse; bringing: R
  * name carries the words of what its figures are. With `bringing`, the rows that have no demo carry the action that
  * uploads one.
  */
-export default function MatchesTable({ items, bringing }: { items: PlayerMatchResponse[]; bringing?: RowBringing }) {
+export default function MatchesTable({
+  items,
+  bringing,
+  stalled,
+}: {
+  items: PlayerMatchResponse[]
+  bringing?: RowBringing
+  /** Whether a PARSED row has been so too long to be shown as on its way. */
+  stalled?: (match: PlayerMatchResponse) => boolean
+}) {
   const t = useT()
   return (
     // Positioned, so that the words only a screen reader hears (absolutely positioned, with the row they are in) are
@@ -254,7 +290,7 @@ export default function MatchesTable({ items, bringing }: { items: PlayerMatchRe
         </div>
         <ul aria-label={t.matches.title}>
           {items.map((match) => (
-            <MatchRow key={match.matchId} match={match} bringing={bringing} />
+            <MatchRow key={match.matchId} match={match} bringing={bringing} stalled={stalled?.(match) ?? false} />
           ))}
         </ul>
       </div>

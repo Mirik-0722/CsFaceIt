@@ -9,8 +9,8 @@ import { useViewer } from '@/lib/viewer'
 interface DemoUploadBoxProps {
   /** A file chosen here: its match is the one its name names. */
   onFile: (file: File) => void
-  /** A pasted link: its match is the one the file at its end names. */
-  onLink: (link: string) => void
+  /** A pasted link: its match is the one the file at its end names. True when it was taken, false when refused at once. */
+  onLink: (link: string) => boolean
 }
 
 /**
@@ -33,8 +33,10 @@ export default function DemoUploadBox({ onFile, onLink }: DemoUploadBoxProps) {
     if (link.trim() === '') {
       return
     }
-    onLink(link)
-    setLink('')
+    // A link that was refused at once stays in the field, to be put right.
+    if (onLink(link)) {
+      setLink('')
+    }
   }
 
   return (

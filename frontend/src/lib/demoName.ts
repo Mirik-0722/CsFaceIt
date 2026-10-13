@@ -2,8 +2,10 @@
 const MATCH_ID = '1-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 
 // FACEIT names the file it hands out `<match id>-<map number>-<half number>.dem`, and the demo may be compressed
-// (`.dem.zst`, `.dem.gz`): the match id is the start, and what follows it is what it takes to be a demo.
-const DEMO_NAME = new RegExp(`^(${MATCH_ID})(?:-\\d+-\\d+)?\\.dem(?:\\.[a-z0-9]+)*$`, 'i')
+// (`.dem.zst`, `.dem.gz`): the match id is the start, and what follows it is what it takes to be a demo. A browser that
+// saves a file again adds a counter (`… (1).dem.zst`), before the extensions or after them.
+const COPY = '(?: \\(\\d+\\))?'
+const DEMO_NAME = new RegExp(`^(${MATCH_ID})(?:-\\d+-\\d+)?${COPY}\\.dem(?:\\.[a-z0-9]+)*${COPY}$`, 'i')
 
 /**
  * The match a demo file belongs to, from its name: `<FACEIT match id>-1-1.dem`, `….dem.zst` or `….dem.gz`. The folders

@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { CLIPS_POLL_MS, type PlayerMatchResponse, usePlayerMatches, useSyncMatches } from '@/api/overview'
+import {
+  CLIPS_POLL_MS,
+  isParsedStalled,
+  noteParsedRows,
+  PARSED_STALLED_MS,
+  type ParsedSeen,
+  type PlayerMatchResponse,
+  usePlayerMatches,
+  useSyncMatches,
+} from '@/api/overview'
 import { usePlayer } from '@/api/queries'
 import DemoBringingFeed from '@/components/DemoBringingFeed'
 import DemoDropOverlay from '@/components/DemoDropOverlay'
@@ -48,11 +57,15 @@ function isIn(filter: Filter, match: PlayerMatchResponse): boolean {
 function PlayerMatches({ playerId }: { playerId: string }) {
   const t = useT()
   const player = usePlayer(playerId)
-  const matches = usePlayerMatches(playerId)
-  const [filter, setFilter] = useState<Filter>('all')
   // The player's own page: the matches are the visitor's, so the visitor's demos can be brought for them.
   const viewer = useViewer()
   const own = viewer.signedIn && viewer.playerId === playerId
+  // When this page first saw each PARSED row: one that stays PARSED for 30 minutes is shown as nothing is going on.
+  // A map that is kept for the page's life and changed in place, so that it is a state only to stay the same object.
+  const [parsedSeen] = useState<ParsedSeen>(() => new Map())
+  const matches = usePlayerMatches(playerId, undefined, own, parsedSeen)
+  const [filter, setFilter] = useState<Filter>('all')
+  const [now, setNow] = useState(() => Date.now())
   useSyncMatches(playerId, own)
   const rowInput = useRef<HTMLInputElement>(null)
   // The match the chooser of a row's action was opened for.
@@ -77,7 +90,24 @@ function PlayerMatches({ playerId }: { playerId: string }) {
     .flatMap((page) => page.items)
     .filter((item, index, all) => all.findIndex((other) => other.matchId === item.matchId) === index)
   const shown = items?.filter((match) => isIn(filter, match))
-  const bring = useDemoBringing(items)
+  // The row that reaches its 30 minutes has no new answer to be drawn again by, so a timer renews the clock for it.
+  useEffect(() => {
+    if (!items) {
+      return
+    }
+    noteParsedRows(parsedSeen, items, Date.now())
+    const due = items
+      .filter((match) => match.demoStatus === 'PARSED')
+      .map((match) => (parsedSeen.get(`${match.matchId}:PARSED`) ?? 0) + PARSED_STALLED_MS)
+      .filter((at) => at > Date.now())
+    if (due.length === 0) {
+      return
+    }
+    const timer = setTimeout(() => setNow(Date.now()), Math.min(...due) - Date.now() + 100)
+    return () => clearTimeout(timer)
+  }, [items, now, parsedSeen])
+  // The one list is complete when no page is left to load: a match that is not in it is not the visitor's.
+  const bring = useDemoBringing(items, matches.data !== undefined && !matches.hasNextPage)
   function bringFiles(files: File[]) {
     for (const file of files) {
       bring.bringFile(file)
@@ -183,6 +213,7 @@ function PlayerMatches({ playerId }: { playerId: string }) {
                 {shown && shown.length > 0 && (
                   <MatchesTable
                     items={shown}
+                    stalled={(match) => isParsedStalled(parsedSeen, match, now)}
                     bringing={
                       own
                         ? {

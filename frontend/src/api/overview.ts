@@ -9,7 +9,7 @@ import {
 import { useEffect, useRef } from 'react'
 import { refreshMe } from './auth'
 import { type ApiError, apiGet, apiPost, apiUpload } from './client'
-import type { PlayerMatchPageResponse, PlayerOverviewResponse } from './overviewTypes'
+import type { PlayerMatchPageResponse, PlayerMatchResponse, PlayerOverviewResponse } from './overviewTypes'
 import { invalidateDemoResults, retryUnlessClientError } from './queries'
 import type { DemoResponse, DemoStatus } from './types'
 
@@ -55,12 +55,44 @@ export function isDemoInProgress(status: DemoStatus | null): boolean {
 }
 
 /**
+ * How long a demo may stay PARSED on one page before the page stops counting it as in progress: a demo that the
+ * analysis never takes up would otherwise keep the list asking for ever. The backend gives the row no time of its own,
+ * so it is the page's first sight of the row that counts.
+ */
+export const PARSED_STALLED_MS = 30 * 60_000
+
+/** When this page first saw a row in a status, by `matchId:status`: only the PARSED ones are kept. */
+export type ParsedSeen = Map<string, number>
+
+/** Notes the PARSED rows that this page has not seen yet as seen at `now`. */
+export function noteParsedRows(seen: ParsedSeen, items: PlayerMatchResponse[], now: number): void {
+  for (const match of items) {
+    const key = `${match.matchId}:${match.demoStatus}`
+    if (match.demoStatus === 'PARSED' && !seen.has(key)) {
+      seen.set(key, now)
+    }
+  }
+}
+
+/** Whether a PARSED row has been so for `PARSED_STALLED_MS` on this page: it is then shown as nothing is going on. */
+export function isParsedStalled(seen: ParsedSeen, match: PlayerMatchResponse, now: number): boolean {
+  const since = match.demoStatus === 'PARSED' ? seen.get(`${match.matchId}:PARSED`) : undefined
+  return since !== undefined && now - since >= PARSED_STALLED_MS
+}
+
+/**
  * A player's matches with their demos, highlights and clips, one page of `limit` at a time, as `usePlayerHistory` pages
  * the history: `fetchNextPage` appends the page that starts at `offset + limit`, and a page shorter than `limit` is the
- * last one. While a loaded match has a demo on its way the pages are asked for again every 5 seconds, and while one has
- * a clip in progress every 15.
+ * last one. On the visitor's own page (`own`) the pages are asked for again every 5 seconds while a loaded match has a
+ * demo on its way, except a PARSED one that has been so for 30 minutes (`seen` holds when each was first seen); on any
+ * page they are asked for every 15 seconds while a loaded match has a clip in progress.
  */
-export function usePlayerMatches(playerId: string, limit = MATCHES_PAGE_SIZE) {
+export function usePlayerMatches(
+  playerId: string,
+  limit = MATCHES_PAGE_SIZE,
+  own = false,
+  seen: ParsedSeen | null = null,
+) {
   return useInfiniteQuery<
     PlayerMatchPageResponse,
     ApiError,
@@ -77,7 +109,14 @@ export function usePlayerMatches(playerId: string, limit = MATCHES_PAGE_SIZE) {
     // Only while some loaded match has a demo or a clip on its way; a list without one is not asked for again by itself.
     refetchInterval: (query) => {
       const items = query.state.data?.pages.flatMap((page) => page.items) ?? []
-      if (items.some((match) => isDemoInProgress(match.demoStatus))) {
+      const now = Date.now()
+      if (seen) {
+        noteParsedRows(seen, items, now)
+      }
+      const demoOnItsWay = items.some(
+        (match) => isDemoInProgress(match.demoStatus) && !(seen && isParsedStalled(seen, match, now)),
+      )
+      if (own && demoOnItsWay) {
         return DEMOS_POLL_MS
       }
       return items.some((match) => match.clips.active > 0) ? CLIPS_POLL_MS : false
