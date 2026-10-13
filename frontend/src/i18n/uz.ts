@@ -36,7 +36,7 @@ export const uz: Messages = {
     orByNickname: "Yoki kirmasdan, nickname bo'yicha",
     byNickname: "Nickname bo'yicha",
     signInFailed: "Kirish amalga oshmadi. Qayta urinib ko'ring.",
-    unlinkedTag: 'FACEIT topilmasa',
+    unlinkedTag: 'FACEIT topilmadi',
     unlinked: "Bu Steam hisobiga FACEIT bog'lanmagan. Nickname bo'yicha qidirishingiz mumkin.",
   },
   home: {
@@ -157,7 +157,6 @@ export const uz: Messages = {
     kills: 'K',
     deaths: 'D',
     assists: 'A',
-    headshots: 'HS',
     kdRatio: 'K/D',
     adr: 'ADR',
     empty: "O'yinchilar statistikasi yo'q",
@@ -293,7 +292,7 @@ export const uz: Messages = {
     loadingList: 'Kliplar yuklanmoqda…',
     empty: "Hali klip yo'q",
     tabs: {
-      label: "Kliplarni holati bo'yicha saralash",
+      label: "Kliplarni holat bo'yicha saralash",
       all: 'Hammasi',
       active: 'Jarayonda',
       ready: 'Tayyor',

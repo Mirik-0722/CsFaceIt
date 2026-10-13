@@ -7,8 +7,6 @@ import type { TeamStatsResponse } from '@/api/types'
 // The square of a won round is filled with the colour of the side that won it; the legend under the strip and the
 // words of every round say the same, so the colour is never the only sign.
 const WON: Record<RoundSide, string> = { CT: 'border-side-ct bg-side-ct', T: 'border-side-t bg-side-t' }
-// A round a team won on a side the demo does not tell.
-const WON_UNKNOWN_SIDE = 'border-ring bg-ring'
 const EMPTY = 'border-border'
 
 interface RoundStripProps {
@@ -66,7 +64,8 @@ export default function RoundStrip({ rounds, teams, highlightRounds }: RoundStri
             {rounds.map((round, index) => {
               const winner = winners[index]
               const marked = highlightRounds.has(round.number)
-              const won = round.winnerSide ? WON[round.winnerSide] : WON_UNKNOWN_SIDE
+              // A round with no winning side is not coloured, whoever the words say won it.
+              const won = round.winnerSide ? WON[round.winnerSide] : EMPTY
               const winnerName = rows && winner !== null ? (rows[winner].name ?? t.stats.team) : null
               return (
                 <li
@@ -87,7 +86,7 @@ export default function RoundStrip({ rounds, teams, highlightRounds }: RoundStri
                   ) : (
                     <span
                       aria-hidden="true"
-                      className={cn('block size-5.5 border', round.winnerSide ? won : EMPTY)}
+                      className={cn('block size-5.5 border', won)}
                     />
                   )}
                   <span

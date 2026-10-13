@@ -2,7 +2,9 @@ import { Popover } from '@base-ui/react/popover'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { type MeResponse, useLogout } from '@/api/auth'
-import { useT } from '@/i18n'
+import { usePlayer } from '@/api/queries'
+import { useLocale, useT } from '@/i18n'
+import { formatInteger } from '@/lib/formatNumber'
 import { cn } from '@/lib/utils'
 
 /**
@@ -26,8 +28,35 @@ function Face({ me }: { me: MeResponse }) {
 }
 
 /**
- * The round button of a signed-in visitor and the menu under it (spec 6): the nickname, the player's own statistics
- * when there is a player, the clips, and the way out. A popover, not a `menu` role: it holds a heading and links to
+ * The line under the nickname, as the board draws it: the FACEIT level and the ELO of the visitor's player in mono,
+ * upper case. `/auth/me` carries neither, so they come from the player query the player's page uses; this component is
+ * mounted by the open menu only, so nothing is asked for until the visitor opens it. The line keeps its height whether
+ * it has a text or not (while the answer is on its way, when it fails, for a player without CS2 data), so that nothing
+ * in the menu moves when the text arrives.
+ */
+function LevelLine({ playerId }: { playerId: string }) {
+  const t = useT()
+  const locale = useLocale()
+  const player = usePlayer(playerId)
+  const level = player.data?.level ?? null
+  const elo = player.data?.elo ?? null
+  const parts: string[] = []
+  if (level !== null) {
+    parts.push(t.player.faceitLevel(level))
+  }
+  if (elo !== null) {
+    parts.push(t.player.elo(formatInteger(elo, locale)))
+  }
+  return (
+    <span className="block h-4 truncate font-mono text-[11px] leading-4 tracking-[0.06em] text-subtle uppercase">
+      {parts.join(' · ')}
+    </span>
+  )
+}
+
+/**
+ * The round button of a signed-in visitor and the menu under it (spec 6): the nickname with the player's FACEIT level
+ * and ELO under it when there is a player, the player's own statistics, the clips, and the way out. A popover, not a `menu` role: it holds a heading and links to
  * pages, which Tab walks through, and it closes on Escape, on a click outside and on following a link.
  */
 export default function AccountMenu({ me, onSignedOut }: { me: MeResponse; onSignedOut: () => void }) {
@@ -63,9 +92,14 @@ export default function AccountMenu({ me, onSignedOut }: { me: MeResponse; onSig
               >
                 <Face me={me} />
               </span>
-              <Popover.Title render={<p />} className="min-w-0 truncate text-[15px] font-semibold">
-                {me.nickname}
-              </Popover.Title>
+              {/* The column takes the padding on its right as well: "FACEIT 10-DARAJA · 3 500 ELO" is a little wider than the
+                  room beside the picture, and cut short it would lose the ELO it ends with. */}
+              <div className="-mr-4 flex min-w-0 flex-col gap-0.5">
+                <Popover.Title render={<p />} className="truncate text-[15px] font-semibold">
+                  {me.nickname}
+                </Popover.Title>
+                {me.playerId && <LevelLine playerId={me.playerId} />}
+              </div>
             </div>
             {/* The links close the menu themselves: a closer of the library would make each of them a `button`. */}
             {me.playerId && (

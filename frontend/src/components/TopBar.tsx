@@ -55,7 +55,7 @@ export default function TopBar() {
     }
   }, [user])
   const home = pathname === '/'
-  // The landing page's bar is the lighter one: anchors of 44px and a right side that does not wrap by itself.
+  // The landing page's bar is the lighter one: anchors of 44px, closer rows and a right side without padding of its own.
   const landing = home && user === null
   const playerPath = user?.playerId ? `/players/${encodeURIComponent(user.playerId)}` : null
 

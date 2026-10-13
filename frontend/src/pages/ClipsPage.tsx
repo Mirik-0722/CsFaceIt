@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useMe } from '@/api/auth'
 import { usePlayerClips, useRecentClips } from '@/api/queries'
-import type { ClipResponse } from '@/api/types'
 import ClipList from '@/components/ClipList'
 import RecorderBanner from '@/components/RecorderBanner'
 import { Button } from '@/components/ui/button'
@@ -9,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { isFinished } from '@/lib/clipStatus'
 import { errorMessage } from '@/lib/errorMessage'
+import type { ClipResponse } from '@/api/types'
 
 type Tab = 'all' | 'active' | 'ready' | 'failed'
 
@@ -73,8 +73,8 @@ function EveryoneClips() {
 
 /**
  * The signed-in player's own clips in whatever state, newest first, under tabs by state (the page "Kliplar" of the
- * design). The tabs work on the clips loaded so far and carry how many each shows, as the filters of the matches page
- * do. The list is asked for again by itself while a clip is on its way, so a clip moves from tab to tab as it goes.
+ * design). The tabs work on the clips loaded so far and carry how many each shows, with a "+" while another page is still
+ * to come, as the filters of the matches page do. The list is asked for again by itself while a clip is on its way, so a clip moves from tab to tab as it goes.
  */
 function PlayerClips({ playerId }: { playerId: string }) {
   const t = useT()
@@ -91,8 +91,8 @@ function PlayerClips({ playerId }: { playerId: string }) {
     ready: t.clip.tabs.ready,
     failed: t.clip.tabs.failed,
   }
-  const emptyTexts: Record<Tab, string> = {
-    all: t.clip.empty,
+  // No text for "all": a list without a clip at all is the page of everybody's clips (below), not an empty tab.
+  const emptyTexts: Record<Exclude<Tab, 'all'>, string> = {
     active: t.clip.tabs.emptyActive,
     ready: t.clip.tabs.emptyReady,
     failed: t.clip.tabs.emptyFailed,
@@ -119,6 +119,13 @@ function PlayerClips({ playerId }: { playerId: string }) {
               {labels[kind]}
               <span className="font-mono text-xs font-normal text-subtle tabular-nums">
                 {items.filter((clip) => isIn(kind, clip)).length}
+                {/* Another page is still to come: the count is of what is loaded so far, so it is "12+". */}
+                {clips.hasNextPage && (
+                  <>
+                    <span aria-hidden="true">+</span>
+                    <span className="sr-only"> {t.matches.loadedSoFar}</span>
+                  </>
+                )}
               </span>
             </button>
           ))}
@@ -127,7 +134,9 @@ function PlayerClips({ playerId }: { playerId: string }) {
       <div aria-live="polite" className="flex flex-col gap-2">
         {clips.isPending && <ClipsLoading />}
         {shown && shown.length > 0 && <ClipList items={shown} />}
-        {shown?.length === 0 && <p className="text-sm text-muted-foreground">{emptyTexts[tab]}</p>}
+        {tab !== 'all' && shown?.length === 0 && (
+          <p className="text-sm text-muted-foreground">{emptyTexts[tab]}</p>
+        )}
         {clips.isError && <p className="text-sm text-destructive">{errorMessage(clips.error, t)}</p>}
       </div>
       {clips.hasNextPage && (
