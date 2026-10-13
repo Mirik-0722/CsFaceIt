@@ -54,9 +54,15 @@ public class AuthController {
         this.sessions = sessions;
     }
 
+    /**
+     * Which ways of signing in are offered. FACEIT is reported off whatever the settings say: its two endpoints below
+     * always answer as for a provider that is off, so a client id alone must not make the site show a live button that
+     * leads to an error. What turns it on is the flow itself (plan 6a, Task C): then this answers
+     * {@code properties.faceit().enabled()}, which is already read from {@code FACEIT_OAUTH_CLIENT_ID}.
+     */
     @GetMapping("/providers")
     public ProvidersResponse providers() {
-        return new ProvidersResponse(true, properties.faceit().enabled());
+        return new ProvidersResponse(true, false);
     }
 
     /**

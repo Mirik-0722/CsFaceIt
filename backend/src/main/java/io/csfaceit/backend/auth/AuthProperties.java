@@ -16,7 +16,8 @@ import org.springframework.validation.annotation.Validated;
  * not 17 digits or a session that lasts no time, so a mistake shows up at startup and not at the first sign-in.
  *
  * @param steam where the browser is sent to sign in with Steam and where the backend asks whether the answer is genuine
- * @param faceit the FACEIT OAuth application; the sign-in with FACEIT is on only while it has a client id
+ * @param faceit the FACEIT OAuth application; read, but not used until the sign-in with FACEIT exists (then it is on
+ *        only while there is a client id)
  * @param adminSteamIds the SteamID64s of the people who get the role {@code ADMIN} when they sign in; everyone else is
  *        a {@code USER}. Blank entries are dropped, so a trailing comma in the environment variable does no harm.
  * @param sessionLifetime how long a session lasts from the moment it is made; use does not extend it
@@ -53,7 +54,7 @@ public record AuthProperties(
     /** {@code clientSecret} is never logged: {@link #toString} hides it. */
     public record Faceit(String clientId, String clientSecret) {
 
-        /** Whether a FACEIT OAuth client id is configured, which is what switches the sign-in with FACEIT on. */
+        /** Whether a FACEIT OAuth client id is configured, which is what will switch the sign-in with FACEIT on. */
         public boolean enabled() {
             return clientId != null && !clientId.isBlank();
         }
