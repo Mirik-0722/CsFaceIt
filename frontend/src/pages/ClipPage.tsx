@@ -233,22 +233,24 @@ function KillList({ kills, onSeek }: { kills: ClipKill[]; onSeek: ((offsetMs: nu
 
 /**
  * The facts of the clip as a two-column list, the map first, with its emblem; a fact the clip does not have yet is left
- * out (a clip of no known map has no row for it).
+ * out (the map's row is always there: a clip of no known map says "map unknown").
  */
 function ClipFacts({ clip }: { clip: ClipResponse }) {
   const t = useT()
   const locale = useLocale()
   const map = mapLabel(clip.mapName)
-  const facts: [string, ReactNode][] = []
-  if (map !== null) {
-    facts.push([
-      t.clip.page.map,
-      <span key="map" className="inline-flex items-center justify-end gap-2">
+  // The map first: its emblem and name; a clip of no known map says so in words, as its card does, without an emblem.
+  // A block of its own (not inline), so that the 20px emblem does not make the row taller than the others.
+  const mapValue =
+    map === null ? (
+      t.match.unknownMap
+    ) : (
+      <span className="flex items-center justify-end gap-2">
         <MapEmblem mapName={clip.mapName} size={20} fallback="none" />
         {map}
-      </span>,
-    ])
-  }
+      </span>
+    )
+  const facts: [string, ReactNode][] = [[t.clip.page.map, mapValue]]
   facts.push([t.clip.page.quality, `${clip.quality} · ${t.clip.page.fps(clip.fps)}`])
   if (clip.durationMs !== null) {
     facts.push([t.clip.page.duration, formatDuration(clip.durationMs / 1000)])

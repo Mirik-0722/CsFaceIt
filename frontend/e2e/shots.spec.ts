@@ -214,11 +214,13 @@ function tenMatches(): MatchHistoryResponse {
 
 /**
  * The E2E fixture's maps with one share of wins under 50%, so that the maps table shows a red bar as well as the green
- * ones (Mirage 60%, Inferno 33%, Ancient 50%, Nuke 100%, Dust2 0%: no fill).
+ * ones (Mirage 80%, Inferno 33%, Ancient 50%, Nuke 100%, Dust2 0%: no fill). One win moves from Inferno to Mirage, so
+ * the maps still add up to the fixture's 7 wins of 12 matches (the "G'alaba ulushi" tile's 58.3%).
  */
+const WINS_BY_MAP: Record<string, number> = { de_mirage: 4, de_inferno: 1 }
 const DEFAULT_OVERVIEW: PlayerOverviewResponse = {
   ...playerOverviewFixture,
-  maps: playerOverviewFixture.maps.map((map) => (map.mapName === 'de_inferno' ? { ...map, wins: 1 } : map)),
+  maps: playerOverviewFixture.maps.map((map) => ({ ...map, wins: WINS_BY_MAP[map.mapName] ?? map.wins })),
 }
 
 const DEFAULT_BACKEND: Backend = {

@@ -98,7 +98,9 @@ function ProfileHeader({ player, aside, scenery }: { player: PlayerResponse; asi
   return (
     <div
       data-scenery={shown ? 'shown' : undefined}
-      className="group/head relative isolate flex flex-wrap items-center justify-between gap-x-8 gap-y-5"
+      // Under `sm` the header is at least 92px high: with the ring the mono line wraps on most phones (below about 417px)
+      // and the header is 92px, so every header is, and the loading skeleton (see PlayerPage) is as tall.
+      className="group/head relative isolate flex flex-wrap items-center justify-between gap-x-8 gap-y-5 max-sm:min-h-23"
     >
       {scenery && <HeaderScenery url={scenery} shown={shown} onLoad={() => setLoadedUrl(scenery)} />}
       <div className="flex min-w-0 items-center gap-4.5">

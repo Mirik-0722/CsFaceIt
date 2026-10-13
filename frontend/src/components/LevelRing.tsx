@@ -22,7 +22,6 @@ interface LevelRingProps {
   /** FACEIT's skill level, 1 to 10; null (a player without CS2 data) or any other number draws nothing. */
   level: number | null
   size: keyof typeof SIZE_CLASS
-  className?: string
 }
 
 /**
@@ -31,7 +30,7 @@ interface LevelRingProps {
  * the level, so it is hidden from assistive technology. The number is in the text colour, not in the level's: some of
  * FACEIT's colours (the red of level 10) would fall short of 4.5:1 for a small text on a picture.
  */
-export default function LevelRing({ level, size, className }: LevelRingProps) {
+export default function LevelRing({ level, size }: LevelRingProps) {
   if (level === null || !Number.isInteger(level) || level < 1 || level > 10) {
     return null
   }
@@ -39,9 +38,8 @@ export default function LevelRing({ level, size, className }: LevelRingProps) {
     <span
       aria-hidden="true"
       className={cn(
-        'relative inline-flex shrink-0 items-center justify-center font-mono leading-none font-bold tabular-nums',
+        'relative inline-flex shrink-0 items-center justify-center font-mono leading-none font-bold text-foreground tabular-nums',
         SIZE_CLASS[size],
-        className,
       )}
     >
       {/* Turned a quarter back, so that the arc starts at the top instead of at three o'clock. */}

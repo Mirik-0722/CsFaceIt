@@ -201,11 +201,13 @@ function PlayerProfile({ playerId }: { playerId: string }) {
     <>
       <div aria-live="polite">
         {player.isPending && (
-          <>
+          // The label and the skeleton together are as tall as the header (72px, the avatar's; 92px under `sm`, where
+          // the header is at least that tall because the mono line wraps beside the ring), so that what follows does not
+          // move when the player arrives.
+          <div className="flex h-18 flex-col max-sm:h-23">
             <p className="label-mono mb-2">{t.player.loading}</p>
-            {/* As tall as the header's avatar, so that what follows does not jump up when the player arrives. */}
-            <Skeleton className="h-18 w-full" />
-          </>
+            <Skeleton className="min-h-0 w-full flex-1" />
+          </div>
         )}
         {playerFailed && <p className="text-sm text-destructive">{errorMessage(player.error, t)}</p>}
         {player.data && (
