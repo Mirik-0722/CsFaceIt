@@ -8,6 +8,7 @@ import io.csfaceit.backend.clip.ClipFacts.KillRow;
 import io.csfaceit.backend.clip.dto.ClipKill;
 import io.csfaceit.backend.clip.dto.ClipPageResponse;
 import io.csfaceit.backend.clip.dto.ClipResponse;
+import io.csfaceit.backend.clip.dto.MontageResponse;
 import io.csfaceit.backend.clip.dto.RecorderStatusResponse;
 import io.csfaceit.backend.common.api.NotFoundException;
 import java.sql.ResultSet;
@@ -75,7 +76,7 @@ public class ClipQueryService {
             SELECT c.id, c.match_id, c.player_id, c.kind, c.status, c.progress, m.faceit_match_id, m.map_name,
                    p.faceit_id AS player_faceit_id, p.nickname, c.highlight_type, c.round_number, c.tick_start,
                    c.quality, c.fps, c.duration_ms, c.size_bytes, c.error, c.error_code, c.video_key, c.thumbnail_key,
-                   c.created_at, c.finished_at, c.segments, d.tick_rate,
+                   c.created_at, c.finished_at, c.segments, c.options, d.tick_rate,
                    COALESCE(c.requested_by = CAST(:viewerId AS BIGINT), FALSE) AS mine,
                    CASE WHEN c.status = :queued THEN (
                        SELECT count(*) FROM clips q
@@ -134,7 +135,7 @@ public class ClipQueryService {
      */
     public ClipResponse get(long clipId, Long viewerId) {
         Row row = find(clipId, viewerId);
-        return row.toResponse(properties, kills(row));
+        return row.toResponse(properties, kills(row), montage(row));
     }
 
     /**
@@ -143,7 +144,8 @@ public class ClipQueryService {
      * @throws NotFoundException {@code CLIP_NOT_FOUND}
      */
     public ClipResponse summary(long clipId, Long viewerId) {
-        return find(clipId, viewerId).toResponse(properties, List.of());
+        Row row = find(clipId, viewerId);
+        return row.toResponse(properties, List.of(), montage(row));
     }
 
     /**
@@ -208,37 +210,59 @@ public class ClipQueryService {
     }
 
     private List<ClipResponse> responses(List<Row> rows) {
-        return rows.stream().map(row -> row.toResponse(properties, List.of())).toList();
+        return rows.stream().map(row -> row.toResponse(properties, List.of(), montage(row))).toList();
     }
 
     /**
-     * The kills of the clip, on the timeline of the video. One statement reads the player's kills from the first
-     * tick of the first segment to the last tick of the last, and each is placed in the segment it falls in; a kill in
-     * a gap between two segments is not in the video.
+     * The kills of the clip, on the timeline of the video. One statement reads the player's kills from the first tick
+     * any segment shows to the last, and each is placed in every segment it falls in; a kill in a gap between the
+     * segments is not in the video. The segments of a montage are in its player's order, not the demo's, and may show
+     * a kill twice; a slow-motion segment lasts twice as long in the video, and an intro card comes before the first.
      */
     private List<ClipKill> kills(Row row) {
         List<ClipSegment> segments = segments(row);
         if (segments.isEmpty()) {
             return List.of();
         }
-        List<KillRow> killRows = facts.killsIn(row.matchRowId(), row.playerRowId(), segments.get(0).startTick(),
-                segments.get(segments.size() - 1).endTick());
+        int fromTick = segments.stream().mapToInt(ClipSegment::startTick).min().orElseThrow();
+        int toTick = segments.stream().mapToInt(ClipSegment::endTick).max().orElseThrow();
+        List<KillRow> killRows = facts.killsIn(row.matchRowId(), row.playerRowId(), fromTick, toTick);
+        MontageOptions options = options(row);
         List<ClipKill> placed = new ArrayList<>();
-        long videoTicksBefore = 0;
-        int next = 0;
+        long videoTicksBefore = options == null ? 0 : options.introTicks(row.tickRate());
         for (ClipSegment segment : segments) {
-            while (next < killRows.size() && killRows.get(next).tick() < segment.startTick()) {
-                next++;
+            int speed = segment.slowMo() ? ClipSegment.SLOW_MO_FACTOR : 1;
+            for (KillRow kill : killRows) {
+                if (kill.tick() >= segment.startTick() && kill.tick() <= segment.endTick()) {
+                    long offsetTicks = videoTicksBefore + (long) (kill.tick() - segment.startTick()) * speed;
+                    placed.add(new ClipKill(milliseconds(offsetTicks, row.tickRate()), kill.weapon(),
+                            kill.headshot(), kill.victimNickname()));
+                }
             }
-            for (; next < killRows.size() && killRows.get(next).tick() <= segment.endTick(); next++) {
-                KillRow kill = killRows.get(next);
-                long offsetTicks = videoTicksBefore + (kill.tick() - segment.startTick());
-                placed.add(new ClipKill(milliseconds(offsetTicks, row.tickRate()), kill.weapon(), kill.headshot(),
-                        kill.victimNickname()));
-            }
-            videoTicksBefore += segment.endTick() - segment.startTick();
+            videoTicksBefore += segment.videoTicks();
         }
         return placed;
+    }
+
+    /** What a montage was ordered with, or {@code null} for a clip of another kind. */
+    private MontageResponse montage(Row row) {
+        MontageOptions options = options(row);
+        if (row.kind() != ClipKind.MONTAGE || options == null) {
+            return null;
+        }
+        return new MontageResponse(options.title(), options.aspect(), options.intro(), options.musicTrack(),
+                segments(row));
+    }
+
+    private MontageOptions options(Row row) {
+        if (row.optionsJson() == null) {
+            return null;
+        }
+        try {
+            return mapper.readValue(row.optionsJson(), MontageOptions.class);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("The options of clip " + row.id() + " cannot be read", e);
+        }
     }
 
     private static int milliseconds(long ticks, int tickRate) {
@@ -297,7 +321,7 @@ public class ClipQueryService {
                 nullableInt(rs, "duration_ms"), nullableLong(rs, "size_bytes"), rs.getString("error"),
                 ClipErrorCode.fromName(rs.getString("error_code")), rs.getString("video_key"),
                 rs.getString("thumbnail_key"), rs.getObject("created_at", OffsetDateTime.class).toInstant(),
-                finishedAt == null ? null : finishedAt.toInstant(), rs.getString("segments"),
+                finishedAt == null ? null : finishedAt.toInstant(), rs.getString("segments"), rs.getString("options"),
                 ClipFacts.tickRate(nullableInt(rs, "tick_rate")), nullableInt(rs, "queue_position"),
                 rs.getBoolean("mine"));
     }
@@ -337,10 +361,10 @@ public class ClipQueryService {
                        String matchId, String mapName, String playerId, String nickname, HighlightType highlightType,
                        Integer roundNumber, Integer tickStart, ClipQuality quality, int fps, Integer durationMs,
                        Long sizeBytes, String error, ClipErrorCode errorCode, String videoKey, String thumbnailKey,
-                       Instant createdAt, Instant finishedAt, String segmentsJson, int tickRate,
+                       Instant createdAt, Instant finishedAt, String segmentsJson, String optionsJson, int tickRate,
                        Integer queuePosition, boolean mine) {
 
-        ClipResponse toResponse(ClipProperties properties, List<ClipKill> kills) {
+        ClipResponse toResponse(ClipProperties properties, List<ClipKill> kills, MontageResponse montage) {
             boolean done = status == ClipStatus.DONE;
             Instant expiresAt = done && finishedAt != null && properties.retentionDays() > 0
                     ? finishedAt.plus(properties.retentionDays(), ChronoUnit.DAYS) : null;
@@ -349,7 +373,7 @@ public class ClipQueryService {
                     errorCode, status == ClipStatus.QUEUED ? queuePosition : null,
                     done ? "/api/v1/clips/" + id + "/video" : null,
                     done && thumbnailKey != null ? "/api/v1/clips/" + id + "/thumbnail" : null,
-                    createdAt, finishedAt, expiresAt, kills, mine);
+                    createdAt, finishedAt, expiresAt, kills, mine, montage);
         }
     }
 }

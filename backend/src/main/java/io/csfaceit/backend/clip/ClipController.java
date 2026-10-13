@@ -11,6 +11,7 @@ import io.csfaceit.backend.clip.dto.ClipPageResponse;
 import io.csfaceit.backend.clip.dto.ClipRequest;
 import io.csfaceit.backend.clip.dto.ClipResponse;
 import io.csfaceit.backend.clip.dto.CompilationRequest;
+import io.csfaceit.backend.clip.dto.MontageRequest;
 import io.csfaceit.backend.clip.dto.RecorderStatusResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -31,8 +32,9 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Asking for the clip of a highlight or for the compilation of a player's kills in a match, trying a failed clip
- * again, deleting a clip, and reading clips and the state of the recorder. The three requests are {@code POST}s and the
+ * Asking for the clip of a highlight, for the compilation of a player's kills in a match or for a montage of them,
+ * trying a failed clip again, deleting a clip, and reading clips and the state of the recorder. The four requests are
+ * {@code POST}s and the
  * delete a {@code DELETE}; they take the admin key or a session, and a user who is no administrator acts for their own
  * player and their own clips only, which {@link ClipService} asks {@link Access} about (403 otherwise). The controller
  * only says who is acting, and who is reading: every clip in an answer says whether it is the reader's own
@@ -80,6 +82,19 @@ public class ClipController {
         ClipCreation creation = clips.requestCompilation(access.current(), matchId, request.playerId(),
                 request.quality());
         return ResponseEntity.status(creation.created() ? HttpStatus.CREATED : HttpStatus.OK).body(creation.clip());
+    }
+
+    /**
+     * 202 with the montage this request queued: every order is a new clip, also one exactly like a montage that
+     * stands. The body names the player and is required, as for a compilation; what else is wrong with it is a 400
+     * {@code INVALID_MONTAGE_OPTION} or {@code INVALID_SEGMENTS} (see {@link MontageRequest}).
+     */
+    @PostMapping("/matches/{matchId}/montages")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ClipResponse requestMontage(
+            @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId,
+            @Valid @RequestBody MontageRequest request) {
+        return clips.requestMontage(access.current(), matchId, request).clip();
     }
 
     @GetMapping("/clips/{clipId}")

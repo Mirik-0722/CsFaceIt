@@ -10,6 +10,8 @@ import io.csfaceit.backend.clip.ClipPersistence.CompilationKey;
 import io.csfaceit.backend.clip.ClipPersistence.FailedClip;
 import io.csfaceit.backend.clip.ClipPersistence.HighlightKey;
 import io.csfaceit.backend.clip.dto.ClipResponse;
+import io.csfaceit.backend.clip.dto.MontageRequest;
+import io.csfaceit.backend.common.api.BadRequestException;
 import io.csfaceit.backend.common.api.ConflictException;
 import io.csfaceit.backend.common.api.NotFoundException;
 import io.csfaceit.backend.common.api.TooManyRequestsException;
@@ -28,6 +30,7 @@ import io.csfaceit.backend.usage.UsageService;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -48,6 +51,10 @@ import org.springframework.stereotype.Service;
  *
  * <p>A compilation is requested for a player and a quality in a match and is made of every kill of the player in the
  * match, round by round. No highlight is behind it, so the demo is read from the parser's facts alone.
+ *
+ * <p>A montage is requested for a player, a quality and the segments and options he chose in the editor
+ * ({@link EditorService}). The segments are his, in his order; they are only checked against the demo, never worked
+ * out, sorted or merged here. Every order of a montage is a new clip.
  *
  * <p>Every request is made by an {@link Actor}, and {@link Access} is asked whether the actor may: the admin key and an
  * administrator always; a user orders clips of their own player only, and deletes and retries only the clips they
@@ -76,6 +83,11 @@ public class ClipService {
     private static final String PLAYER_NOT_FOUND = "PLAYER_NOT_FOUND";
     private static final String NO_KILLS = "NO_KILLS";
     private static final String CLIP_NOT_FOUND = "CLIP_NOT_FOUND";
+    private static final String INVALID_SEGMENTS = "INVALID_SEGMENTS";
+    private static final String INVALID_MONTAGE_OPTION = "INVALID_MONTAGE_OPTION";
+
+    /** The options of a montage whose row lost them, which no montage ordered here does: no title, intro or music. */
+    private static final MontageOptions NO_OPTIONS = new MontageOptions(null, ClipAspect.LANDSCAPE, false, null);
 
     /** The owner check of a delete that nobody asked for: the clean-up of old clips removes every clip alike. */
     private static final Consumer<Long> ANY_OWNER = requestedBy -> {
@@ -177,7 +189,7 @@ public class ClipService {
         List<Integer> killTicks = facts.killTicks(match.getId(), player.getId(), key.roundNumber(), key.tickStart(),
                 tickEnd);
         List<ClipSegment> segments = SegmentBuilder.build(killTicks, key.tickStart(), tickEnd, tickRate, properties);
-        rejectIfTooLong(segments, tickRate);
+        rejectIfTooLong(SegmentBuilder.totalTicks(segments), tickRate);
 
         long clipId;
         try {
@@ -271,7 +283,7 @@ public class ClipService {
                     + faceitMatchId + ", so there is nothing to compile");
         }
         rejectIfQueueFull();
-        rejectIfTooLong(segments, tickRate);
+        rejectIfTooLong(SegmentBuilder.totalTicks(segments), tickRate);
 
         long clipId;
         try {
@@ -296,6 +308,154 @@ public class ClipService {
     }
 
     /**
+     * Queues a montage: the stretches of a match the player picked in the editor, in his order, with the options he
+     * chose. Unlike a compilation every order is a new clip, also one exactly like a montage that stands; nothing is
+     * looked up first. The checks come in this order, and the first that fails ends the request:
+     * <ol>
+     *   <li>the options: a known quality ({@code null} is 720p) and shape ({@code null} is 16:9), a title of at most
+     *       {@link EditorService#TITLE_MAX_LENGTH} characters with no control character, and a music track of
+     *       {@code clip.music-tracks} or none
+     *   <li>the segments as given: 1 to {@link EditorService#MAX_SEGMENTS} of them, each with both ticks, not negative,
+     *       and its start before its end
+     *   <li>the player is the actor's own (a user; the admin key and an administrator order for anyone)
+     *   <li>the match, and then the player, are known to the database (FACEIT is not asked)
+     *   <li>the file of the demo is stored, and the player's SteamID is known, as for a compilation
+     *   <li>each segment lies within the rounds of the demo (from the first tick of the first round to the last of the
+     *       last) and is not longer than {@link EditorService#MAX_SEGMENT_SECONDS}
+     *   <li>the queue has room
+     *   <li>the video, with each slow-motion segment twice its length and the intro card, is not longer than
+     *       {@code clip.max-duration-seconds}
+     *   <li>the actor has a clip order left today (a user; the admin key and an administrator are not limited)
+     * </ol>
+     *
+     * @param actor who orders; the clip that is queued records its user
+     * @throws BadRequestException {@code INVALID_MONTAGE_OPTION} or {@code INVALID_SEGMENTS}
+     * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_YOUR_PLAYER}
+     * @throws NotFoundException {@code MATCH_NOT_FOUND} or {@code PLAYER_NOT_FOUND}
+     * @throws ConflictException {@code DEMO_NOT_AVAILABLE}, {@code PLAYER_STEAM_ID_UNKNOWN} or {@code CLIP_TOO_LONG}
+     * @throws TooManyRequestsException {@code CLIP_QUEUE_FULL}
+     * @throws QuotaExceededException {@code CLIP_LIMIT_REACHED}
+     */
+    public ClipCreation requestMontage(Actor actor, String faceitMatchId, MontageRequest request) {
+        ClipQuality quality = montageQuality(request.quality());
+        MontageOptions options = montageOptions(request);
+        List<ClipSegment> segments = montageSegments(request.segments());
+
+        String faceitPlayerId = request.playerId();
+        access.requireOwnPlayer(actor, faceitPlayerId);
+        Match match = matches.findByFaceitMatchId(faceitMatchId)
+                .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND, "Match not found: " + faceitMatchId));
+        Player player = players.findByFaceitId(faceitPlayerId)
+                .orElseThrow(() -> new NotFoundException(PLAYER_NOT_FOUND, "Player not found: " + faceitPlayerId));
+        return orderMontage(match, player, quality, segments, options, actor.userId(), actor);
+    }
+
+    /**
+     * A new montage in the queue: the checks of {@link #requestMontage} from the fifth on, for an order and for a retry
+     * alike.
+     *
+     * @param requestedBy who the new clip is recorded for
+     * @param actor who asks: the clip counts against their limit per day, and the answer is for them (see
+     *        {@link ClipResponse#mine})
+     */
+    private ClipCreation orderMontage(Match match, Player player, ClipQuality quality, List<ClipSegment> segments,
+                                      MontageOptions options, Long requestedBy, Actor actor) {
+        String faceitMatchId = match.getFaceitMatchId();
+        int tickRate = tickRateOfRecordableDemo(match, player);
+        rejectIfOutsideDemo(segments, match, tickRate);
+        rejectIfQueueFull();
+        long videoTicks = SegmentBuilder.totalTicks(segments) + options.introTicks(tickRate);
+        rejectIfTooLong(videoTicks, tickRate);
+
+        long clipId = persistence.queueMontage(match.getId(), player.getId(), quality, properties.fps(), segments,
+                options, requestedBy, () -> usage.reserve(actor, UsageKind.CLIP_ORDER));
+        metrics.requested(ClipKind.MONTAGE);
+        log.info("Queued clip {} at {} {} for a montage of {} in match {}: {} segment(s), {} ticks", clipId,
+                quality.label(), options.aspect().label(), SteamIds.maskPlayerId(player.getFaceitId()), faceitMatchId,
+                segments.size(), videoTicks);
+        return new ClipCreation(queries.summary(clipId, actor.userId()), true);
+    }
+
+    private static ClipQuality montageQuality(String label) {
+        if (label == null) {
+            return ClipQuality.P720;
+        }
+        try {
+            return ClipQuality.fromLabel(label);
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException(INVALID_MONTAGE_OPTION, e.getMessage());
+        }
+    }
+
+    /** The options of the request, or a 400 {@code INVALID_MONTAGE_OPTION} naming the first that is wrong. */
+    private MontageOptions montageOptions(MontageRequest request) {
+        ClipAspect aspect = request.aspect() == null ? ClipAspect.LANDSCAPE
+                : ClipAspect.find(request.aspect()).orElseThrow(() -> new BadRequestException(INVALID_MONTAGE_OPTION,
+                        "Unknown aspect; expected one of " + ClipAspect.labels()));
+        String title = request.title() == null || request.title().isBlank() ? null : request.title().strip();
+        if (title != null && title.codePointCount(0, title.length()) > EditorService.TITLE_MAX_LENGTH) {
+            throw new BadRequestException(INVALID_MONTAGE_OPTION,
+                    "The title is longer than " + EditorService.TITLE_MAX_LENGTH + " characters");
+        }
+        if (title != null && title.codePoints().anyMatch(Character::isISOControl)) {
+            throw new BadRequestException(INVALID_MONTAGE_OPTION, "The title holds a control character");
+        }
+        String musicTrack = request.musicTrack() == null || request.musicTrack().isBlank() ? null
+                : request.musicTrack();
+        if (musicTrack != null && !properties.hasMusicTrack(musicTrack)) {
+            throw new BadRequestException(INVALID_MONTAGE_OPTION, "Unknown music track; expected one of "
+                    + properties.musicTracks().stream().map(ClipProperties.MusicTrack::id).toList());
+        }
+        return new MontageOptions(title, aspect, request.intro(), musicTrack);
+    }
+
+    /**
+     * The segments of the request in its order, as long as their shape is right (the demo is not looked at here), or a
+     * 400 {@code INVALID_SEGMENTS}.
+     */
+    private static List<ClipSegment> montageSegments(List<MontageRequest.Segment> requested) {
+        if (requested == null || requested.isEmpty() || requested.size() > EditorService.MAX_SEGMENTS) {
+            throw new BadRequestException(INVALID_SEGMENTS,
+                    "A montage has 1 to " + EditorService.MAX_SEGMENTS + " segments");
+        }
+        List<ClipSegment> segments = new ArrayList<>(requested.size());
+        for (int i = 0; i < requested.size(); i++) {
+            MontageRequest.Segment segment = requested.get(i);
+            if (segment == null || segment.startTick() == null || segment.endTick() == null) {
+                throw new BadRequestException(INVALID_SEGMENTS, "Segment " + (i + 1) + " has no start or end tick");
+            }
+            if (segment.startTick() < 0 || segment.startTick() >= segment.endTick()) {
+                throw new BadRequestException(INVALID_SEGMENTS,
+                        "Segment " + (i + 1) + " must start at a tick of 0 or more and before its end");
+            }
+            segments.add(new ClipSegment(segment.startTick(), segment.endTick(), segment.slowMo()));
+        }
+        return segments;
+    }
+
+    /**
+     * Refuses a segment that reaches outside the rounds of the demo or is longer than
+     * {@link EditorService#MAX_SEGMENT_SECONDS}, with a 400 {@code INVALID_SEGMENTS}.
+     */
+    private void rejectIfOutsideDemo(List<ClipSegment> segments, Match match, int tickRate) {
+        List<ClipFacts.RoundSpan> rounds = facts.rounds(match.getId());
+        int firstTick = rounds.stream().mapToInt(ClipFacts.RoundSpan::startTick).min().orElse(Integer.MAX_VALUE);
+        int lastTick = rounds.stream().mapToInt(ClipFacts.RoundSpan::endTick).max().orElse(Integer.MIN_VALUE);
+        long maxTicks = (long) EditorService.MAX_SEGMENT_SECONDS * tickRate;
+        for (int i = 0; i < segments.size(); i++) {
+            ClipSegment segment = segments.get(i);
+            if (segment.startTick() < firstTick || segment.endTick() > lastTick) {
+                throw new BadRequestException(INVALID_SEGMENTS, "Segment " + (i + 1) + " lies outside the rounds of "
+                        + "the demo of match " + match.getFaceitMatchId());
+            }
+            if (segment.ticks() > maxTicks) {
+                throw new BadRequestException(INVALID_SEGMENTS, "Segment " + (i + 1) + " is longer than "
+                        + EditorService.MAX_SEGMENT_SECONDS + " seconds");
+            }
+        }
+    }
+
+    /**
      * Orders a failed clip again: the same highlight (or the same compilation) at the same quality, as a new clip in
      * the queue, and the failed row goes with whatever its attempts left in the storage. The new clip is recorded for
      * whoever ordered the failed one, so a clip that an administrator retries for a user stays that user's. It counts
@@ -311,7 +471,10 @@ public class ClipService {
      * the second finds the first one's and answers with it.
      *
      * <p>A clip of a highlight is ordered by the key the failed clip holds, not through the highlight row, so it can be
-     * tried again after an analysis that no longer finds the highlight; the kills are read from the facts as always.
+     * tried again after an analysis that no longer finds the highlight; the kills are read from the facts as always. A
+     * montage is ordered again with the segments and the options it was ordered with, under the checks of
+     * {@link #requestMontage} from the fifth on (its segments must still lie in the demo, which may have been parsed
+     * again since). Nothing keeps a montage unique, so two retries of one at the same moment may each queue one.
      *
      * @return the new clip and {@code created} true; or, when a clip that is not failed already stood for the same
      *         highlight or compilation (someone ordered it again in the meantime), that clip and false
@@ -329,15 +492,16 @@ public class ClipService {
         Match match = matches.findById(failed.matchRowId()).orElseThrow(() -> clipNotFound(clipId));
         Player player = players.findById(failed.playerRowId()).orElseThrow(() -> clipNotFound(clipId));
 
-        ClipCreation creation;
-        if (failed.kind() == ClipKind.HIGHLIGHT) {
-            HighlightKey key = new HighlightKey(failed.matchRowId(), failed.playerRowId(), failed.highlightType(),
-                    failed.roundNumber(), failed.tickStart(), failed.quality());
-            creation = orderHighlightClip(key, failed.tickEnd(), match, player, failed.requestedBy(), actor);
-        } else {
-            CompilationKey key = new CompilationKey(failed.matchRowId(), failed.playerRowId(), failed.quality());
-            creation = orderCompilation(key, match, player, failed.requestedBy(), actor);
-        }
+        ClipCreation creation = switch (failed.kind()) {
+            case HIGHLIGHT -> orderHighlightClip(new HighlightKey(failed.matchRowId(), failed.playerRowId(),
+                    failed.highlightType(), failed.roundNumber(), failed.tickStart(), failed.quality()),
+                    failed.tickEnd(), match, player, failed.requestedBy(), actor);
+            case COMPILATION -> orderCompilation(new CompilationKey(failed.matchRowId(), failed.playerRowId(),
+                    failed.quality()), match, player, failed.requestedBy(), actor);
+            // Its own segments and options, as the player chose them; the rules of the demo are checked again.
+            case MONTAGE -> orderMontage(match, player, failed.quality(), failed.segments(),
+                    Objects.requireNonNullElse(failed.options(), NO_OPTIONS), failed.requestedBy(), actor);
+        };
         try {
             remove(clipId, ANY_OWNER);
         } catch (NotFoundException e) {
@@ -391,8 +555,8 @@ public class ClipService {
         return ClipFacts.tickRate(demo.getTickRate());
     }
 
-    private void rejectIfTooLong(List<ClipSegment> segments, int tickRate) {
-        long ticks = SegmentBuilder.totalTicks(segments);
+    /** @param ticks the length of the video, in ticks of the demo */
+    private void rejectIfTooLong(long ticks, int tickRate) {
         if (ticks > (long) properties.maxDurationSeconds() * tickRate) {
             // Rounded up, so that the length named is above the limit named.
             long seconds = (long) Math.ceil((double) ticks / tickRate);

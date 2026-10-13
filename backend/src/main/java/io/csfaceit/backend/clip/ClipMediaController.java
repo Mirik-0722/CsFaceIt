@@ -279,13 +279,16 @@ public class ClipMediaController {
 
     /**
      * The name a downloaded video is saved under: {@code <nickname>-<type>-r<round>.mp4}, for a compilation
-     * {@code <nickname>-compilation.mp4}. A character of the nickname that is not a letter, a digit, a dot, an
+     * {@code <nickname>-compilation.mp4} and for a montage {@code <nickname>-montage.mp4}. A character of the nickname that is not a letter, a digit, a dot, an
      * underscore or a hyphen is replaced with an underscore, so the name is safe in a header and on every file system.
      */
     private static String downloadName(ClipMedia clip) {
         String nickname = UNSAFE_FILE_NAME_CHARACTER.matcher(clip.nickname()).replaceAll("_");
-        String what = clip.kind() == ClipKind.COMPILATION
-                ? "compilation" : typeLabel(clip.highlightType()) + "-r" + clip.roundNumber();
+        String what = switch (clip.kind()) {
+            case COMPILATION -> "compilation";
+            case MONTAGE -> "montage";
+            case HIGHLIGHT -> typeLabel(clip.highlightType()) + "-r" + clip.roundNumber();
+        };
         return nickname + "-" + what + ".mp4";
     }
 

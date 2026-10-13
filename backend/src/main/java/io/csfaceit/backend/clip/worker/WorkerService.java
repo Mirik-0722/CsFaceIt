@@ -262,9 +262,9 @@ public class WorkerService {
         }
         log.info("Gave clip {} to {}: attempt {} of {}", clip.clipId(), worker, clip.attempts(),
                 properties.maxAttempts());
-        return Optional.of(new WorkerJob(clip.clipId(), clip.kind(), clip.matchId(), clip.mapName(),
+        return Optional.of(WorkerJob.of(clip.clipId(), clip.kind(), clip.matchId(), clip.mapName(),
                 clip.focusSteamId(), clip.tickRate(), clip.segments(), clip.width(), clip.height(), clip.fps(),
-                demoSize.getAsLong(), clip.demoVersion()));
+                demoSize.getAsLong(), clip.demoVersion(), clip.options()));
     }
 
     /**

@@ -8,6 +8,7 @@ import io.csfaceit.backend.clip.ClipQuality;
 import io.csfaceit.backend.clip.ClipRepository;
 import io.csfaceit.backend.clip.ClipSegment;
 import io.csfaceit.backend.clip.ClipStatus;
+import io.csfaceit.backend.clip.MontageOptions;
 import io.csfaceit.backend.common.api.ConflictException;
 import io.csfaceit.backend.demo.Demo;
 import io.csfaceit.backend.demo.DemoRepository;
@@ -71,11 +72,12 @@ public class WorkerPersistence {
 
     /**
      * A clip taken from the queue, with what a recorder needs of it except the size of the demo file (which only the
-     * storage can tell). {@code attempts} is the number of this attempt, 1 for the first.
+     * storage can tell). {@code attempts} is the number of this attempt, 1 for the first. {@code options} is what a
+     * montage is recorded with, {@code null} for every other kind.
      */
     public record ClaimedClip(long clipId, ClipKind kind, String matchId, String mapName, String focusSteamId,
                               int tickRate, List<ClipSegment> segments, int width, int height, int fps, int attempts,
-                              String demoStorageKey, String demoVersion) {
+                              String demoStorageKey, String demoVersion, MontageOptions options) {
     }
 
     /** What one turn of the claim came to. */
@@ -155,8 +157,9 @@ public class WorkerPersistence {
         touchWorker(worker, version, mode, STATE_WORKING, clip.getId());
         return new Turn.Taken(new ClaimedClip(clip.getId(), clip.getKind(), match.getFaceitMatchId(),
                 match.getMapName(), player.getSteamId(), ClipFacts.tickRate(demo.getTickRate()),
-                List.copyOf(clip.getSegments()), clip.getQuality().width(), clip.getQuality().height(), clip.getFps(),
-                clip.getAttempts(), demo.getStorageKey(), String.valueOf(demo.getUpdatedAt().toEpochMilli())));
+                List.copyOf(clip.getSegments()), clip.frameWidth(), clip.frameHeight(), clip.getFps(),
+                clip.getAttempts(), demo.getStorageKey(), String.valueOf(demo.getUpdatedAt().toEpochMilli()),
+                clip.getOptions()));
     }
 
     /**
