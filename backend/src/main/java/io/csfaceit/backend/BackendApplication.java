@@ -10,7 +10,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 // Authentication is by API key only; without this Boot would add a user with a password generated at startup.
 @SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
 @EnableRetry
-// For the daily clean-up of old demo files (demo/DemoRetentionJob); nothing else is scheduled.
+// For the scheduled jobs: the daily clean-ups (old demo files, old clips, old counted actions) and the clip checks.
 @EnableScheduling
 @ConfigurationPropertiesScan
 public class BackendApplication {

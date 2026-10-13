@@ -20,9 +20,14 @@ import io.csfaceit.backend.messaging.DemoMessages.DemoParsed;
 import io.csfaceit.backend.messaging.DemoMetrics;
 import io.csfaceit.backend.messaging.DemoStoredPublisher;
 import io.csfaceit.backend.storage.StorageService;
+import io.csfaceit.backend.usage.QuotaExceededException;
+import io.csfaceit.backend.usage.UsageKind;
+import io.csfaceit.backend.usage.UsageService;
+import io.csfaceit.backend.usage.UsageService.Reservation;
 import java.io.EOFException;
 import java.io.InputStream;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.zip.ZipException;
 import org.slf4j.Logger;
@@ -46,6 +51,12 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
  * answer for the match (the cached gateway). When FACEIT cannot be asked and has no cached answer, the request of a
  * user fails with the answer of a FACEIT that is unavailable, before anything is stored: a roster that cannot be read
  * lets nobody in.
+ *
+ * <p>A user does so much per day ({@link UsageService}): an import and a request for a missing analysis count as
+ * {@link UsageKind#DEMO_IMPORT}, an upload as {@link UsageKind#DEMO_UPLOAD} (the controller takes that place, before
+ * it receives the file). A request is counted only when it starts something, and the limit is the last thing that
+ * refuses: the rules of {@link Access} and the state of the demo are asked first, so a request that would be refused
+ * anyway neither uses a place nor learns that the limit is reached.
  */
 @Service
 public class DemoService {
@@ -69,11 +80,13 @@ public class DemoService {
     private final DemoUploadProperties uploadProperties;
     private final DemoMetrics metrics;
     private final Access access;
+    private final UsageService usage;
 
     public DemoService(MatchService matchService, MatchRepository matches, DemoRepository demos,
                        DemoPersistence persistence, AmqpTemplate amqp, FaceitGateway faceit,
                        RosterSteamIdMapper rosterSteamIds, StorageService storage, DemoStoredPublisher storedPublisher,
-                       DemoUploadProperties uploadProperties, DemoMetrics metrics, Access access) {
+                       DemoUploadProperties uploadProperties, DemoMetrics metrics, Access access,
+                       UsageService usage) {
         this.matchService = matchService;
         this.matches = matches;
         this.demos = demos;
@@ -86,6 +99,7 @@ public class DemoService {
         this.uploadProperties = uploadProperties;
         this.metrics = metrics;
         this.access = access;
+        this.usage = usage;
     }
 
     /**
@@ -99,11 +113,18 @@ public class DemoService {
      * therefore leaves one row and sends one message. The SteamIDs of the roster are stored first, so that they are
      * in place long before the stored demo reaches the parser.
      *
+     * <p>A request that queues something (the import, or the announcement of a stored demo again) is one demo import
+     * of the actor's day. The place is taken in the transaction that queues, so the two stand or fall together, and it
+     * is given back when the message could not be published after all. A request that finds the demo there or under
+     * way and queues nothing is not counted, and is answered as before when the limit is reached.
+     *
      * @param actor who asks; a user has to be in the roster of the match
      * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_IN_MATCH}: the user did not play the match
      * @throws NotFoundException {@code MATCH_NOT_FOUND}: FACEIT does not know the match
      * @throws ConflictException {@code DEMO_URL_UNAVAILABLE}: the demo would have to be downloaded, but FACEIT has
      *         no demo for the match (yet)
+     * @throws QuotaExceededException {@code IMPORT_LIMIT_REACHED}: the request would queue something and the user has
+     *         no demo import left today; nothing is queued
      */
     public DemoResponse requestImport(Actor actor, String faceitMatchId) {
         requireMember(actor, faceitMatchId);
@@ -111,17 +132,30 @@ public class DemoService {
         boolean demoUrlAvailable = demoUrl != null && !demoUrl.isBlank();
         long matchRowId = mapRosterSteamIds(faceitMatchId);
 
+        // The place this request takes, if it queues something. A repeat of the step after a lost race starts from a
+        // transaction that was rolled back, and the place it had taken with it.
+        AtomicReference<Reservation> place = new AtomicReference<>();
         Queued queued = persistWithRetry("demo of match " + faceitMatchId,
-                () -> persistence.queue(matchRowId, demoUrlAvailable))
+                () -> {
+                    place.set(null);
+                    return persistence.queue(matchRowId, demoUrlAvailable,
+                            () -> place.set(usage.reserve(actor, UsageKind.DEMO_IMPORT)));
+                })
                 .orElseThrow(() -> new ConflictException(DEMO_URL_UNAVAILABLE,
                         "FACEIT has no demo for match " + faceitMatchId));
         Demo demo = queued.demo();
-        switch (queued.publish()) {
-            case IMPORT -> publishImport(demo.getId(), faceitMatchId, demoUrl);
-            case PARSE -> publishParseAgain(demo, faceitMatchId);
-            case NOTHING -> {
-                // The demo is reported as it is.
+        try {
+            switch (queued.publish()) {
+                case IMPORT -> publishImport(demo.getId(), faceitMatchId, demoUrl);
+                case PARSE -> publishParseAgain(demo, faceitMatchId);
+                case NOTHING -> {
+                    // The demo is reported as it is.
+                }
             }
+        } catch (RuntimeException e) {
+            // Nothing was started: the message did not go out, and the demo is FAILED for the next request to queue.
+            usage.release(place.get());
+            throw e;
         }
         return toResponse(faceitMatchId, demo);
     }
@@ -151,13 +185,16 @@ public class DemoService {
      * @param actor who uploads
      * @param content the file, already known to be non-empty and to have a demo's file name; it is read once and not
      *        closed here
+     * @param stored runs once the demo row is stored, which is the moment from which the upload has started something
+     *        and counts against the limit per day whatever happens next; a caller that took a place for the upload
+     *        gives it back when this fails without {@code stored} having run
      * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_IN_MATCH}: the user did not play the match
      * @throws ConflictException {@code DEMO_ALREADY_PARSED}: a user uploads over a demo that has been parsed
      * @throws NotFoundException {@code MATCH_NOT_FOUND}: FACEIT does not know the match
      * @throws BadRequestException the file is a corrupt gzip archive
      * @throws MaxUploadSizeExceededException the file, or what it expands to, is larger than the allowed size
      */
-    public DemoResponse upload(Actor actor, String faceitMatchId, InputStream content) {
+    public DemoResponse upload(Actor actor, String faceitMatchId, InputStream content, Runnable stored) {
         requireUploadAllowed(actor, faceitMatchId);
         matchService.getMatch(faceitMatchId);
         long matchRowId = mapRosterSteamIds(faceitMatchId);
@@ -167,6 +204,7 @@ public class DemoService {
 
         Demo demo = persistWithRetry("demo of match " + faceitMatchId,
                 () -> persistence.restore(matchRowId, storageKey));
+        stored.run();
         log.info("Stored the uploaded demo {} of match {} as {}", demo.getId(), faceitMatchId, storageKey);
         storedPublisher.publish(demo.getId(), faceitMatchId, storageKey);
         return toResponse(faceitMatchId, demo);
@@ -204,13 +242,16 @@ public class DemoService {
      *
      * <p>A user has to be in the roster of the match (FACEIT's cached answer is asked for that) and can ask only for
      * the analysis that is missing: while the demo is PARSED. Doing an analysis again is the admin key's and an
-     * administrator's, for whom FACEIT is not asked here at all.
+     * administrator's, for whom FACEIT is not asked here at all. Each request of a user that is announced is one demo
+     * import of their day: nothing else bounds how often a member of the match could repeat it while the demo is
+     * PARSED. The place is given back when the message could not be published.
      *
      * @param actor who asks
      * @throws NotFoundException {@code DEMO_NOT_FOUND}: the match has no demo
      * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_IN_MATCH}: the user did not play the match
      * @throws ConflictException {@code DEMO_NOT_PARSED}: the demo is not PARSED or ANALYZED, so there are no facts to
      *         analyze (yet, or any more); {@code DEMO_ALREADY_ANALYZED}: a user asks for an analysis that is done
+     * @throws QuotaExceededException {@code IMPORT_LIMIT_REACHED}: the user has no demo import left today
      */
     public DemoResponse requestAnalysis(Actor actor, String faceitMatchId) {
         Demo demo = demos.findByMatchFaceitMatchId(faceitMatchId)
@@ -221,7 +262,14 @@ public class DemoService {
                     "The demo of match " + faceitMatchId + " is " + demo.getStatus() + ", not parsed");
         }
         access.requireDemoAwaitingAnalysis(actor, demo.getStatus());
-        amqp.convertAndSend(DemoMessages.EXCHANGE, DemoMessages.Q_PARSED, new DemoParsed(demo.getId(), faceitMatchId));
+        Reservation place = usage.reserve(actor, UsageKind.DEMO_IMPORT);
+        try {
+            amqp.convertAndSend(DemoMessages.EXCHANGE, DemoMessages.Q_PARSED,
+                    new DemoParsed(demo.getId(), faceitMatchId));
+        } catch (RuntimeException e) {
+            usage.release(place);
+            throw e;
+        }
         log.info("Announced demo {} of match {} on {} to have it analyzed again", demo.getId(), faceitMatchId,
                 DemoMessages.Q_PARSED);
         return toResponse(faceitMatchId, demo);

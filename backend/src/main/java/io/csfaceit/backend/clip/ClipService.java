@@ -22,6 +22,9 @@ import io.csfaceit.backend.player.Player;
 import io.csfaceit.backend.player.PlayerRepository;
 import io.csfaceit.backend.storage.StorageException;
 import io.csfaceit.backend.storage.StorageService;
+import io.csfaceit.backend.usage.QuotaExceededException;
+import io.csfaceit.backend.usage.UsageKind;
+import io.csfaceit.backend.usage.UsageService;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -50,6 +53,12 @@ import org.springframework.stereotype.Service;
  * administrator always; a user orders clips of their own player only, and deletes and retries only the clips they
  * ordered. A clip ordered by a session records the user ({@code clips.requested_by}); one ordered with the admin key
  * records nobody. Asking again for a clip that exists answers with it and leaves whoever ordered it as they were.
+ *
+ * <p>A user orders so many clips per day ({@link UsageService}, {@link UsageKind#CLIP_ORDER}). An order is counted only
+ * when it queues a new clip, and the retry of a failed clip is such an order; asking again for a clip that exists is
+ * not counted, and deleting a clip gives nothing back. The place is taken in the transaction that writes the clip, as
+ * the last thing that can refuse: every other refusal of an order comes before it, so a request that would be refused
+ * anyway neither uses a place nor learns that the limit is reached.
  */
 @Service
 public class ClipService {
@@ -85,10 +94,12 @@ public class ClipService {
     private final StorageService storage;
     private final ClipMetrics metrics;
     private final Access access;
+    private final UsageService usage;
 
     public ClipService(HighlightQueryService highlights, MatchRepository matches, PlayerRepository players,
                        DemoRepository demos, ClipFacts facts, ClipPersistence persistence, ClipQueryService queries,
-                       ClipProperties properties, StorageService storage, ClipMetrics metrics, Access access) {
+                       ClipProperties properties, StorageService storage, ClipMetrics metrics, Access access,
+                       UsageService usage) {
         this.highlights = highlights;
         this.matches = matches;
         this.players = players;
@@ -100,6 +111,7 @@ public class ClipService {
         this.storage = storage;
         this.metrics = metrics;
         this.access = access;
+        this.usage = usage;
     }
 
     /**
@@ -116,6 +128,7 @@ public class ClipService {
      *   <li>the queue has room
      *   <li>the segments, worked out from the player's kills in the highlight's window, are not longer than
      *       {@code clip.max-duration-seconds}
+     *   <li>the actor has a clip order left today (a user; the admin key and an administrator are not limited)
      * </ol>
      * Repeating a request, also in parallel, therefore leaves one clip. The queue limit is soft: the count and the
      * insert are not one step, so two requests at the limit may both get in.
@@ -125,6 +138,7 @@ public class ClipService {
      * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_YOUR_PLAYER}
      * @throws ConflictException {@code DEMO_NOT_AVAILABLE}, {@code PLAYER_STEAM_ID_UNKNOWN} or {@code CLIP_TOO_LONG}
      * @throws TooManyRequestsException {@code CLIP_QUEUE_FULL}
+     * @throws QuotaExceededException {@code CLIP_LIMIT_REACHED}
      */
     public ClipCreation requestHighlightClip(Actor actor, long highlightId, ClipQuality quality) {
         HighlightResponse highlight = highlights.find(highlightId).orElseThrow(() -> highlightNotFound(highlightId));
@@ -138,7 +152,7 @@ public class ClipService {
 
         HighlightKey key = new HighlightKey(match.getId(), player.getId(), highlight.type(), highlight.roundNumber(),
                 highlight.tickStart(), quality);
-        return orderHighlightClip(key, highlight.tickEnd(), match, player, actor.userId(), actor.userId());
+        return orderHighlightClip(key, highlight.tickEnd(), match, player, actor.userId(), actor);
     }
 
     /**
@@ -147,10 +161,12 @@ public class ClipService {
      *
      * @param tickEnd the last tick of the highlight (its first is in the key)
      * @param requestedBy who a new clip is recorded for; an existing one keeps whoever ordered it
-     * @param viewerId who the answer is for (see {@link ClipResponse#mine})
+     * @param actor who asks: a new clip counts against their limit per day, and the answer is for them (see
+     *        {@link ClipResponse#mine})
      */
     private ClipCreation orderHighlightClip(HighlightKey key, int tickEnd, Match match, Player player,
-                                            Long requestedBy, Long viewerId) {
+                                            Long requestedBy, Actor actor) {
+        Long viewerId = actor.userId();
         Optional<Long> existing = persistence.findLiveHighlightClip(key);
         if (existing.isPresent()) {
             return new ClipCreation(queries.summary(existing.get(), viewerId), false);
@@ -165,10 +181,13 @@ public class ClipService {
 
         long clipId;
         try {
-            clipId = persistence.queueHighlightClip(key, tickEnd, properties.fps(), segments, requestedBy);
-        } catch (DataIntegrityViolationException e) {
+            clipId = persistence.queueHighlightClip(key, tickEnd, properties.fps(), segments, requestedBy,
+                    () -> usage.reserve(actor, UsageKind.CLIP_ORDER));
+        } catch (DataIntegrityViolationException | QuotaExceededException e) {
             // A concurrent request queued the same clip between the look above and the insert, and the unique index
-            // let only one of them in. The loser's transaction is aborted; the clip it was after is the winner's.
+            // let only one of them in. The loser's transaction is aborted, and the place it took for the order with
+            // it; the clip it was after is the winner's. The same when the winner took the actor's last place and
+            // this request was refused one for it: the clip stands, and asking for a clip that stands is not counted.
             Optional<Long> winner = persistence.findLiveHighlightClip(key);
             if (winner.isEmpty()) {
                 throw e;
@@ -200,6 +219,7 @@ public class ClipService {
      *   <li>the queue has room
      *   <li>the segments, worked out round by round from his kills, are not longer than
      *       {@code clip.max-duration-seconds}
+     *   <li>the actor has a clip order left today (a user; the admin key and an administrator are not limited)
      * </ol>
      * Repeating a request, also in parallel, therefore leaves one compilation. The queue limit is soft, as for a
      * highlight.
@@ -210,6 +230,7 @@ public class ClipService {
      * @throws ConflictException {@code DEMO_NOT_AVAILABLE}, {@code PLAYER_STEAM_ID_UNKNOWN}, {@code NO_KILLS} or
      *         {@code CLIP_TOO_LONG}
      * @throws TooManyRequestsException {@code CLIP_QUEUE_FULL}
+     * @throws QuotaExceededException {@code CLIP_LIMIT_REACHED}
      */
     public ClipCreation requestCompilation(Actor actor, String faceitMatchId, String faceitPlayerId,
                                            ClipQuality quality) {
@@ -220,7 +241,7 @@ public class ClipService {
                 .orElseThrow(() -> new NotFoundException(PLAYER_NOT_FOUND, "Player not found: " + faceitPlayerId));
 
         CompilationKey key = new CompilationKey(match.getId(), player.getId(), quality);
-        return orderCompilation(key, match, player, actor.userId(), actor.userId());
+        return orderCompilation(key, match, player, actor.userId(), actor);
     }
 
     /**
@@ -228,10 +249,12 @@ public class ClipService {
      * from the third on, for an order and for a retry alike.
      *
      * @param requestedBy who a new clip is recorded for; an existing one keeps whoever ordered it
-     * @param viewerId who the answer is for (see {@link ClipResponse#mine})
+     * @param actor who asks: a new clip counts against their limit per day, and the answer is for them (see
+     *        {@link ClipResponse#mine})
      */
     private ClipCreation orderCompilation(CompilationKey key, Match match, Player player, Long requestedBy,
-                                          Long viewerId) {
+                                          Actor actor) {
+        Long viewerId = actor.userId();
         String faceitMatchId = match.getFaceitMatchId();
         String faceitPlayerId = SteamIds.maskPlayerId(player.getFaceitId());
         ClipQuality quality = key.quality();
@@ -252,10 +275,12 @@ public class ClipService {
 
         long clipId;
         try {
-            clipId = persistence.queueCompilation(key, properties.fps(), segments, requestedBy);
-        } catch (DataIntegrityViolationException e) {
+            clipId = persistence.queueCompilation(key, properties.fps(), segments, requestedBy,
+                    () -> usage.reserve(actor, UsageKind.CLIP_ORDER));
+        } catch (DataIntegrityViolationException | QuotaExceededException e) {
             // A concurrent request queued the same compilation between the look above and the insert, and the unique
-            // index let only one of them in. The loser's transaction is aborted; the clip it was after is the winner's.
+            // index let only one of them in. The loser's transaction is aborted, and the place it took for the order
+            // with it; the clip it was after is the winner's. The same when the winner took the actor's last place.
             Optional<Long> winner = persistence.findLiveCompilation(key);
             if (winner.isEmpty()) {
                 throw e;
@@ -273,7 +298,9 @@ public class ClipService {
     /**
      * Orders a failed clip again: the same highlight (or the same compilation) at the same quality, as a new clip in
      * the queue, and the failed row goes with whatever its attempts left in the storage. The new clip is recorded for
-     * whoever ordered the failed one, so a clip that an administrator retries for a user stays that user's.
+     * whoever ordered the failed one, so a clip that an administrator retries for a user stays that user's. It counts
+     * as one clip order of the actor who retries (a user; an administrator's retry is counted for nobody), and only
+     * when it queues the new clip.
      *
      * <p>The clip is read under its lock, where {@link Access} is asked whether the actor may (a user retries only a
      * clip they ordered) and the status is looked at. Then it is ordered like any clip, with the same checks (the demo
@@ -292,6 +319,7 @@ public class ClipService {
      * @throws ForbiddenException {@code NOT_YOUR_CLIP}
      * @throws ConflictException {@code CLIP_NOT_FAILED}, and those of an order
      * @throws TooManyRequestsException {@code CLIP_QUEUE_FULL}
+     * @throws QuotaExceededException {@code CLIP_LIMIT_REACHED}; the failed clip stays
      */
     public ClipCreation retry(Actor actor, long clipId) {
         FailedClip failed = persistence.findFailed(clipId,
@@ -305,10 +333,10 @@ public class ClipService {
         if (failed.kind() == ClipKind.HIGHLIGHT) {
             HighlightKey key = new HighlightKey(failed.matchRowId(), failed.playerRowId(), failed.highlightType(),
                     failed.roundNumber(), failed.tickStart(), failed.quality());
-            creation = orderHighlightClip(key, failed.tickEnd(), match, player, failed.requestedBy(), actor.userId());
+            creation = orderHighlightClip(key, failed.tickEnd(), match, player, failed.requestedBy(), actor);
         } else {
             CompilationKey key = new CompilationKey(failed.matchRowId(), failed.playerRowId(), failed.quality());
-            creation = orderCompilation(key, match, player, failed.requestedBy(), actor.userId());
+            creation = orderCompilation(key, match, player, failed.requestedBy(), actor);
         }
         try {
             remove(clipId, ANY_OWNER);

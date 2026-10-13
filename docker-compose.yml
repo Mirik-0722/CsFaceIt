@@ -132,6 +132,12 @@ services:
       # other visitor is a USER. Empty by default. An administrator's session does what the admin key does; the list is
       # read at every request, so a SteamID taken off it is a USER again after the restart, with the same cookie.
       AUTH_ADMIN_STEAM_IDS: ${AUTH_ADMIN_STEAM_IDS:-}
+      # The limits per day of a signed-in player who is no administrator: the rolling window, and how many demo uploads,
+      # demo imports and clip orders fit in it. Beyond one the API answers 429 and says when to try again.
+      LIMITS_WINDOW: ${LIMITS_WINDOW:-24h}
+      LIMITS_DEMO_UPLOADS: ${LIMITS_DEMO_UPLOADS:-10}
+      LIMITS_DEMO_IMPORTS: ${LIMITS_DEMO_IMPORTS:-20}
+      LIMITS_CLIP_ORDERS: ${LIMITS_CLIP_ORDERS:-5}
       # The FACEIT OAuth application, for signing in with FACEIT. Empty by default, and then only Steam is offered. The
       # sign-in with FACEIT itself is not written yet, so they are read and nothing more; the secret is never logged.
       FACEIT_OAUTH_CLIENT_ID: ${FACEIT_OAUTH_CLIENT_ID:-}

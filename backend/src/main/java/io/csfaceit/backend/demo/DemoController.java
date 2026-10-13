@@ -7,11 +7,15 @@ import io.csfaceit.backend.auth.Access;
 import io.csfaceit.backend.auth.Actor;
 import io.csfaceit.backend.common.api.BadRequestException;
 import io.csfaceit.backend.demo.dto.DemoResponse;
+import io.csfaceit.backend.usage.UsageKind;
+import io.csfaceit.backend.usage.UsageService;
+import io.csfaceit.backend.usage.UsageService.Reservation;
 import jakarta.validation.constraints.Pattern;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.validation.annotation.Validated;
@@ -44,13 +48,18 @@ public class DemoController {
 
     private final DemoService service;
     private final Access access;
+    private final UsageService usage;
 
-    public DemoController(DemoService service, Access access) {
+    public DemoController(DemoService service, Access access, UsageService usage) {
         this.service = service;
         this.access = access;
+        this.usage = usage;
     }
 
-    /** Needs the admin key or a session; a user has to be in the roster of the match (403 otherwise). */
+    /**
+     * Needs the admin key or a session; a user has to be in the roster of the match (403 otherwise) and has so many
+     * imports per day (429 {@code IMPORT_LIMIT_REACHED}, only for a request that would queue something).
+     */
     @PostMapping("/{matchId}/demo/import")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public DemoResponse requestImport(
@@ -70,6 +79,12 @@ public class DemoController {
      * reads a parameter or a part of the request) would have the whole file received first, up to the upload limit,
      * for a caller who is then refused. {@link DemoService#requireUploadAllowed} comes first, and only then is the
      * part asked for, which is the moment the body is read. A request without the part is the 400 it always was.
+     *
+     * <p><b>So is whether the user has an upload left today</b> (429 {@code UPLOAD_LIMIT_REACHED}): the place is taken
+     * right after that check and before the body is read, so a user at the limit sends the server nothing to keep
+     * either, and the rules above have refused first whoever they refuse. The place is given back when the upload then
+     * fails before the demo row is stored (no part, a file that is no demo, a demo that was parsed in the meantime, the
+     * storage failing): nothing was started. Once the row is stored the upload counts.
      */
     @PostMapping(path = "/{matchId}/demo/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -78,22 +93,32 @@ public class DemoController {
             MultipartHttpServletRequest request) throws IOException, MissingServletRequestPartException {
         Actor actor = access.current();
         service.requireUploadAllowed(actor, matchId);
+        Reservation place = usage.reserve(actor, UsageKind.DEMO_UPLOAD);
 
-        // The body is read here, and not before.
-        MultipartFile file = request.getFile(FILE_PART);
-        if (file == null) {
-            throw new MissingServletRequestPartException(FILE_PART);
-        }
-        requireDemoFile(file);
-        try (InputStream content = file.getInputStream()) {
-            return service.upload(actor, matchId, content);
+        AtomicBoolean stored = new AtomicBoolean();
+        try {
+            // The body is read here, and not before.
+            MultipartFile file = request.getFile(FILE_PART);
+            if (file == null) {
+                throw new MissingServletRequestPartException(FILE_PART);
+            }
+            requireDemoFile(file);
+            try (InputStream content = file.getInputStream()) {
+                return service.upload(actor, matchId, content, () -> stored.set(true));
+            }
+        } catch (IOException | MissingServletRequestPartException | RuntimeException e) {
+            if (!stored.get()) {
+                usage.release(place);
+            }
+            throw e;
         }
     }
 
     /**
      * Has the parsed demo of the match analyzed again, from the facts that are in the database. Needs the admin key or
      * a session; a user has to be in the roster of the match (403 otherwise) and can ask only for an analysis that is
-     * missing, that is, while the demo is PARSED (409 otherwise). The answer is 202 with the demo as it is now; the
+     * missing, that is, while the demo is PARSED (409 otherwise), and each such request is one of their imports of the
+     * day (429 {@code IMPORT_LIMIT_REACHED}). The answer is 202 with the demo as it is now; the
      * analysis runs in the background, so poll {@code GET .../demo} for the result.
      */
     @PostMapping("/{matchId}/demo/analyze")

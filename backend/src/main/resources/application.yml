@@ -91,6 +91,17 @@ auth:
     client-secret: ${FACEIT_OAUTH_CLIENT_SECRET:}
   # How long a session lasts from the moment it is made. A plain value, like the thresholds of the analysis: not part of .env.
   session-lifetime: 30d
+# The limits per day of a signed-in player (usage/UsageLimits): how many demo uploads, demo imports (a request for a
+# missing analysis is one too) and clip orders (a retry of a failed clip is one too) a user may start within the window,
+# which is rolling: it ends now. Only what was started is counted. Beyond a limit the API answers 429 with
+# UPLOAD_LIMIT_REACHED, IMPORT_LIMIT_REACHED or CLIP_LIMIT_REACHED, the time the next place frees (retryAt) and a
+# Retry-After header. The admin key and an administrator are not limited. Checked when the backend starts: the window
+# and the counts have to be positive.
+limits:
+  window: ${LIMITS_WINDOW:24h}
+  demo-uploads: ${LIMITS_DEMO_UPLOADS:10}
+  demo-imports: ${LIMITS_DEMO_IMPORTS:20}
+  clip-orders: ${LIMITS_CLIP_ORDERS:5}
 management:
   endpoints.web.exposure.include: health,info,metrics,prometheus
   # Redis is a best-effort cache here, so an outage must not turn /actuator/health (the container HEALTHCHECK) DOWN.

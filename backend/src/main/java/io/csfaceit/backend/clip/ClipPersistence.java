@@ -146,10 +146,14 @@ public class ClipPersistence {
      * @param fps the frames per second the clip is to be recorded at
      * @param segments the stretches of the demo the video is made of
      * @param requestedBy the id of the user who orders the clip, {@code null} for the admin key
+     * @param beforeInsert runs in this transaction before the clip is written, and stops the order by throwing. This is
+     *        where a limit per day counts the order: what it writes is committed with the clip or not at all, so a
+     *        clip that is not queued after all (a concurrent request queued the same one) is not counted either.
      */
     @Transactional
     public long queueHighlightClip(HighlightKey key, int tickEnd, int fps, List<ClipSegment> segments,
-                                   Long requestedBy) {
+                                   Long requestedBy, Runnable beforeInsert) {
+        beforeInsert.run();
         Clip clip = Clip.highlight(matches.getReferenceById(key.matchRowId()),
                 players.getReferenceById(key.playerRowId()), key.type(), key.roundNumber(), key.tickStart(), tickEnd,
                 key.quality(), fps, segments, requestedBy);
@@ -168,9 +172,12 @@ public class ClipPersistence {
      * @param fps the frames per second the clip is to be recorded at
      * @param segments the stretches of the demo the video is made of, round after round
      * @param requestedBy the id of the user who orders the clip, {@code null} for the admin key
+     * @param beforeInsert as for {@link #queueHighlightClip}
      */
     @Transactional
-    public long queueCompilation(CompilationKey key, int fps, List<ClipSegment> segments, Long requestedBy) {
+    public long queueCompilation(CompilationKey key, int fps, List<ClipSegment> segments, Long requestedBy,
+                                 Runnable beforeInsert) {
+        beforeInsert.run();
         Clip clip = Clip.compilation(matches.getReferenceById(key.matchRowId()),
                 players.getReferenceById(key.playerRowId()), key.quality(), fps, segments, requestedBy);
         return clips.saveAndFlush(clip).getId();

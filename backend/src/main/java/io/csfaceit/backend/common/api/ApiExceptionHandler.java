@@ -3,6 +3,7 @@ package io.csfaceit.backend.common.api;
 import io.csfaceit.backend.auth.ForbiddenException;
 import io.csfaceit.backend.faceit.FaceitNotFoundException;
 import io.csfaceit.backend.faceit.FaceitUnavailableException;
+import io.csfaceit.backend.usage.QuotaExceededException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Path;
@@ -81,7 +82,21 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(new ApiError(ex.getCode(), ex.getMessage()));
     }
 
-    /** The one answer that carries a header of its own: how long the resource is, so that the client can ask again. */
+    /**
+     * A limit per day of a signed-in player is reached. The body says when the next place frees ({@code retryAt}) and
+     * the {@code Retry-After} header says the same in seconds from now, rounded up so that a client that waits exactly
+     * that long is not a moment early.
+     */
+    @ExceptionHandler(QuotaExceededException.class)
+    ResponseEntity<ApiError> handleQuotaExceeded(QuotaExceededException ex) {
+        long millis = ex.getRetryAfter().toMillis();
+        long seconds = Math.max(1, (millis + 999) / 1000);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(seconds))
+                .body(new ApiError(ex.getKind().limitCode(), ex.getMessage(), ex.getRetryAt()));
+    }
+
+    /** An answer that carries a header of its own: how long the resource is, so that the client can ask again. */
     @ExceptionHandler(RangeNotSatisfiableException.class)
     ResponseEntity<ApiError> handleRangeNotSatisfiable(RangeNotSatisfiableException ex) {
         return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
