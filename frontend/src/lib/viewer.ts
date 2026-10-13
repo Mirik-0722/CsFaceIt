@@ -9,3 +9,11 @@ import { useMe } from '@/api/auth'
 export function useViewerPlayerId(): string | null {
   return useMe().data?.playerId ?? null
 }
+
+/**
+ * Whether the visitor is signed in with an account that has no FACEIT player: the notice that says so stands under the
+ * top bar, above the page's own content (on every page but the home page, which says it in its hero).
+ */
+export function useHasUnlinkedNotice(): boolean {
+  return useMe().data?.playerId === null
+}

@@ -19,6 +19,7 @@ import { formatDate, formatDateTime } from '@/lib/formatDate'
 import { formatDuration } from '@/lib/highlightLabels'
 import { mapLabel, mapScene } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
+import { useHasUnlinkedNotice } from '@/lib/viewer'
 import { isKnife, weaponLabel } from '@/lib/weapons'
 import type { ApiError } from '@/api/client'
 import type { ClipKill, ClipResponse } from '@/api/types'
@@ -55,7 +56,7 @@ function ClipPlaceholder({ clip }: { clip: ClipResponse }) {
     <div aria-live="polite" className="flex flex-col gap-3">
       <div className="relative border border-border">
         <ViewfinderFrame
-          size="large"
+          size="clip"
           mapName={clip.mapName}
           topLeft={frameLabel(clip, t)}
           bottomRight={clip.quality}
@@ -248,7 +249,7 @@ function ClipFacts({ clip }: { clip: ClipResponse }) {
   }
   return (
     <section className="flex flex-col gap-3.5 border border-border bg-card p-5">
-      <h3 className="label-mono">{t.clip.page.about}</h3>
+      <h2 className="label-mono">{t.clip.page.about}</h2>
       <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2 text-sm">
         {facts.map(([name, value]) => (
           <div key={name} className="contents">
@@ -271,7 +272,7 @@ function MatchClips({ clip }: { clip: ClipResponse }) {
   }
   return (
     <section className="flex flex-col gap-3">
-      <h3 className="label-mono">{t.clip.page.fromMatch}</h3>
+      <h2 className="label-mono">{t.clip.page.fromMatch}</h2>
       <ul className="border-b border-border">
         {others.map((other) => (
           <li key={other.id} className="border-t border-border">
@@ -310,6 +311,8 @@ interface ClipVideoProps {
   video: RefObject<HTMLVideoElement | null>
   /** Whether the visitor has started the video: until then the frame covers it. */
   started: boolean
+  /** The notice of an account without a FACEIT player stands above the page: the video keeps its distance from it. */
+  belowNotice: boolean
   onStart: () => void
   onError: () => void
 }
@@ -320,13 +323,19 @@ interface ClipVideoProps {
  * quality and a round play button. The video is in the page from the start but is not fetched (`preload="none"`; the
  * thumbnail is its picture), and, while the frame covers it, is neither focusable nor announced (`inert`). Once it is
  * started the frame is gone for good, and the browser's own controls are the player: full screen and the phone's player
- * come with them (spec 8). On a phone the player runs from edge to edge, right under the top bar.
+ * come with them (spec 8). On a phone the player runs from edge to edge, right under the top bar (or under the notice
+ * of an account without a FACEIT player, where the page's own top padding stays as the distance to it).
  */
-function ClipVideo({ clip, video, started, onStart, onError }: ClipVideoProps) {
+function ClipVideo({ clip, video, started, belowNotice, onStart, onError }: ClipVideoProps) {
   const t = useT()
   return (
-    // On a phone the page's gutter and top padding are cancelled, and 4px of the column's 24px gap with them.
-    <div className="relative max-sm:-mx-(--page-gutter) max-sm:-mt-8 max-sm:-mb-1 sm:border sm:border-border">
+    // On a phone the page's gutter, and its top padding unless a notice is above, are cancelled.
+    <div
+      className={cn(
+        'relative max-sm:-mx-(--page-gutter) sm:border sm:border-border',
+        !belowNotice && 'max-sm:-mt-8',
+      )}
+    >
       <video
         ref={video}
         controls
@@ -341,8 +350,11 @@ function ClipVideo({ clip, video, started, onStart, onError }: ClipVideoProps) {
       />
       {!started && (
         <ViewfinderFrame
-          size="large"
+          size="clip"
           className="absolute inset-0"
+          // A click anywhere on the picture starts the video: the button below is the one control (it is a click on
+          // the frame as well, when it is pressed or activated from the keyboard).
+          onClick={onStart}
           mapName={clip.mapName}
           imageUrl={clip.thumbnailUrl}
           topLeft={frameLabel(clip, t, true)}
@@ -352,7 +364,6 @@ function ClipVideo({ clip, video, started, onStart, onError }: ClipVideoProps) {
             <button
               type="button"
               aria-label={t.clip.page.play}
-              onClick={onStart}
               className="flex size-16 items-center justify-center rounded-full bg-primary transition-colors hover:bg-primary/80 sm:size-18"
             >
               <svg aria-hidden="true" viewBox="0 0 12 12" className="size-5 fill-primary-foreground sm:size-5.5">
@@ -428,6 +439,7 @@ function ClipByline({ clip }: { clip: ClipResponse }) {
 function ClipView({ clip }: { clip: ClipResponse }) {
   const t = useT()
   const adminKey = useAdminKey()
+  const belowNotice = useHasUnlinkedNotice()
   const video = useRef<HTMLVideoElement>(null)
   // What became of the last "Copy link", for as long as the button says it.
   const [copy, setCopy] = useState<'copied' | 'failed' | null>(null)
@@ -479,11 +491,13 @@ function ClipView({ clip }: { clip: ClipResponse }) {
     <div className="flex flex-wrap items-start gap-8">
       <div className="flex min-w-0 flex-[999_1_40rem] flex-col gap-6 sm:gap-5">
         {ready ? (
-          <div className="flex flex-col gap-2">
+          // On a phone 4px less than the column's 24px gap under the player, so that the title is 20px under it.
+          <div className="flex flex-col gap-2 max-sm:-mb-1">
             <ClipVideo
               clip={clip}
               video={video}
               started={started}
+              belowNotice={belowNotice}
               onStart={start}
               onError={() => setVideoFailed(true)}
             />
@@ -556,7 +570,7 @@ function ClipView({ clip }: { clip: ClipResponse }) {
           </div>
         </div>
         <section className="flex flex-col gap-2.5 pt-2">
-          <h3 className="text-lg leading-[1.4] font-semibold">{t.clip.page.kills}</h3>
+          <h2 className="text-lg leading-[1.4] font-semibold">{t.clip.page.kills}</h2>
           <KillList kills={clip.kills} onSeek={ready ? seek : undefined} />
         </section>
       </div>

@@ -1,18 +1,18 @@
 import { useLayoutEffect } from 'react'
 import { Outlet, useLocation, useNavigationType } from 'react-router-dom'
-import { useMe } from '@/api/auth'
 import Footer from '@/components/Footer'
 import TopBar from '@/components/TopBar'
 import UnlinkedNotice from '@/components/UnlinkedNotice'
+import { useHasUnlinkedNotice } from '@/lib/viewer'
 
 /**
  * Under the bar of a signed-in visitor whose Steam account has no FACEIT player: the notice that says so, on every page
  * (spec 6). The home page says it in its hero, in place of the sign-in buttons, so it is not said twice there.
  */
 function UnlinkedStrip() {
-  const me = useMe()
+  const unlinked = useHasUnlinkedNotice()
   const { pathname } = useLocation()
-  if (!me.data || me.data.playerId !== null || pathname === '/') {
+  if (!unlinked || pathname === '/') {
     return null
   }
   return (

@@ -15,8 +15,9 @@ function decimal(value: number | null, digits: number): string | null {
  * small text. A figure without data is a dash: all of them for a player without a stored match (the line under the
  * cards gives the count), and the four that come from demos (KAST, entry, trade, clutch) until one of the player's
  * demos is analyzed, which the card's line says. Every line is made of counts the API gives (the stored matches, the
- * analyzed ones, the clutch attempts and wins), never of one multiplied out of a rounded figure. ADR is a stored FACEIT
- * figure, not a demo's, so its line counts the stored matches.
+ * analyzed ones, the clutch attempts and wins), never of one multiplied out of a rounded figure. ADR is the average of
+ * the stored ADR of the stored matches that have one (the demo's figure where a demo was analyzed), so its line counts
+ * the stored matches.
  */
 export default function StatsCards({ stats }: { stats: PlayerAggregateStatsResponse }) {
   const t = useT()

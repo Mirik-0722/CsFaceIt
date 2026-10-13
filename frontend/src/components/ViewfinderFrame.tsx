@@ -8,10 +8,12 @@ interface ViewfinderFrameProps {
   /** A still of the video, laid over the scene. While there is none, or when it does not load, the scene shows. */
   imageUrl?: string | null
   /**
-   * `card` is the frame of a clip card (12px brackets), `large` the frame of a page: 18px brackets, and on a phone,
-   * where the frame runs from edge to edge, 14px brackets nearer the corners (the phone board).
+   * `card` is the frame of a clip card (12px brackets), `large` the frame of a page (18px brackets). `clip` is the
+   * frame of the clip's own page: `large` on a desktop, but on a phone, where the frame runs from edge to edge, 14px
+   * brackets nearer the corners and 11px labels (the phone board), and on a desktop its labels stand as far from the
+   * sides as the board's do (up to 50px).
    */
-  size?: 'card' | 'large'
+  size?: 'card' | 'large' | 'clip'
   /** Where the clip is from, such as `MIRAGE · R14`. */
   topLeft?: ReactNode
   topRight?: ReactNode
@@ -19,6 +21,11 @@ interface ViewfinderFrameProps {
   center?: ReactNode
   bottomLeft?: ReactNode
   bottomRight?: ReactNode
+  /**
+   * Makes the whole picture start something: a click anywhere on the frame (not a second control, so nothing is added
+   * for the keyboard or a screen reader; the `center` button stays the one control that says what it does).
+   */
+  onClick?: () => void
   className?: string
 }
 
@@ -29,6 +36,38 @@ const BRACKETS = [
   'bottom-0 left-0 border-b-2 border-l-2',
   'right-0 bottom-0 border-r-2 border-b-2',
 ]
+
+// What differs by size: the label's height and type, how far the brackets stand from the edge, and where each of the
+// four labels stands (beside its bracket).
+const SIZES = {
+  card: {
+    label: 'h-3 text-[10px]',
+    inset: 'inset-2.5',
+    bracket: 'size-3',
+    topLeft: 'top-2.5 left-7.5',
+    topRight: 'top-2.5 right-7.5',
+    bottomLeft: 'bottom-2.5 left-7.5',
+    bottomRight: 'right-7.5 bottom-2.5',
+  },
+  large: {
+    label: 'h-4.5 text-xs',
+    inset: 'inset-4',
+    bracket: 'size-4.5',
+    topLeft: 'top-4 left-11',
+    topRight: 'top-4 right-11',
+    bottomLeft: 'bottom-4 left-11',
+    bottomRight: 'right-11 bottom-4',
+  },
+  clip: {
+    label: 'h-4 text-[11px] sm:h-4.5 sm:text-xs',
+    inset: 'inset-3 sm:inset-4',
+    bracket: 'size-3.5 sm:size-4.5',
+    topLeft: 'top-[11px] left-9 sm:top-4 sm:left-[clamp(34px,3.6vw,50px)]',
+    topRight: 'top-[11px] right-9 sm:top-4 sm:right-[clamp(34px,3.6vw,50px)]',
+    bottomLeft: 'bottom-[11px] left-9 sm:bottom-4 sm:left-[clamp(34px,3.6vw,50px)]',
+    bottomRight: 'right-9 bottom-[11px] sm:right-[clamp(34px,3.6vw,50px)] sm:bottom-4',
+  },
+} as const
 
 /**
  * A 16:9 camera frame (spec 3): the scene of the map as the background, a bracket in each corner, and five places for
@@ -43,23 +82,20 @@ export default function ViewfinderFrame({
   center,
   bottomLeft,
   bottomRight,
+  onClick,
   className,
 }: ViewfinderFrameProps) {
   // The url that failed to load, so that a new url is tried again.
   const [brokenUrl, setBrokenUrl] = useState<string | null>(null)
-  const large = size === 'large'
+  const place = SIZES[size]
   const label = cn(
     'absolute z-10 flex items-center font-mono tracking-[0.08em] text-foreground uppercase',
-    large ? 'h-4 text-[11px] sm:h-4.5 sm:text-xs' : 'h-3 text-[10px]',
+    place.label,
   )
-  // How far the labels stand from the sides (past the bracket) and from the top and bottom; the large frame's side
-  // distance grows with the viewport up to 50px, as the board's does.
-  const top = large ? 'top-[11px] sm:top-4' : 'top-2.5'
-  const bottom = large ? 'bottom-[11px] sm:bottom-4' : 'bottom-2.5'
-  const side = large ? '[--edge:36px] sm:[--edge:clamp(34px,3.6vw,50px)]' : '[--edge:30px]'
   return (
     <div
-      className={cn('relative aspect-video overflow-hidden bg-[#0E1013]', className)}
+      onClick={onClick}
+      className={cn('relative aspect-video overflow-hidden bg-[#0E1013]', onClick && 'cursor-pointer', className)}
       style={{
         backgroundImage: `radial-gradient(90% 80% at 35% 45%, ${mapScene(mapName)} 0%, #15130F 50%, #0E1013 82%)`,
       }}
@@ -80,23 +116,17 @@ export default function ViewfinderFrame({
           />
         </>
       )}
-      <div
-        aria-hidden="true"
-        className={cn('pointer-events-none absolute', large ? 'inset-3 sm:inset-4' : 'inset-2.5')}
-      >
+      <div aria-hidden="true" className={cn('pointer-events-none absolute', place.inset)}>
         {BRACKETS.map((corner) => (
-          <span
-            key={corner}
-            className={cn('absolute border-foreground', large ? 'size-3.5 sm:size-4.5' : 'size-3', corner)}
-          />
+          <span key={corner} className={cn('absolute border-foreground', place.bracket, corner)} />
         ))}
       </div>
-      {topLeft && <div className={cn(label, side, 'left-(--edge)', top)}>{topLeft}</div>}
-      {topRight && <div className={cn(label, side, 'right-(--edge)', top)}>{topRight}</div>}
-      {bottomLeft && <div className={cn(label, side, 'left-(--edge)', bottom)}>{bottomLeft}</div>}
+      {topLeft && <div className={cn(label, place.topLeft)}>{topLeft}</div>}
+      {topRight && <div className={cn(label, place.topRight)}>{topRight}</div>}
+      {bottomLeft && <div className={cn(label, place.bottomLeft)}>{bottomLeft}</div>}
       {bottomRight && (
         // The quality is written as it is said (`1080p`), so this one label keeps its case.
-        <div className={cn(label, side, 'right-(--edge) text-muted-foreground normal-case', bottom)}>{bottomRight}</div>
+        <div className={cn(label, 'text-muted-foreground normal-case', place.bottomRight)}>{bottomRight}</div>
       )}
       {center && <div className="absolute inset-0 flex items-center justify-center">{center}</div>}
     </div>
