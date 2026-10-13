@@ -112,6 +112,13 @@ demo:
     # The most a manual upload may be, and the most a gzip upload may expand to. Nginx has a limit of its own for the
     # upload path (frontend/nginx.conf); keep the two in step.
     max-size: ${DEMO_UPLOAD_MAX_SIZE:1GB}
+  # Before a parsed demo is analyzed, its players are compared with the roster of the match (analysis/RosterCheck), so
+  # that a file of another game cannot replace the statistics and the highlights of the match. Of the roster's players
+  # whose SteamID FACEIT gives, at least this share (from 0 to 1) has to be among the players of the demo, or the demo
+  # is FAILED with the code WRONG_MATCH. A roster with fewer than 6 known SteamIDs is not checked at all. A plain value,
+  # like the thresholds of the analysis below, checked when the backend starts; 0 switches the check off.
+  match-check:
+    min-share: 0.8
   # Stored demo files older than this many days are removed by a job that runs once a day (DemoRetentionJob); the parsed
   # facts in the database stay. 0 switches the job off. The cron expression (Spring's six fields, server time) is
   # normally left alone.

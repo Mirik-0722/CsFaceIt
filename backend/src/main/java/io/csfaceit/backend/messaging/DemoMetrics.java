@@ -31,8 +31,9 @@ public class DemoMetrics {
     public static final String STAGE_PARSE = "parse";
 
     /**
-     * Analyzing a parsed demo (the backend's analysis of the facts the parser wrote). A demo does not go to FAILED in
-     * this stage: an analysis that fails for good is counted here, but the demo keeps its facts and its status.
+     * Analyzing a parsed demo (the backend's analysis of the facts the parser wrote). An analysis that fails for good
+     * is counted here, but the demo keeps its facts and its status. The one demo that goes to FAILED in this stage is
+     * the one whose players are not its match's (the code WRONG_MATCH), which is counted here as well.
      */
     public static final String STAGE_ANALYZE = "analyze";
 
@@ -87,8 +88,9 @@ public class DemoMetrics {
     }
 
     /**
-     * Counts a demo that went to FAILED in {@code stage}; every such transition is counted once. The one stage where
-     * a failure does not end in FAILED is {@link #STAGE_ANALYZE}: there it counts an analysis that failed for good.
+     * Counts a demo that went to FAILED in {@code stage}; every such transition is counted once. The stage where a
+     * failure does not end in FAILED is {@link #STAGE_ANALYZE}: there it counts an analysis that failed for good,
+     * besides a demo that was refused as another match's.
      */
     public void failed(String stage) {
         failedCounter(stage).increment();

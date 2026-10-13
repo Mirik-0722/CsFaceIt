@@ -22,6 +22,12 @@ import org.springframework.stereotype.Service;
  * {@link AnalysisPersistence}, the facts are read and the numbers computed with none open, and the result is
  * written in a second one.
  *
+ * <p>Before anything is computed the players of the demo are compared with the roster of the match ({@link
+ * RosterCheck}): a demo that is not the match's is FAILED with the code {@code WRONG_MATCH}, in a short transaction of
+ * its own under the same guard as the result, and nothing of it is stored, so that a wrong file cannot replace the
+ * statistics and the highlights of the match's players. A demo that has been failed this way is not analyzable any
+ * more, so a message that arrives again finds nothing to do (see {@link AnalysisPersistence#claim}).
+ *
  * <p>Analyzing is idempotent: the same facts give the same rows, and the highlights of the match are replaced rather
  * than added to, so an analysis can be repeated at any time (a duplicate {@code demo.parsed}, a request to analyze
  * again) without harm. An exception is not caught here: it reaches the listener, which logs it, and the message is
@@ -45,7 +51,9 @@ public class AnalysisService {
         /** The demo changed while it was analyzed (uploaded or parsed again), so the result was dropped. */
         STALE,
         /** The facts have no roster: nothing was analyzed or stored, and the demo's error says to upload it again. */
-        NO_ROSTERS
+        NO_ROSTERS,
+        /** The demo's players are not the match's: the demo is FAILED with the code WRONG_MATCH and nothing was stored. */
+        WRONG_MATCH
     }
 
     /** What {@code demos.error} says of a PARSED demo whose facts have no roster. */
@@ -63,14 +71,16 @@ public class AnalysisService {
     private final AnalysisPersistence persistence;
     private final DemoPersistence demos;
     private final FactsLoader loader;
+    private final RosterCheck rosterCheck;
     private final StatsCalculator calculator;
     private final List<HighlightDetector> detectors;
 
     public AnalysisService(AnalysisPersistence persistence, DemoPersistence demos, FactsLoader loader,
-                           StatsCalculator calculator, List<HighlightDetector> detectors) {
+                           RosterCheck rosterCheck, StatsCalculator calculator, List<HighlightDetector> detectors) {
         this.persistence = persistence;
         this.demos = demos;
         this.loader = loader;
+        this.rosterCheck = rosterCheck;
         this.calculator = calculator;
         this.detectors = List.copyOf(detectors);
     }
@@ -89,6 +99,18 @@ public class AnalysisService {
                     + "uploaded again", demoId, claim.faceitMatchId(),
                     noted ? "the error is noted on the demo" : "the demo is not PARSED, so it is left as it is");
             return Outcome.NO_ROSTERS;
+        }
+        RosterCheck.Verdict verdict = rosterCheck.check(claim.faceitMatchId(), facts);
+        if (verdict.wrongMatch()) {
+            if (!persistence.failWrongMatch(claim, verdict.sentence())) {
+                log.info("Dropping the verdict on demo {} of match {}: the demo changed while it was checked, or "
+                        + "another delivery of the message has failed it already", demoId, claim.faceitMatchId());
+                return Outcome.STALE;
+            }
+            log.warn("Failed demo {} of match {} as WRONG_MATCH: {} of the {} roster players with a known SteamID are among "
+                    + "its players ({} players in the roster)", demoId, claim.faceitMatchId(), verdict.present(),
+                    verdict.known(), verdict.rosterPlayers());
+            return Outcome.WRONG_MATCH;
         }
         Map<Long, PlayerMatchStatsValues> stats = calculator.calculate(facts);
         List<HighlightCandidate> highlights = detectors.stream()

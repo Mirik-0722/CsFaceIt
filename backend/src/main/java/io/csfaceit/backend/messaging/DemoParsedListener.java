@@ -47,7 +47,11 @@ public class DemoParsedListener {
         metrics.parsed();
         Timer.Sample sample = metrics.startAnalyze();
         try {
-            analysis.analyze(message.demoId());
+            if (analysis.analyze(message.demoId()) == AnalysisService.Outcome.WRONG_MATCH) {
+                // The demo went to FAILED in the analysis stage, by this very delivery (a repeated message finds it
+                // FAILED and gets another outcome), so it is counted once like a demo that fails anywhere else.
+                metrics.failed(DemoMetrics.STAGE_ANALYZE);
+            }
         } catch (RuntimeException | Error e) {
             log.error("Analyzing demo {} of match {} failed", message.demoId(), message.faceitMatchId(), e);
             throw e;

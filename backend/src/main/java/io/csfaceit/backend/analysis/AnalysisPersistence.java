@@ -7,6 +7,7 @@ import io.csfaceit.backend.analysis.highlight.HighlightCandidate;
 import io.csfaceit.backend.analysis.highlight.HighlightRepository;
 import io.csfaceit.backend.analysis.stats.PlayerMatchStatsValues;
 import io.csfaceit.backend.demo.Demo;
+import io.csfaceit.backend.demo.DemoErrorCode;
 import io.csfaceit.backend.demo.DemoRepository;
 import io.csfaceit.backend.demo.DemoStatus;
 import io.csfaceit.backend.match.Match;
@@ -130,6 +131,30 @@ public class AnalysisPersistence {
             demo.transitionTo(DemoStatus.ANALYZED);
             demos.saveAndFlush(demo);
         }
+        return true;
+    }
+
+    /**
+     * Fails the demo as another match's: FACEIT's roster does not fit its players (see {@link RosterCheck}). The demo
+     * becomes FAILED with the code {@link DemoErrorCode#WRONG_MATCH} and {@code error}, in one transaction under the
+     * row lock of the demo, and nothing of the analysis is written: the statistics and the highlights of the match stay
+     * as the last analysis left them, and are not served while the demo is not ANALYZED.
+     *
+     * <p>The guard is that of {@link #store}: the demo has to be PARSED or ANALYZED still, with the {@code updated_at}
+     * the claim saw. A demo that was uploaded or parsed again meanwhile is not failed for the sake of the file before
+     * it, and a second delivery of the same message that comes after the first has failed the demo finds it FAILED and
+     * writes nothing, so the failure is neither undone nor repeated (the claim of a FAILED demo is empty to begin with).
+     *
+     * @return false when nothing was written
+     */
+    @Transactional
+    public boolean failWrongMatch(Claim claim, String error) {
+        Demo demo = demos.findByIdForUpdate(claim.demoId()).orElse(null);
+        if (demo == null || !isAnalyzable(demo.getStatus()) || !claim.updatedAt().equals(demo.getUpdatedAt())) {
+            return false;
+        }
+        demo.fail(error, DemoErrorCode.WRONG_MATCH);
+        demos.saveAndFlush(demo);
         return true;
     }
 

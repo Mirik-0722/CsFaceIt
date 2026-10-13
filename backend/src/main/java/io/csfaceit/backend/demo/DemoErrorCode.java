@@ -27,5 +27,13 @@ public enum DemoErrorCode {
      * The analysis of a parsed demo failed on every attempt. The demo stays PARSED with this code next to its error;
      * starting the analysis again clears both.
      */
-    ANALYSIS_FAILED
+    ANALYSIS_FAILED,
+
+    /**
+     * The demo was parsed, but its players are not the players of the match it was uploaded or imported for: fewer than
+     * the allowed share of the roster's players whose SteamID FACEIT gives are among them. It is another game's file.
+     * The demo is FAILED and nothing of it was analyzed, so the statistics and the highlights of the match are not
+     * replaced; uploading or importing the right file starts over.
+     */
+    WRONG_MATCH
 }
