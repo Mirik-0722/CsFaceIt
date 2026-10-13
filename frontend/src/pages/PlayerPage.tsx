@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { usePlayerOverview } from '@/api/overview'
 import { usePlayer, usePlayerClips, usePlayerHighlights, usePlayerHistory, usePlayerStats } from '@/api/queries'
 import ClipList from '@/components/ClipList'
-import FormStrip from '@/components/FormStrip'
+import FormStrip, { FormStripPlaceholder } from '@/components/FormStrip'
 import HighlightBreakdown from '@/components/HighlightBreakdown'
 import HighlightList from '@/components/HighlightList'
 import MapsTable from '@/components/MapsTable'
@@ -214,7 +214,9 @@ function PlayerProfile({ playerId }: { playerId: string }) {
           <PlayerHeader
             player={player.data}
             size="lg"
-            aside={<FormStrip matches={matches ?? []} />}
+            // Its place is kept while the history is awaited: where the strip takes a row of its own, the rest of the page
+            // would move down by that row when the history arrives.
+            aside={history.isPending ? <FormStripPlaceholder /> : <FormStrip matches={matches ?? []} />}
             scenery={scenery}
           />
         )}
