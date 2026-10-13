@@ -11,6 +11,9 @@ recorder/node_modules/
 recorder/dist/
 # The work directory of a recorder started by hand (see recorder/README.md): cached demos and the scratch of a clip
 recorder/work/
-# A real demo and its stub for the fake FACEIT (see dev/fake-faceit/README.md); demos are large and never committed
+# A real demo and its stubs for the fake FACEIT (see dev/fake-faceit/README.md); demos are large and never committed. The
+# stubs that dev/fake-faceit/local-match.sh writes (mappings/local-match.json) hold the SteamIDs of the demo's real players,
+# which are personal data: nothing that matches local-*.json is ever committed, and the script refuses to write where git
+# would not ignore it.
 dev/fake-faceit/__files/demos/local.dem
 dev/fake-faceit/mappings/local-*.json

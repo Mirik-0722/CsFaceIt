@@ -56,6 +56,7 @@ deserialize.
 | Match whose demo download is forbidden (with the token: the Downloads API refuses it, 403) | `1-ffffffff-0000-0000-0000-000000000403` | `http://fake-faceit:8080/demos/forbidden.dem` |
 | Match whose demo is missing | `1-ffffffff-0000-0000-0000-000000000404` | `http://fake-faceit:8080/demos/missing.dem` |
 | Match whose demo address does not resolve, as FACEIT's private cloud addresses do not (with the token: the Downloads API refuses it, 403) | `1-ffffffff-0000-0000-0000-000000000502` | `https://demos.faceit-cdn.invalid/cs2/1-ffffffff-0000-0000-0000-000000000502.dem.zst` (`.invalid` never resolves) |
+| Local match with the players of a real demo, which exists only after `local-match.sh` has been run (see [A local match that fits a real demo](#a-local-match-that-fits-a-real-demo)) | `1-eeeeeeee-1111-2222-3333-444444444444` | `http://fake-faceit:8080/demos/local.dem` |
 
 The three failure matches exist to exercise the error paths of a demo download; apart from the id and `demo_url` they are
 copies of the main match. They are not listed in the player's history. The second match in the history
@@ -63,7 +64,9 @@ copies of the main match. They are not listed in the player's history. The secon
 
 The other players of the fake matches are `playerA2`..`playerA5` (ids `2222...` to `5555...`) and `playerB1`..`playerB5`
 (ids `6666...`, `7777...`, `8888...`, `9999...`, `aaaaaaaa-...`). Every roster player carries a `game_player_id`
-(a SteamID64): `76561198000000001` for `s1mple`, then `...002` to `...010` in roster order, the same in every match.
+(a SteamID64): `76561198000000001` for `s1mple`, then `...002` to `...010` in roster order, the same in every match of the
+table above. No real demo has these SteamIDs, so a real demo never fits these matches: it is the local match below whose
+roster carries a real demo's players.
 
 ## The fake Downloads API
 
@@ -164,3 +167,48 @@ docker compose -f docker-compose.yml -f docker-compose.fake.yml restart fake-fac
 Both files match patterns in `.gitignore` (`dev/fake-faceit/__files/demos/local.dem` and
 `dev/fake-faceit/mappings/local-*.json`). `GET http://localhost:8089/demos/sample.dem` now returns your demo. To go
 back to the placeholder, delete the two files and restart `fake-faceit` again.
+
+**A real demo does not fit the main match.** Before a parsed demo is analyzed, the backend compares its players with the
+roster of the match, and the main match's roster carries the made-up SteamIDs above. The real demo is therefore parsed
+(its facts are written) and then `FAILED` with the `errorCode` `WRONG_MATCH`, and the match shows no analysis: the
+check is working. To analyze a real demo on the fake stack, use the local match below.
+
+## A local match that fits a real demo
+
+`local-match.sh` stands up a second fake match whose two rosters carry the SteamIDs of a real demo, so that the demo is
+that match's and goes through the analysis to `ANALYZED`. It reads the demo's players from the database of the running
+stack, so the demo has to have been parsed there once, and it writes the stubs of the match (its details, its
+statistics, the demo file and the Downloads API's answer for it) into `mappings/local-match.json`, with made-up
+nicknames (`localA1`..`localB5`) and FACEIT ids (`0c0c0c0c-0000-4000-8000-...`) and a made-up match id.
+
+```bash
+# 1. Put the real demo where the fake serves it from (git-ignored), and start the stack as above.
+cp /path/to/match.dem dev/fake-faceit/__files/demos/local.dem
+
+# 2. Upload it to the main match. It is parsed, then FAILED with WRONG_MATCH, which is expected; its players stay in
+#    the database.
+curl -X POST -H 'X-API-Key: dev-admin-key' -F 'file=@dev/fake-faceit/__files/demos/local.dem' \
+  http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/demo/upload
+curl http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/demo     # until "status" is FAILED
+
+# 3. Make the local match. The script reloads the stubs of the fake itself.
+dev/fake-faceit/local-match.sh
+
+# 4. Upload the same demo to the local match (or import it: the fake serves it and signs the address).
+curl -X POST -H 'X-API-Key: dev-admin-key' -F 'file=@dev/fake-faceit/__files/demos/local.dem' \
+  http://localhost:3000/api/v1/matches/1-eeeeeeee-1111-2222-3333-444444444444/demo/upload
+curl http://localhost:3000/api/v1/matches/1-eeeeeeee-1111-2222-3333-444444444444/demo     # until "status" is ANALYZED
+```
+
+The script takes the id of the match the demo was uploaded to as its argument (the main match when there is none). The
+environment variable `COMPOSE` is the docker compose command of the stack, run from the repository root, for a stack
+that is not the default one (another project name or ports): `COMPOSE='docker compose -p my-stack -f docker-compose.yml
+-f docker-compose.fake.yml' dev/fake-faceit/local-match.sh`; `LOCAL_MATCH_ID` is the id of the match to make. Running it
+again rewrites the file from the database. The match is in the fake only: it is not in any player's history, and the
+made-up players have no profile stubs, so open it by its address (`/matches/1-eeeeeeee-1111-2222-3333-444444444444`).
+
+**The SteamIDs of a real demo are real players' personal data.** `mappings/local-match.json` holds them, so it is
+ignored by git (`dev/fake-faceit/mappings/local-*.json`), and the script refuses to write it where git would not ignore
+it and prints counts only. Never commit the file, and never paste its content or the demo's players into an issue, a
+log or a chat. To remove the match, delete the file and reload the fake
+(`curl -X POST http://localhost:8089/__admin/mappings/reset`).
