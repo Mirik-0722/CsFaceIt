@@ -47,7 +47,8 @@ function PlayerMatches({ playerId }: { playerId: string }) {
   // fails. Rows that are renewed have another time, so the line goes by itself. A timer, not a reading of the clock
   // while drawing: nothing redraws the page between two failed ticks.
   const [staleRows, setStaleRows] = useState<number | null>(null)
-  const refreshFailing = matches.isRefetchError
+  // A failed "load more" also has rows and an error; it is not a refresh, and it is said at once.
+  const refreshFailing = matches.isRefetchError && !matches.isFetchNextPageError
   const loadedAt = matches.dataUpdatedAt
   useEffect(() => {
     if (!refreshFailing) {
@@ -145,7 +146,7 @@ function PlayerMatches({ playerId }: { playerId: string }) {
                 {items && items.length > 0 && refreshFailing && notUpdating && (
                   <p className="text-sm text-muted-foreground">{t.matches.notUpdating}</p>
                 )}
-                {matches.isError && !matches.isRefetchError && (
+                {matches.isError && !refreshFailing && (
                   <p className="text-sm text-destructive">{errorMessage(matches.error, t)}</p>
                 )}
               </div>
