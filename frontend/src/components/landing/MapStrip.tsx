@@ -63,10 +63,9 @@ export default function MapStrip({ turn, className }: { turn: MapTurn; className
           )
         })}
       </div>
-      {/* What the press does is the name; that the turning is stopped is the pressed state. */}
+      {/* Its name is what the press does, and changes with it; a control that renames itself has no pressed state. */}
       <button
         type="button"
-        aria-pressed={!turn.turning}
         aria-label={turn.turning ? t.home.maps.stop : t.home.maps.resume}
         onClick={turn.toggle}
         className="absolute top-0 right-0 flex size-11 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-secondary hover:text-foreground xl:static xl:ml-auto"

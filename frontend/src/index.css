@@ -179,59 +179,79 @@
     box-shadow: inset 3px 0 0 var(--result);
 }
 
-/* The veils over a map's scenery. They are what keeps the text in front of a picture readable whichever map the
-   picture is of, so their strengths are measured against the brightest of the pictures, not chosen by eye. */
+/* What lies over a map's scenery. The picture is there to be seen, so it is veiled only as far as the composition
+   asks, and the texts in front of it are secured where they stand: a band behind the top bar, a panel under the
+   landing page's sample, a fill under a tag, a scrim behind a block of text. */
 
-/* Over the landing page's backdrop, in the page's colour. From `xl` up, where the page has room beside its copy: dark
-   at the left, where the copy stands, lighter towards the right, where the sample frame covers most of the picture;
-   and across the top a band behind the texts of the top bar. The backdrop's box starts 10rem above the hero (see
-   `MapBackdrop`), so the band is measured from there: it holds to 23px above the hero, where the bar's texts end, and
-   is gone 103px into it, where the sample frame begins. Under `xl` the copy and the sample span the width, so the veil
-   is even and dark. */
+/* Over the landing page's backdrop, in the page's colour. From `lg` up, where the hero has two columns: dark at the
+   left, where the copy stands, lighter towards the right, where the picture is to be seen around the sample; and a
+   band behind the texts of the top bar, dark at the very top and gone a little below the bar's line. The backdrop's
+   box starts 10rem above the hero (see `MapBackdrop`), so the band is measured from there: it holds to 23px above the
+   hero, where the bar's texts end, and is gone 16px into it. Under `lg` the copy spans the width, so the veil is even
+   and dark. */
 @utility scenery-veil-hero {
     background-image: linear-gradient(
         color-mix(in srgb, var(--background) 90%, transparent),
         color-mix(in srgb, var(--background) 90%, transparent)
     );
-    @media (width >= 80rem) {
+    @media (width >= 64rem) {
         background-image:
             linear-gradient(
                 180deg,
                 color-mix(in srgb, var(--background) 92%, transparent) 0,
                 color-mix(in srgb, var(--background) 92%, transparent) calc(10rem - 23px),
-                transparent calc(10rem + 103px)
+                transparent calc(10rem + 16px)
             ),
             linear-gradient(
                 90deg,
                 color-mix(in srgb, var(--background) 97%, transparent) 0%,
                 color-mix(in srgb, var(--background) 90%, transparent) 34%,
-                color-mix(in srgb, var(--background) 62%, transparent) 72%,
-                color-mix(in srgb, var(--background) 55%, transparent) 100%
+                color-mix(in srgb, var(--background) 58%, transparent) 72%,
+                color-mix(in srgb, var(--background) 50%, transparent) 100%
             );
     }
 }
 
-/* Behind the sample of the landing page's hero, which stands where the backdrop shows most: a plate in the page's
-   colour, as wide as the sample, that goes over softly into the picture above and below it. The frame of the sample
-   covers its middle; what is seen of it is behind the small grey lines above and under the frame, which would not be
-   readable on a bright picture. It lies in the layer of the backdrop, over it. */
-@utility scenery-plate {
+/* The backdrop goes over into the ground of the page in the lower third of the hero: the picture and its veil fade out
+   together, so whatever the ground is shows there. The box is 10rem taller than the hero, at its top. */
+@utility scenery-fade {
+    mask-image: linear-gradient(180deg, #000 calc(10rem + (100% - 10rem) * 0.667), transparent 100%);
+}
+
+/* Behind a text that stands on a scenery: a scrim in the panel's colour that is as large as the text's block and a
+   little more, and fades out around it, so that the picture stays around the block. On a plain panel it cannot be
+   seen. What a place may set:
+   `--scrim-strength`  how dark the scrim is where it is full;
+   `--scrim-fade-y`    how far it reaches above and below the block, fading all the way;
+   `--scrim-bleed-x`   how far it reaches beyond the block's left and right ends;
+   `--scrim-fade-x`    how far in from those ends it reaches its full strength (a block that spans the panel sets a
+                       share of its width, so that the panel's edges keep the picture). */
+@utility scenery-scrim {
     position: relative;
     &::before {
         content: '';
         position: absolute;
-        inset: -0.75rem 0 -0.875rem;
-        z-index: -10;
+        inset: calc(-1 * var(--scrim-fade-y, 0.75rem)) calc(-1 * var(--scrim-bleed-x, 1.5rem));
+        z-index: -1;
         pointer-events: none;
-        background-color: color-mix(in srgb, var(--background) 66%, transparent);
-        mask-image: linear-gradient(180deg, transparent, #000 0.75rem, #000 calc(100% - 0.875rem), transparent);
+        background-color: color-mix(in srgb, var(--card) var(--scrim-strength, 84%), transparent);
+        mask-image:
+            linear-gradient(
+                90deg,
+                transparent,
+                #000 var(--scrim-fade-x, 1.5rem),
+                #000 calc(100% - var(--scrim-fade-x, 1.5rem)),
+                transparent
+            ),
+            linear-gradient(
+                180deg,
+                transparent,
+                #000 var(--scrim-fade-y, 0.75rem),
+                #000 calc(100% - var(--scrim-fade-y, 0.75rem)),
+                transparent
+            );
+        mask-composite: intersect;
     }
-}
-
-/* The backdrop goes over into the ground of the page at its bottom: the picture and its veil fade out together, so
-   whatever the ground is shows there. */
-@utility scenery-fade {
-    mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
 }
 
 /* Over the view of a map in a frame that has no still of its video, in the page's colour: the view is behind what the
@@ -248,35 +268,29 @@
     );
 }
 
-/* Over the scenery of the match panel, in the panel's colour: one veil from the left, where the title and its facts
-   stand, and one from the bottom, where the names, the score and the strip of rounds stand. The picture shows through
-   at the top right. On a phone the texts span the panel, so the veil from the left stays dark all the way. */
+/* Over the scenery of the match panel, in the panel's colour: one veil from the left, where the title stands, and one
+   from the bottom, where the names, the score and the strip of rounds stand; the picture shows in the upper right and
+   along the right edge. On a phone the picture is a band behind the map's title at the top of the panel, and the veil
+   closes under it, before the tag and the facts. */
 @utility scenery-veil-panel {
-    background-image:
-        linear-gradient(
-            0deg,
-            color-mix(in srgb, var(--card) 97%, transparent) 0%,
-            color-mix(in srgb, var(--card) 97%, transparent) 42%,
-            color-mix(in srgb, var(--card) 20%, transparent) 84%
-        ),
-        linear-gradient(
-            90deg,
-            color-mix(in srgb, var(--card) 97%, transparent) 0%,
-            color-mix(in srgb, var(--card) 94%, transparent) 100%
-        );
+    background-image: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--card) 62%, transparent) 0,
+        color-mix(in srgb, var(--card) 68%, transparent) 1.875rem,
+        color-mix(in srgb, var(--card) 97%, transparent) 4rem
+    );
     @media (width >= 40rem) {
         background-image:
             linear-gradient(
                 0deg,
-                color-mix(in srgb, var(--card) 97%, transparent) 0%,
-                color-mix(in srgb, var(--card) 97%, transparent) 42%,
-                color-mix(in srgb, var(--card) 20%, transparent) 84%
+                color-mix(in srgb, var(--card) 94%, transparent) 0%,
+                color-mix(in srgb, var(--card) 20%, transparent) 70%
             ),
             linear-gradient(
                 90deg,
-                color-mix(in srgb, var(--card) 97%, transparent) 0%,
-                color-mix(in srgb, var(--card) 96%, transparent) 58%,
-                color-mix(in srgb, var(--card) 74%, transparent) 74%,
+                color-mix(in srgb, var(--card) 96%, transparent) 0%,
+                color-mix(in srgb, var(--card) 88%, transparent) 40%,
+                color-mix(in srgb, var(--card) 74%, transparent) 68%,
                 color-mix(in srgb, var(--card) 50%, transparent) 100%
             );
     }

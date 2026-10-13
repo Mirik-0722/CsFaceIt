@@ -49,8 +49,12 @@ export default function HeroIllustration({ mapName, className }: { mapName: stri
   const t = useT()
   const headshots = VICTIMS.filter((victim) => victim.headshot).length
   return (
-    // `scenery-plate`: the page's backdrop is behind the sample, and its small grey lines need a darker ground.
-    <div aria-hidden="true" className={cn('scenery-plate flex min-w-0 flex-col gap-3.5', className)}>
+    // The whole sample stands on one panel: the page's backdrop is behind it, and its small grey lines need a ground of
+    // their own. The picture shows around the panel.
+    <div
+      aria-hidden="true"
+      className={cn('flex min-w-0 flex-col gap-3.5 border border-border bg-card/85 p-4', className)}
+    >
       <p className="label-mono">{t.home.sample}</p>
       <ViewfinderFrame
         // The frame itself does not follow the map: the page's backdrop is the map's picture, the frame a drawing.

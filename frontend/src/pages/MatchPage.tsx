@@ -155,7 +155,13 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
         // Decoration: never announced. A wrapper, not the picture itself, is the panel's first child (the Card drops
         // its top padding for a picture that is).
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
-          <img src={scenery} alt="" decoding="async" className="size-full object-cover object-[50%_35%]" />
+          {/* On a phone the picture is a band at the top of the panel, behind the map's title. */}
+          <img
+            src={scenery}
+            alt=""
+            decoding="async"
+            className="h-28 w-full object-cover object-[50%_35%] sm:h-full"
+          />
           <div className="scenery-veil-panel absolute inset-0" />
         </div>
       )}
@@ -169,7 +175,9 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
               </CardTitle>
               {/* The tag and the facts read as one line, `FACEIT · 10 Oct 2026, 21:40 · 47 minutes`: the tag's own
                   box separates it for the eye, so the dot after it is only heard. */}
-              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-subtle">
+              {/* From `sm` up the line stands where the scenery shows (on a phone the veil is closed here): its small
+                  grey text has a scrim of its own. */}
+              <p className="sm:scenery-scrim flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-subtle">
                 <FaceitTag />
                 {facts.length > 0 && (
                   <span>
@@ -187,22 +195,29 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
           </div>
           {result && (
             // Always a word, never the colour alone (spec 3, the result mark). It stands where the scenery shows most,
-            // so it has the panel's colour behind its letters.
+            // so its outline has a dark fill.
             <Badge
               variant={result === 'won' ? 'positive' : 'negative'}
-              className="h-6.5 rounded-none bg-card/90 px-2.5 tracking-[0.08em]"
+              className="h-6.5 rounded-none bg-card/92 px-2.5 tracking-[0.08em]"
             >
               {result === 'won' ? t.matchList.win : t.matchList.loss}
             </Badge>
           )}
         </div>
-        {teams && <MatchScore teams={teams} sides={startingSides(rounds, teams)} />}
-        {rounds.length > 0 && (
-          <RoundStrip
-            rounds={rounds}
-            teams={teams}
-            highlightRounds={new Set((highlights.data ?? []).map((highlight) => highlight.roundNumber))}
-          />
+        {(teams?.length === 2 || rounds.length > 0) && (
+          // The centre block: the teams with the score (drawn for two teams) and the strip of rounds, on a scrim that
+          // fades out around them. It spans the panel, so its scrim lets go well before the panel's edges, which keep
+          // the picture.
+          <div className="scenery-scrim flex flex-col gap-6 [--scrim-fade-x:12%] [--scrim-fade-y:2.5rem] [--scrim-strength:55%]">
+            {teams && <MatchScore teams={teams} sides={startingSides(rounds, teams)} />}
+            {rounds.length > 0 && (
+              <RoundStrip
+                rounds={rounds}
+                teams={teams}
+                highlightRounds={new Set((highlights.data ?? []).map((highlight) => highlight.roundNumber))}
+              />
+            )}
+          </div>
         )}
       </CardContent>
     </Card>
