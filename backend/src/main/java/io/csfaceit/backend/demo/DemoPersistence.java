@@ -5,6 +5,7 @@ import io.csfaceit.backend.match.MatchRepository;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -81,14 +82,14 @@ public class DemoPersistence {
      *
      * @param demoUrlAvailable whether FACEIT has a demo URL for the match; without one nothing can be queued for
      *        import. A STORED demo is announced without one: nothing is downloaded for it.
-     * @param beforeQueued runs in this transaction when the request is about to queue something (the result will be
-     *        {@link Publish#IMPORT} or {@link Publish#PARSE}) and before anything is written, and never otherwise. It
+     * @param beforeQueued runs in this transaction when the request is about to queue something, with what that is
+     *        ({@link Publish#IMPORT} or {@link Publish#PARSE}), before anything is written, and never otherwise. It
      *        stops the request by throwing: nothing is written then. This is where a limit per day counts the request.
      * @return empty when the demo would have to be queued for import but cannot be, because there is no demo URL;
      *         nothing is written then
      */
     @Transactional
-    public Optional<Queued> queue(long matchRowId, boolean demoUrlAvailable, Runnable beforeQueued) {
+    public Optional<Queued> queue(long matchRowId, boolean demoUrlAvailable, Consumer<Publish> beforeQueued) {
         Demo existing = demos.findByMatchIdForUpdate(matchRowId).orElse(null);
         if (existing == null) {
             if (!demoUrlAvailable) {
@@ -96,11 +97,11 @@ public class DemoPersistence {
             }
             Match match = matches.findById(matchRowId)
                     .orElseThrow(() -> new IllegalStateException("Match " + matchRowId + " is not stored"));
-            beforeQueued.run();
+            beforeQueued.accept(Publish.IMPORT);
             return Optional.of(new Queued(demos.save(new Demo(match)), Publish.IMPORT));
         }
         if (isStaleStored(existing)) {
-            beforeQueued.run();
+            beforeQueued.accept(Publish.PARSE);
             // Touched under the lock, so that the next request finds the demo fresh and sends nothing.
             existing.touch();
             return Optional.of(new Queued(demos.saveAndFlush(existing), Publish.PARSE));
@@ -112,7 +113,7 @@ public class DemoPersistence {
         if (!demoUrlAvailable) {
             return Optional.empty();
         }
-        beforeQueued.run();
+        beforeQueued.accept(Publish.IMPORT);
         if (failed) {
             existing.transitionTo(DemoStatus.QUEUED);
         } else {

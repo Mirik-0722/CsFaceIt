@@ -769,7 +769,7 @@ What counts is what was **started**:
 | Request | Counts as | When |
 | --- | --- | --- |
 | `POST /api/v1/matches/{id}/demo/upload` | a demo upload | When the upload is accepted, before the file is received. The place is given back if the upload then fails before the demo is stored (no `file` part, a file that is no demo, a demo that was parsed in the meantime, the storage failing). |
-| `POST /api/v1/matches/{id}/demo/import` | a demo import | Only when the request queues something. A request that finds the demo there or under way, and is answered with it as it is, is not counted. |
+| `POST /api/v1/matches/{id}/demo/import` | a demo import | Only when the request queues something. A request that finds the demo there or under way, and is answered with it as it is, is not counted (the second of two requests at once is such a request). Nor is an import that cannot work: while the site has no access to FACEIT's Downloads API (`FACEIT_DOWNLOADS_TOKEN` is empty) the demo is queued and ends at once as `DOWNLOAD_NEEDS_ACCESS`, and that costs no place. |
 | `POST /api/v1/matches/{id}/demo/analyze` | a demo import | Every time the analysis is announced (a member of the match could otherwise repeat it without bound while the demo is `PARSED`). |
 | `POST /api/v1/highlights/{id}/clips`, `POST /api/v1/matches/{id}/clips` | a clip order | Only when a new clip is queued (`201`). Asking again for a clip that exists (`200`) is not counted. |
 | `POST /api/v1/clips/{id}/retry` | a clip order | When it queues the new clip; it is counted for whoever retries. |
@@ -787,7 +787,8 @@ What counts is what was **started**:
 - The counted actions are the rows of `user_actions`; those older than the window plus a day are removed once a day
   (04:45 server time).
 
-The refusal says when the next place frees: the oldest counted action plus the window, as `retryAt` in the body
+The refusal says when the next place frees: the oldest counted action plus the window (with more counted than a
+limit that was lowered allows, the action whose leaving brings the count below the limit), as `retryAt` in the body
 (ISO-8601, UTC) and as seconds from now in the `Retry-After` header.
 
 ```
@@ -1598,14 +1599,15 @@ Besides `200`, `201` and `204`, the requests above are answered with:
 The `POST` for a highlight checks in this order, and the first that fails ends the request: the highlight; that its
 player is the caller's own (a signed-in player only); the clip that is there
 already (answered with `200`, whatever became of the demo file and however long the queue is); the demo file; the SteamID
-of the player; the queue; and last the length of the segments.
+of the player; the queue; the length of the segments; and last the caller's [limit per day](#limits-per-day) (a
+signed-in player only).
 
 A compilation is checked in this order, and the first check that fails ends the request: that the player is the
 caller's own (a signed-in player only); the match and then the player,
 in the database only (`404 MATCH_NOT_FOUND`, `404 PLAYER_NOT_FOUND`; FACEIT is not asked); the compilation that is there
 already (answered with `200`, whatever became of the demo file and however long the queue is); the demo file; the SteamID
-of the player; that he made a kill of an enemy in the match (`409 NO_KILLS`); the queue; and last the length of the
-segments.
+of the player; that he made a kill of an enemy in the match (`409 NO_KILLS`); the queue; the length of the segments;
+and last the caller's [limit per day](#limits-per-day) (a signed-in player only).
 
 ### Worker API (the recorder)
 

@@ -43,7 +43,8 @@ public class UsageService {
      *
      * @param limit how many the window allows
      * @param remaining how many of them are left now; never negative
-     * @param resetsAt when the next place frees, which is when the oldest counted action leaves the window;
+     * @param resetsAt when the next place frees, which is when the oldest counted action leaves the window (or, with
+     *        more counted than a lowered limit allows, the one whose leaving brings the count below the limit);
      *        {@code null} when nothing is counted
      */
     public record Allowance(int limit, int remaining, Instant resetsAt) {
@@ -98,9 +99,12 @@ public class UsageService {
                 userId, kind.name(), timestamp(now.minus(limits.window())));
         int limit = limits.of(kind);
         if (counted.count() >= limit) {
-            Instant retryAt = counted.oldest().plus(limits.window());
+            Instant retryAt = nextPlaceFrees(userId, kind, now, counted, limit);
             Duration retryAfter = Duration.between(now, retryAt);
-            log.info("Refused user {}: {} ({} of {} in the window)", userId, kind.limitCode(), counted.count(), limit);
+            // Not every refusal here is a 429: a caller may answer with what stands instead (the clip or the demo that
+            // a concurrent request of the user just queued), so this is no line for the log of a normal day.
+            log.debug("No place for user {}: {} ({} of {} in the window)", userId, kind.limitCode(), counted.count(),
+                    limit);
             throw new QuotaExceededException(kind, limit, limits.window(), retryAt,
                     retryAfter.isNegative() ? Duration.ZERO : retryAfter);
         }
@@ -132,6 +136,7 @@ public class UsageService {
     @Transactional(readOnly = true)
     public Allowances allowances(long userId) {
         Map<UsageKind, Counted> counted = new EnumMap<>(UsageKind.class);
+        Instant now = clock.instant();
         jdbc.query(
                 "SELECT kind, count(*), min(created_at) FROM user_actions WHERE user_id = ? AND created_at > ? "
                         + "GROUP BY kind",
@@ -141,11 +146,11 @@ public class UsageService {
                         counted.put(kind, new Counted(rs.getInt(2), instant(rs.getObject(3, OffsetDateTime.class))));
                     }
                 },
-                userId, timestamp(clock.instant().minus(limits.window())));
+                userId, timestamp(now.minus(limits.window())));
         return new Allowances(
-                allowance(UsageKind.DEMO_UPLOAD, counted),
-                allowance(UsageKind.DEMO_IMPORT, counted),
-                allowance(UsageKind.CLIP_ORDER, counted));
+                allowance(userId, UsageKind.DEMO_UPLOAD, now, counted),
+                allowance(userId, UsageKind.DEMO_IMPORT, now, counted),
+                allowance(userId, UsageKind.CLIP_ORDER, now, counted));
     }
 
     /**
@@ -158,11 +163,29 @@ public class UsageService {
         return jdbc.update("DELETE FROM user_actions WHERE created_at < ?", timestamp(cutoff));
     }
 
-    private Allowance allowance(UsageKind kind, Map<UsageKind, Counted> counted) {
+    private Allowance allowance(long userId, UsageKind kind, Instant now, Map<UsageKind, Counted> counted) {
         Counted of = counted.getOrDefault(kind, Counted.NOTHING);
         int limit = limits.of(kind);
         return new Allowance(limit, Math.max(0, limit - of.count()),
-                of.oldest() == null ? null : of.oldest().plus(limits.window()));
+                of.oldest() == null ? null : nextPlaceFrees(userId, kind, now, of, limit));
+    }
+
+    /**
+     * When the next place of the kind frees. Normally that is when the oldest counted action leaves the window. With
+     * more counted than the limit allows (the limit was lowered while they stood) the oldest leaving frees nothing
+     * yet: a place frees when the count falls below the limit, which is when the (count - limit + 1)-th oldest
+     * leaves. That one is read only then.
+     */
+    private Instant nextPlaceFrees(long userId, UsageKind kind, Instant now, Counted counted, int limit) {
+        Instant leaving = counted.oldest();
+        if (counted.count() > limit) {
+            leaving = jdbc.query(
+                    "SELECT created_at FROM user_actions WHERE user_id = ? AND kind = ? AND created_at > ? "
+                            + "ORDER BY created_at, id OFFSET ? LIMIT 1",
+                    rs -> rs.next() ? instant(rs.getObject(1, OffsetDateTime.class)) : counted.oldest(),
+                    userId, kind.name(), timestamp(now.minus(limits.window())), counted.count() - limit);
+        }
+        return leaving.plus(limits.window());
     }
 
     /** A row of a kind this version does not know (written by a later one) is counted for nothing. */

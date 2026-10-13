@@ -156,7 +156,8 @@ public class AuthController {
      *
      * <p>The answer also says what the user has left of the limits per day ({@code limits}; {@code null} for an
      * administrator, who has none), and the request is what notes that the user is around (see
-     * {@link SessionService#seen}): every page makes it once.
+     * {@link SessionService#seen}): every page makes it once. A visit that cannot be noted is a warning and never the
+     * answer.
      */
     @GetMapping("/me")
     public ResponseEntity<MeResponse> me(
@@ -164,7 +165,12 @@ public class AuthController {
         if (user == null) {
             return ResponseEntity.noContent().build();
         }
-        sessions.seen(user.id());
+        try {
+            sessions.seen(user.id());
+        } catch (RuntimeException e) {
+            // Who is signed in is the answer; the note of the visit is a convenience and the next request writes it.
+            log.warn("Could not record the visit of user {}: {}", user.id(), e.toString());
+        }
         return ResponseEntity.ok(MeResponse.of(user,
                 user.role() == UserRole.ADMIN ? null : usage.allowances(user.id())));
     }

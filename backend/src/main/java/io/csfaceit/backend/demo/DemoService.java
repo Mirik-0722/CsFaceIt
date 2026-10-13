@@ -81,12 +81,13 @@ public class DemoService {
     private final DemoMetrics metrics;
     private final Access access;
     private final UsageService usage;
+    private final FaceitDownloadsApi downloadsApi;
 
     public DemoService(MatchService matchService, MatchRepository matches, DemoRepository demos,
                        DemoPersistence persistence, AmqpTemplate amqp, FaceitGateway faceit,
                        RosterSteamIdMapper rosterSteamIds, StorageService storage, DemoStoredPublisher storedPublisher,
                        DemoUploadProperties uploadProperties, DemoMetrics metrics, Access access,
-                       UsageService usage) {
+                       UsageService usage, FaceitDownloadsApi downloadsApi) {
         this.matchService = matchService;
         this.matches = matches;
         this.demos = demos;
@@ -100,6 +101,7 @@ public class DemoService {
         this.metrics = metrics;
         this.access = access;
         this.usage = usage;
+        this.downloadsApi = downloadsApi;
     }
 
     /**
@@ -116,7 +118,9 @@ public class DemoService {
      * <p>A request that queues something (the import, or the announcement of a stored demo again) is one demo import
      * of the actor's day. The place is taken in the transaction that queues, so the two stand or fall together, and it
      * is given back when the message could not be published after all. A request that finds the demo there or under
-     * way and queues nothing is not counted, and is answered as before when the limit is reached.
+     * way and queues nothing is not counted, and is answered as before when the limit is reached; so is the second of
+     * two requests at once of which the first took the last place. An import that is queued while the site has no
+     * access to FACEIT's Downloads API is not counted either (see {@link #countsAsImport}).
      *
      * @param actor who asks; a user has to be in the roster of the match
      * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_IN_MATCH}: the user did not play the match
@@ -135,14 +139,27 @@ public class DemoService {
         // The place this request takes, if it queues something. A repeat of the step after a lost race starts from a
         // transaction that was rolled back, and the place it had taken with it.
         AtomicReference<Reservation> place = new AtomicReference<>();
-        Queued queued = persistWithRetry("demo of match " + faceitMatchId,
-                () -> {
-                    place.set(null);
-                    return persistence.queue(matchRowId, demoUrlAvailable,
-                            () -> place.set(usage.reserve(actor, UsageKind.DEMO_IMPORT)));
-                })
-                .orElseThrow(() -> new ConflictException(DEMO_URL_UNAVAILABLE,
-                        "FACEIT has no demo for match " + faceitMatchId));
+        Queued queued;
+        try {
+            queued = persistWithRetry("demo of match " + faceitMatchId,
+                    () -> {
+                        place.set(null);
+                        return persistence.queue(matchRowId, demoUrlAvailable, publish -> {
+                            if (countsAsImport(publish)) {
+                                place.set(usage.reserve(actor, UsageKind.DEMO_IMPORT));
+                            }
+                        });
+                    })
+                    .orElseThrow(() -> new ConflictException(DEMO_URL_UNAVAILABLE,
+                            "FACEIT has no demo for match " + faceitMatchId));
+        } catch (QuotaExceededException refused) {
+            // A request of the same user that ran at the same moment (a double click) may have queued the demo and
+            // taken the last place while this one waited for it. Then the demo stands, and asking for a demo that
+            // stands is not counted: the look is repeated, and it refuses only if it would still queue something.
+            queued = persistence.queue(matchRowId, demoUrlAvailable, publish -> {
+                throw refused;
+            }).orElseThrow(() -> refused);
+        }
         Demo demo = queued.demo();
         try {
             switch (queued.publish()) {
@@ -273,6 +290,17 @@ public class DemoService {
         log.info("Announced demo {} of match {} on {} to have it analyzed again", demo.getId(), faceitMatchId,
                 DemoMessages.Q_PARSED);
         return toResponse(faceitMatchId, demo);
+    }
+
+    /**
+     * Whether what a request is about to queue is counted as a demo import of the user's day. An import that cannot
+     * work is not: without access to FACEIT's Downloads API ({@link FaceitDownloadsApi#isConfigured}, the question the
+     * import worker asks to choose its way) the worker can only fetch FACEIT's own address of the demo, which ends at
+     * once as {@code DOWNLOAD_NEEDS_ACCESS}; the demo is queued all the same, so that the page shows that answer, and
+     * costs the user nothing. Announcing a stored demo again downloads nothing and is counted either way.
+     */
+    private boolean countsAsImport(DemoPersistence.Publish publish) {
+        return publish != DemoPersistence.Publish.IMPORT || downloadsApi.isConfigured();
     }
 
     /** The stored state of the match's demo. */
