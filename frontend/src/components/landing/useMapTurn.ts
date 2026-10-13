@@ -65,8 +65,9 @@ export interface MapTurn {
 /**
  * The turning of the landing page's maps: every `TURN_MS` the next map of the strip becomes the active one. The turn
  * waits while the pointer is over the strip, while the keyboard's focus is inside it and while the tab is hidden, and
- * goes on from where it was. A map's turn comes only when its scenery has arrived (it is asked for shortly before), so
- * the backdrop never changes to a picture that is not there. A visitor who asked the system for less motion gets no
+ * goes on from where it was. A map's turn waits for its scenery (it is asked for shortly before) for as long as
+ * `loadImage` does, a few seconds: the backdrop never changes to a picture that is not there, and a picture that does
+ * not come does not stop the strip. A visitor who asked the system for less motion gets no
  * turning unless they press the button that starts it.
  */
 export function useMapTurn(): MapTurn {
@@ -105,8 +106,9 @@ export function useMapTurn(): MapTurn {
       Math.max(0, left - PRELOAD_LEAD_MS),
     )
     const turnTimer = setTimeout(() => {
-      // A picture that has not arrived is waited for. One that cannot be had does not stop the strip: the backdrop
-      // keeps the last picture it has.
+      // A picture that has not arrived is waited for, a few seconds at most (`loadImage` gives up then). One that
+      // cannot be had does not stop the strip: it goes on to the next map, and the backdrop keeps the last picture it
+      // has.
       void (scenery ? loadImage(scenery) : Promise.resolve(false)).then(() => {
         if (!stale) {
           setActive(next)

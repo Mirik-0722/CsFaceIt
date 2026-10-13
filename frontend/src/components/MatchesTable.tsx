@@ -128,7 +128,8 @@ function MatchRow({ match }: { match: PlayerMatchResponse }) {
           <span className="flex min-w-0 flex-col gap-1">
             <span className="text-[15px] leading-5 font-semibold">{mapLabel(match.mapName) ?? t.match.unknownMap}</span>
             <span className="flex items-center gap-2">
-              <FaceitTag />
+              {/* Every match of the list is from FACEIT: the tag is decoration here, not a word in the link's name. */}
+              <FaceitTag decorative />
               <time dateTime={match.startedAt} className="font-mono text-[11px] whitespace-nowrap text-subtle">
                 {formatMatchTime(match.startedAt, locale)}
               </time>

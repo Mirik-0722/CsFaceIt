@@ -16,6 +16,12 @@ interface MatchScoreProps {
  * played on (`CT → T`) when they are known. Once the match is decided the losing side is dimmed: its score is
  * `text-subtle` and its name `text-muted-foreground`, as in its scoreboard. Draws nothing unless there are exactly two
  * teams.
+ *
+ * On a map's scenery each team's name with its sides has a scrim of its own, as large as the text (`scenery-scrim`;
+ * from `sm`, under it the panel's veil is closed): a long name runs to the panel's edge, where the scrim of the block
+ * around the score has faded out, and the scenery keeps the rest of the place. The block is as wide as its text but
+ * never wider than its column (`max-w-full`: a name without a space cannot be broken, so without it the block would
+ * stand as wide as the whole name and push it out of the panel).
  */
 export default function MatchScore({ teams, sides }: MatchScoreProps) {
   const t = useT()
@@ -28,7 +34,7 @@ export default function MatchScore({ teams, sides }: MatchScoreProps) {
   return (
     // On a narrow screen the score takes the first row and the two names share the second.
     <div className="grid grid-cols-2 items-start gap-x-6 gap-y-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center sm:gap-x-10">
-      <div className="flex min-w-0 flex-col gap-0.5 sm:items-end">
+      <div className="sm:scenery-scrim flex min-w-0 flex-col gap-0.5 [--scrim-strength:90%] sm:max-w-full sm:items-end sm:justify-self-end">
         <span className={cn('max-w-full truncate text-lg font-semibold', lost(first) && 'text-muted-foreground')}>
           {first.name ?? t.stats.team}
         </span>
@@ -43,7 +49,7 @@ export default function MatchScore({ teams, sides }: MatchScoreProps) {
           <span className={cn(lost(second) && 'text-subtle')}>{second.score}</span>
         </span>
       </span>
-      <div className="flex min-w-0 flex-col items-end gap-0.5 sm:items-start">
+      <div className="sm:scenery-scrim flex min-w-0 flex-col items-end gap-0.5 [--scrim-strength:90%] sm:max-w-full sm:items-start sm:justify-self-start">
         <span className={cn('max-w-full truncate text-lg font-semibold', lost(second) && 'text-muted-foreground')}>
           {second.name ?? t.stats.team}
         </span>

@@ -271,7 +271,8 @@ function smallFrame(clip: ClipResponse): string {
   const view = mapSceneryUrl(clip.mapName, 'small')
   if (view) {
     // The veil is the first layer: the page's colour at 60% over the picture.
-    return `linear-gradient(rgb(11 12 14 / 0.6), rgb(11 12 14 / 0.6)), url("${view}")`
+    const veil = 'color-mix(in srgb, var(--background) 60%, transparent)'
+    return `linear-gradient(${veil}, ${veil}), url("${view}")`
   }
   return `radial-gradient(90% 80% at 35% 45%, ${mapScene(clip.mapName)} 0%, #15130F 55%, #0E1013 85%)`
 }

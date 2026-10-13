@@ -207,7 +207,7 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
         {(teams?.length === 2 || rounds.length > 0) && (
           // The centre block: the teams with the score (drawn for two teams) and the strip of rounds, on a scrim that
           // fades out around them. It spans the panel, so its scrim lets go well before the panel's edges, which keep
-          // the picture.
+          // the picture; the names, which can run out to those edges, have a scrim of their own (`MatchScore`).
           <div className="scenery-scrim flex flex-col gap-6 [--scrim-fade-x:12%] [--scrim-fade-y:2.5rem] [--scrim-strength:55%]">
             {teams && <MatchScore teams={teams} sides={startingSides(rounds, teams)} />}
             {rounds.length > 0 && (
