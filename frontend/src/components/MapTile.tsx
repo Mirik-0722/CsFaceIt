@@ -1,17 +1,15 @@
 import { mapTile } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
 
-const SIZE_CLASS = { 20: 'size-5', 36: 'size-9', 44: 'size-11' }
-
 /**
- * A square in the map's colour, next to the map's name: decoration, so it is hidden from assistive technology. The
- * small one (20px) stands in a line of a table, the others beside a title.
+ * A square in the map's colour: what `MapEmblem` shows, in the emblem's box, for a map that has no emblem. Decoration,
+ * so it is hidden from assistive technology. The box's size comes with `className`.
  */
-export default function MapTile({ mapName, size = 44 }: { mapName: string | null; size?: 20 | 36 | 44 }) {
+export default function MapTile({ mapName, className }: { mapName: string | null; className?: string }) {
   return (
     <span
       aria-hidden="true"
-      className={cn('block shrink-0 border border-line-strong', SIZE_CLASS[size])}
+      className={cn('block shrink-0 border border-line-strong', className)}
       style={{ backgroundColor: mapTile(mapName) }}
     />
   )

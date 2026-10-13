@@ -4,7 +4,16 @@ import { Badge } from '@/components/ui/badge'
 import { useLocale, useT } from '@/i18n'
 import { formatDate } from '@/lib/formatDate'
 import { formatScore } from '@/lib/formatScore'
+import { cn } from '@/lib/utils'
 import type { MatchResult, MatchSummary } from '@/api/types'
+
+// A row carries its result as the rows of the matches table do (the `result-row` utility: a bar at the left edge and a
+// tint that fades out); a match without a known result has neither.
+const RESULT_ROW: Record<MatchResult, string | undefined> = {
+  WIN: 'result-row [--result:var(--positive)]',
+  LOSS: 'result-row [--result:var(--negative)]',
+  UNKNOWN: undefined,
+}
 
 /** The result as a word in its colour; an unknown result is a neutral dash that screen readers hear in words. */
 function Result({ result }: { result: MatchResult }) {
@@ -37,7 +46,11 @@ export default function MatchList({ items }: { items: MatchSummary[] }) {
         <li key={match.matchId} className="border-b border-border">
           <Link
             to={`/matches/${encodeURIComponent(match.matchId)}`}
-            className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-4 px-2 hover:bg-secondary sm:grid-cols-[9rem_minmax(0,1fr)_auto_auto]"
+            // The row starts 14px in: 3px of it is the bar of the result.
+            className={cn(
+              'grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-4 pr-2 pl-3.5 hover:bg-secondary sm:grid-cols-[9rem_minmax(0,1fr)_auto_auto]',
+              RESULT_ROW[match.result],
+            )}
           >
             <time dateTime={match.startedAt} className="font-mono text-xs text-subtle">
               {formatDate(match.startedAt, locale)}

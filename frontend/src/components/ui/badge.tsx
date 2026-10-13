@@ -18,6 +18,8 @@ const badgeVariants = cva(
         positive: "border-positive text-positive [a]:hover:bg-positive/10",
         negative: NEGATIVE,
         destructive: NEGATIVE,
+        // Where a match is from, in FACEIT's own orange (the one place the colour is used).
+        faceit: "border-faceit text-faceit",
       },
     },
     defaultVariants: {

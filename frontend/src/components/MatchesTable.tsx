@@ -1,6 +1,7 @@
 import { ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import MapTile from '@/components/MapTile'
+import FaceitTag from '@/components/FaceitTag'
+import MapEmblem from '@/components/MapEmblem'
 import { Badge } from '@/components/ui/badge'
 import { useLocale, useT } from '@/i18n'
 import { formatMatchTime } from '@/lib/formatDate'
@@ -9,11 +10,21 @@ import { kindText, summarizeHighlights } from '@/lib/matchHighlights'
 import { mapLabel } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
 import type { ClipCounts, PlayerMatchResponse } from '@/api/overview'
-import type { DemoStatus } from '@/api/types'
+import type { DemoStatus, MatchResult } from '@/api/types'
 
-// The columns of the header and of every row: the map with its date, the score, K / D / A, the highlights (the one that
-// takes what is left), the clips and the arrow.
-const COLUMNS = 'grid grid-cols-[150px_128px_132px_minmax(0,1fr)_180px_16px] items-center gap-4 px-1'
+// The columns of the header and of every row: the map with where the match is from and its date, the score, K / D / A,
+// the highlights (the one that takes what is left), the clips and the arrow. The first one holds the emblem and, on one
+// line, the FACEIT tag and the date; the number columns are as wide as their figures need, so that the highlights keep
+// their room. The row starts 14px in: 3px of it is the bar of the result.
+const COLUMNS = 'grid grid-cols-[220px_100px_104px_minmax(0,1fr)_160px_16px] items-center gap-4 pr-1 pl-3.5'
+
+// A row carries its result (the `result-row` utility: a bar at the left edge and a tint that fades out); a match
+// without a known result has neither. The word of the result stays in the row: the colour is never the only sign.
+const RESULT_ROW: Record<MatchResult, string | undefined> = {
+  WIN: 'result-row [--result:var(--positive)]',
+  LOSS: 'result-row [--result:var(--negative)]',
+  UNKNOWN: undefined,
+}
 
 /**
  * A figure of the stored line of the match. Where the backend has none it is a dash that screen readers do not read,
@@ -110,15 +121,18 @@ function MatchRow({ match }: { match: PlayerMatchResponse }) {
     <li className="border-b border-border">
       <Link
         to={`/matches/${encodeURIComponent(match.matchId)}`}
-        className={cn(COLUMNS, 'min-h-18 -outline-offset-2 hover:bg-secondary')}
+        className={cn(COLUMNS, 'min-h-18 -outline-offset-2 hover:bg-secondary', RESULT_ROW[match.result])}
       >
         <span className="flex min-w-0 items-center gap-3">
-          <MapTile mapName={match.mapName} size={36} />
-          <span className="flex min-w-0 flex-col">
-            <span className="text-[15px] font-semibold">{mapLabel(match.mapName) ?? t.match.unknownMap}</span>
-            <time dateTime={match.startedAt} className="font-mono text-[11px] whitespace-nowrap text-subtle">
-              {formatMatchTime(match.startedAt, locale)}
-            </time>
+          <MapEmblem mapName={match.mapName} size={44} />
+          <span className="flex min-w-0 flex-col gap-1">
+            <span className="text-[15px] leading-5 font-semibold">{mapLabel(match.mapName) ?? t.match.unknownMap}</span>
+            <span className="flex items-center gap-2">
+              <FaceitTag />
+              <time dateTime={match.startedAt} className="font-mono text-[11px] whitespace-nowrap text-subtle">
+                {formatMatchTime(match.startedAt, locale)}
+              </time>
+            </span>
           </span>
         </span>
         <span className="flex flex-col">

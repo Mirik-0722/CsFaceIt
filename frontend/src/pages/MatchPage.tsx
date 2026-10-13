@@ -7,8 +7,9 @@ import ClipButton from '@/components/ClipButton'
 import ClipList from '@/components/ClipList'
 import ClipOrderDialog, { type ClipOrder } from '@/components/ClipOrderDialog'
 import DemoPanel from '@/components/DemoPanel'
+import FaceitTag from '@/components/FaceitTag'
 import HighlightList from '@/components/HighlightList'
-import MapTile from '@/components/MapTile'
+import MapEmblem from '@/components/MapEmblem'
 import MatchScore from '@/components/MatchScore'
 import RecDot from '@/components/RecDot'
 import RecorderBanner from '@/components/RecorderBanner'
@@ -24,15 +25,13 @@ import { errorMessage } from '@/lib/errorMessage'
 import { formatClock, formatDate, formatMatchDay } from '@/lib/formatDate'
 import { hasLost } from '@/lib/hasLost'
 import { highlightGroup, highlightLabel, type HighlightGroup } from '@/lib/highlightLabels'
+import { mapSceneryUrl } from '@/lib/mapArt'
 import { mapLabel } from '@/lib/mapTint'
 import { byNumber, startingSides } from '@/lib/matchRounds'
 import { cn } from '@/lib/utils'
 import { useViewerPlayerId } from '@/lib/viewer'
 import type { ApiError } from '@/api/client'
 import type { MatchResponse, MatchStatsResponse, TeamStatsResponse } from '@/api/types'
-
-// Where every match of the site comes from: the first fact of the header's line.
-const SOURCE = 'FACEIT'
 
 /** How long the match took in whole minutes, or null when one of its two times is missing or they make no span. */
 function minutesPlayed(match: MatchResponse): number | null {
@@ -103,7 +102,8 @@ interface MatchHeaderProps {
  * The panel of the match (spec 4, screen 3): the map with a line of facts under it (where the match is from, when it
  * started, how long it took, how many rounds), the result for the visitor's own player, the two teams with the score
  * and their sides, and the strip of rounds. Every part is left out while nobody knows it: the facts while FACEIT has
- * not published them, the sides and the strip without an analyzed demo (or when its answer fails).
+ * not published them, the sides and the strip without an analyzed demo (or when its answer fails). The scenery of the
+ * map fills the panel behind all of it, under a veil; a map without scenery, or no map, leaves the panel plain.
  */
 function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
   const t = useT()
@@ -115,8 +115,9 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
   const rounds = byNumber(breakdown.data?.rounds ?? [])
   const minutes = minutesPlayed(match)
   const result = resultFor(match, viewerPlayerId)
+  const scenery = mapSceneryUrl(match.mapName)
   // Each fact is an element of its own; a match that is over needs no word for it, any other state is said.
-  const facts: ReactNode[] = [<span key="source">{SOURCE}</span>]
+  const facts: ReactNode[] = []
   if (match.startedAt) {
     facts.push(
       <span key="started" className="whitespace-nowrap">
@@ -148,30 +149,48 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
     )
   }
   return (
-    <Card className="py-7">
+    // `isolate`: the scenery lies under the panel's content but over the panel's own colour.
+    <Card className="relative isolate py-7">
+      {scenery && (
+        // Decoration: never announced. A wrapper, not the picture itself, is the panel's first child (the Card drops
+        // its top padding for a picture that is).
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
+          <img src={scenery} alt="" decoding="async" className="size-full object-cover object-[50%_35%]" />
+          <div className="scenery-veil-panel absolute inset-0" />
+        </div>
+      )}
       <CardContent className="flex flex-col gap-6 px-[clamp(16px,3vw,32px)]">
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-          <div className="flex min-w-0 items-center gap-3.5">
-            <MapTile mapName={match.mapName} />
-            <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="flex min-w-0 items-center gap-4">
+            <MapEmblem mapName={match.mapName} size={64} />
+            <div className="flex min-w-0 flex-col gap-1.5">
               <CardTitle className="truncate text-[26px] leading-[1.2] tracking-[-0.02em]">
                 {mapLabel(match.mapName) ?? t.match.unknownMap}
               </CardTitle>
-              <p className="font-mono text-xs text-subtle">
-                {facts.map((fact, index) => (
-                  <Fragment key={index}>
-                    {index > 0 && <span> · </span>}
-                    {fact}
-                  </Fragment>
-                ))}
+              {/* The tag and the facts read as one line, `FACEIT · 10 Oct 2026, 21:40 · 47 minutes`: the tag's own
+                  box separates it for the eye, so the dot after it is only heard. */}
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-subtle">
+                <FaceitTag />
+                {facts.length > 0 && (
+                  <span>
+                    <span className="sr-only"> · </span>
+                    {facts.map((fact, index) => (
+                      <Fragment key={index}>
+                        {index > 0 && <span> · </span>}
+                        {fact}
+                      </Fragment>
+                    ))}
+                  </span>
+                )}
               </p>
             </div>
           </div>
           {result && (
-            // Always a word, never the colour alone (spec 3, the result mark).
+            // Always a word, never the colour alone (spec 3, the result mark). It stands where the scenery shows most,
+            // so it has the panel's colour behind its letters.
             <Badge
               variant={result === 'won' ? 'positive' : 'negative'}
-              className="h-6.5 rounded-none px-2.5 tracking-[0.08em]"
+              className="h-6.5 rounded-none bg-card/90 px-2.5 tracking-[0.08em]"
             >
               {result === 'won' ? t.matchList.win : t.matchList.loss}
             </Badge>

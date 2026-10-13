@@ -1,11 +1,11 @@
-import MapTile from '@/components/MapTile'
+import MapEmblem from '@/components/MapEmblem'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useT } from '@/i18n'
 import { mapLabel } from '@/lib/mapTint'
 import type { MapOverview } from '@/api/overview'
 
 /**
- * The player's stored matches by map (spec 3, the maps table): the map with its tile, how many matches, the share won as
+ * The player's stored matches by map (spec 3, the maps table): the map with its emblem, how many matches, the share won as
  * a bar with its percentage, K/D and ADR. The rows come in the order given, most played first. A map without a stored ADR
  * shows a dash. The columns are 12px apart and the box has 16px at its sides: each number column is as wide as its
  * figures plus the 12px before it. The table is as wide as that needs and scrolls in its box on a phone, as a scoreboard
@@ -33,7 +33,7 @@ export default function MapsTable({ maps, labelledBy }: { maps: MapOverview[]; l
               <TableRow key={map.mapName} className="number-mono hover:bg-transparent">
                 <TableCell className="py-0 pr-0 pl-4">
                   <span className="flex items-center gap-3 font-sans text-sm font-semibold">
-                    <MapTile mapName={map.mapName} size={20} />
+                    <MapEmblem mapName={map.mapName} size={28} />
                     <span className="truncate">{mapLabel(map.mapName) ?? map.mapName}</span>
                   </span>
                 </TableCell>

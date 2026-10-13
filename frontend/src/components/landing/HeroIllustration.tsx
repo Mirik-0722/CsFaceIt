@@ -50,7 +50,9 @@ export default function HeroIllustration({ className }: { className?: string }) 
     <div aria-hidden="true" className={cn('flex min-w-0 flex-col gap-3.5', className)}>
       <p className="label-mono">{t.home.sample}</p>
       <ViewfinderFrame
+        // The frame is a drawing: it keeps the tinted scene and never shows the view of the map.
         mapName="de_mirage"
+        scenery={false}
         size="large"
         className="@container border border-border"
         topLeft={

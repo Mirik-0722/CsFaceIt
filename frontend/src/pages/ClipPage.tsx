@@ -17,6 +17,7 @@ import { isFinished } from '@/lib/clipStatus'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate, formatDateTime } from '@/lib/formatDate'
 import { formatDuration } from '@/lib/highlightLabels'
+import { mapSceneryUrl } from '@/lib/mapArt'
 import { mapLabel, mapScene } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
 import { useHasUnlinkedNotice } from '@/lib/viewer'
@@ -262,6 +263,19 @@ function ClipFacts({ clip }: { clip: ClipResponse }) {
   )
 }
 
+/** What a small frame of a clip shows: the clip's still, else the darkened view of its map, else the map's scene. */
+function smallFrame(clip: ClipResponse): string {
+  if (clip.thumbnailUrl) {
+    return `url("${clip.thumbnailUrl}")`
+  }
+  const view = mapSceneryUrl(clip.mapName, 'small')
+  if (view) {
+    // The veil is the first layer: the page's colour at 60% over the picture.
+    return `linear-gradient(rgb(11 12 14 / 0.6), rgb(11 12 14 / 0.6)), url("${view}")`
+  }
+  return `radial-gradient(90% 80% at 35% 45%, ${mapScene(clip.mapName)} 0%, #15130F 55%, #0E1013 85%)`
+}
+
 /** The other clips of the match as rows that link to them. Without any there is no section. */
 function MatchClips({ clip }: { clip: ClipResponse }) {
   const t = useT()
@@ -280,15 +294,12 @@ function MatchClips({ clip }: { clip: ClipResponse }) {
               to={`/clips/${other.id}`}
               className="flex min-h-17.5 items-center gap-3.5 py-2 -outline-offset-2 hover:bg-secondary"
             >
-              {/* A small still of the clip, or the scene of its map: decoration beside the words. */}
+              {/* A small still of the clip; without one the view of its map under a dark veil, or, for a map that has
+                  none, the scene of the map: decoration beside the words. */}
               <span
                 aria-hidden="true"
                 className="block h-13.5 w-24 shrink-0 border border-border bg-cover bg-center"
-                style={{
-                  backgroundImage: other.thumbnailUrl
-                    ? `url("${other.thumbnailUrl}")`
-                    : `radial-gradient(90% 80% at 35% 45%, ${mapScene(other.mapName)} 0%, #15130F 55%, #0E1013 85%)`,
-                }}
+                style={{ backgroundImage: smallFrame(other) }}
               />
               <span className="flex min-w-0 flex-col gap-0.5">
                 <span className="truncate text-sm font-semibold">{clipLabel(other, t)}</span>

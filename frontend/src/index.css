@@ -33,6 +33,7 @@
     --color-rec: var(--rec);
     --color-positive: var(--positive);
     --color-negative: var(--negative);
+    --color-faceit: var(--faceit);
     --color-side-ct: var(--side-ct);
     --color-side-t: var(--side-t);
     --radius-sm: calc(var(--radius) * 0.6);
@@ -68,6 +69,8 @@
     --positive: #57D58C;
     --negative: #FF7468;
     --destructive: #FF7468;
+    /* FACEIT's own orange: only the tag that says where a match is from. */
+    --faceit: #FF5500;
     --side-ct: #7CAEFF;
     --side-t: #F1B550;
     /* Not in the spec table: text on those surfaces reads as --foreground. */
@@ -96,6 +99,17 @@
         @apply bg-background text-foreground;
         font-size: 15px;
         line-height: 1.5;
+    }
+    /* The ground of every page is not flat: a soft light from the top over the same --background. It is a layer fixed
+       to the window (not `background-attachment: fixed`, which a phone's browser ignores), so a long page does not
+       stretch it, and it lies under everything the page draws. */
+    body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background-image: radial-gradient(110% 70% at 60% -10%, #141b26 0%, var(--background) 60%);
     }
 }
 
@@ -147,6 +161,71 @@
     max-width: 1280px;
     margin-inline: auto;
     padding-inline: var(--page-gutter);
+}
+
+/* A row of a list of matches that carries its result: a 3px bar at the left edge and a tint of the same colour that
+   fades out towards the middle of the row. The row says which colour with `[--result:var(--positive)]` (or
+   `--negative`); a row without a known result does not use the class. Both are painted over the row's background
+   colour, so its hover colour still shows through. */
+@utility result-row {
+    background-image: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--result) 11%, transparent) 0%,
+        color-mix(in srgb, var(--result) 3%, transparent) 33%,
+        transparent 56%
+    );
+    box-shadow: inset 3px 0 0 var(--result);
+}
+
+/* The veils over a map's scenery. They are what keeps the text in front of a picture readable whichever map the
+   picture is of, so their strengths are measured against the brightest of the pictures, not chosen by eye. */
+
+/* Over the view of a map in a frame that has no still of its video, in the page's colour: the view is behind what the
+   frame says, so it is darkened as a whole, and most along the top and the bottom, where the labels of the corners
+   stand. */
+@utility scenery-veil-frame {
+    background-image: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--background) 92%, transparent) 0%,
+        color-mix(in srgb, var(--background) 92%, transparent) 18%,
+        color-mix(in srgb, var(--background) 55%, transparent) 50%,
+        color-mix(in srgb, var(--background) 92%, transparent) 82%,
+        color-mix(in srgb, var(--background) 92%, transparent) 100%
+    );
+}
+
+/* Over the scenery of the match panel, in the panel's colour: one veil from the left, where the title and its facts
+   stand, and one from the bottom, where the names, the score and the strip of rounds stand. The picture shows through
+   at the top right. On a phone the texts span the panel, so the veil from the left stays dark all the way. */
+@utility scenery-veil-panel {
+    background-image:
+        linear-gradient(
+            0deg,
+            color-mix(in srgb, var(--card) 97%, transparent) 0%,
+            color-mix(in srgb, var(--card) 97%, transparent) 42%,
+            color-mix(in srgb, var(--card) 20%, transparent) 84%
+        ),
+        linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--card) 97%, transparent) 0%,
+            color-mix(in srgb, var(--card) 94%, transparent) 100%
+        );
+    @media (width >= 40rem) {
+        background-image:
+            linear-gradient(
+                0deg,
+                color-mix(in srgb, var(--card) 97%, transparent) 0%,
+                color-mix(in srgb, var(--card) 97%, transparent) 42%,
+                color-mix(in srgb, var(--card) 20%, transparent) 84%
+            ),
+            linear-gradient(
+                90deg,
+                color-mix(in srgb, var(--card) 97%, transparent) 0%,
+                color-mix(in srgb, var(--card) 96%, transparent) 58%,
+                color-mix(in srgb, var(--card) 74%, transparent) 74%,
+                color-mix(in srgb, var(--card) 50%, transparent) 100%
+            );
+    }
 }
 
 /* The blinking REC dot, applied as `animate-rec`. */

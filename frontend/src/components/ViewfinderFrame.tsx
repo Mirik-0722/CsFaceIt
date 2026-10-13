@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { mapSceneryUrl } from '@/lib/mapArt'
 import { mapScene } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
 
@@ -7,6 +8,11 @@ interface ViewfinderFrameProps {
   mapName: string | null
   /** A still of the video, laid over the scene. While there is none, or when it does not load, the scene shows. */
   imageUrl?: string | null
+  /**
+   * Whether a frame without a still shows the map itself: the small view of the map under a dark veil, for a map that
+   * has one. `false` keeps the tinted scene whatever the map (the landing page's sample frame, which is a drawing).
+   */
+  scenery?: boolean
   /**
    * `card` is the frame of a clip card (12px brackets), `large` the frame of a page (18px brackets). `clip` is the
    * frame of the clip's own page: `large` on a desktop, but on a phone, where the frame runs from edge to edge, 14px
@@ -71,11 +77,13 @@ const SIZES = {
 
 /**
  * A 16:9 camera frame (spec 3): the scene of the map as the background, a bracket in each corner, and five places for
- * what is said about the picture. The labels beside the brackets are mono and upper case.
+ * what is said about the picture. The labels beside the brackets are mono and upper case. The picture in the frame is
+ * the still of the video; without one, the view of the map; without that, the scene alone.
  */
 export default function ViewfinderFrame({
   mapName,
   imageUrl,
+  scenery = true,
   size = 'card',
   topLeft,
   topRight,
@@ -87,6 +95,8 @@ export default function ViewfinderFrame({
 }: ViewfinderFrameProps) {
   // The url that failed to load, so that a new url is tried again.
   const [brokenUrl, setBrokenUrl] = useState<string | null>(null)
+  const still = imageUrl && imageUrl !== brokenUrl ? imageUrl : null
+  const view = scenery && !still ? mapSceneryUrl(mapName, 'small') : null
   const place = SIZES[size]
   const label = cn(
     'absolute z-10 flex items-center font-mono tracking-[0.08em] text-foreground uppercase',
@@ -100,14 +110,21 @@ export default function ViewfinderFrame({
         backgroundImage: `radial-gradient(90% 80% at 35% 45%, ${mapScene(mapName)} 0%, #15130F 50%, #0E1013 82%)`,
       }}
     >
-      {imageUrl && imageUrl !== brokenUrl && (
+      {view && (
+        <>
+          <img src={view} alt="" loading="lazy" className="absolute inset-0 size-full object-cover" />
+          {/* The view is behind what the frame says, not the thing to look at: it lies under a veil. */}
+          <div aria-hidden="true" className="scenery-veil-frame absolute inset-0" />
+        </>
+      )}
+      {still && (
         <>
           <img
-            src={imageUrl}
+            src={still}
             alt=""
             loading="lazy"
             className="absolute inset-0 size-full object-cover"
-            onError={() => setBrokenUrl(imageUrl)}
+            onError={() => setBrokenUrl(still)}
           />
           {/* A still can be bright anywhere; the labels in the corners stay readable on a darkened top and bottom. */}
           <div
