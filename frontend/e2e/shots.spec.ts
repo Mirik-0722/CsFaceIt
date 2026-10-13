@@ -89,6 +89,8 @@ interface Backend {
   me: MeResponse | null
   /** Which ways of signing in the backend has turned on. */
   providers: AuthProvidersResponse
+  /** The answers to the writes that bring a demo in, by `METHOD path`; every other write is left unanswered. */
+  uploads: [string, Reply][]
 }
 
 interface ShotPage {
@@ -246,6 +248,7 @@ const DEFAULT_BACKEND: Backend = {
   recorder: recorderStatusFixture,
   me: null,
   providers: { steam: true, faceit: false },
+  uploads: [],
 }
 
 /** A visitor signed in with Steam whose FACEIT player was found: the nav has the player's pages. */
@@ -429,6 +432,52 @@ function edgeHistory(): MatchHistoryResponse {
   items[9] = { ...items[9], score: {} }
   return { items, offset: 0, limit: 20 }
 }
+
+/**
+ * The matches of the default list under FACEIT-style ids (`1-` and a UUID, the last group counting the rows from 1), so
+ * that a demo file named for one of them finds its row: the sixth has no demo, the fourth is parsed, the last-but-two
+ * is stored.
+ */
+function withFaceitIds(page: PlayerMatchPageResponse): PlayerMatchPageResponse {
+  return {
+    ...page,
+    items: page.items.map((match, index) => ({
+      ...match,
+      matchId: faceitMatchId(index + 1),
+    })),
+  }
+}
+
+function faceitMatchId(row: number): string {
+  return `1-aaaaaaaa-bbbb-cccc-dddd-${String(row).padStart(12, '0')}`
+}
+
+/** The upload of a demo file to the match of a row, answered by `reply`. */
+function uploadTo(row: number, reply: Reply): [string, Reply] {
+  return [`POST /api/v1/matches/${faceitMatchId(row)}/demo/upload`, reply]
+}
+
+/**
+ * Drops a file with that name on the page, the way the browser tells it: the three drag events with the file in them
+ * (only the first one, when `holding`, so that the picture is of the page while the file is over it).
+ */
+function dropFile(name: string, holding = false) {
+  const types = holding ? ['dragenter'] : ['dragenter', 'dragover', 'drop']
+  return async (page: Page) => {
+    await page.evaluate(`(() => {
+      const data = new DataTransfer()
+      data.items.add(new File(['demo'], ${JSON.stringify(name)}))
+      for (const type of ${JSON.stringify(types)}) {
+        document.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }))
+      }
+    })()`)
+    // Not `settle`: an upload that is not answered keeps the network from going quiet.
+    await page.waitForTimeout(400)
+  }
+}
+
+/** The clips of the signed-in player: the ones that were ordered by them, so that their cards have the actions. */
+const MINE_CLIPS = OWN_CLIPS.map((clip) => ({ ...clip, mine: true }))
 
 const SCENARIOS: Scenario[] = [
   { name: 'default', languages: ['uz', 'en'] },
@@ -646,6 +695,67 @@ const SCENARIOS: Scenario[] = [
       ],
     },
   },
+  // Plan 6b, bringing demos in. A signed-in player on the page of their own matches: the upload box beside the rows,
+  // "Upload a demo" on the rows that have none, the stage bars of the demos that are on their way.
+  {
+    name: 'bring',
+    pages: ['matches'],
+    languages: ['uz', 'en'],
+    backend: { me: MEMBER, playerMatches: withFaceitIds(playerMatchesFixture) },
+  },
+  // A file that was dropped whose name has no match id: why it is not uploaded, and where the way out is.
+  {
+    name: 'bring-noid',
+    pages: ['matches'],
+    languages: ['uz', 'en'],
+    backend: { me: MEMBER, playerMatches: withFaceitIds(playerMatchesFixture) },
+    before: (page) => dropFile('final_demo_v2.dem')(page),
+  },
+  // A file named for the sixth row (no demo) that is still going out, and one for the fourth (parsed already), which
+  // the page refuses before sending anything.
+  {
+    name: 'bring-sending',
+    pages: ['matches'],
+    languages: ['uz', 'en'],
+    backend: {
+      me: MEMBER,
+      playerMatches: withFaceitIds(playerMatchesFixture),
+      uploads: [uploadTo(5, { body: {}, hang: true })],
+    },
+    before: async (page) => {
+      await dropFile(`${faceitMatchId(5)}-1-1.dem.zst`)(page)
+      await dropFile(`${faceitMatchId(4)}-1-1.dem`)(page)
+    },
+  },
+  // The same, with the backend refusing the upload: the day's limit is used up (429 with the moment it frees up).
+  {
+    name: 'bring-refused',
+    pages: ['matches'],
+    languages: ['uz'],
+    backend: {
+      me: MEMBER,
+      playerMatches: withFaceitIds(playerMatchesFixture),
+      uploads: [
+        uploadTo(5, {
+          status: 429,
+          body: { code: 'UPLOAD_LIMIT_REACHED', message: 'Limit reached', retryAt: '2023-11-15T06:30:00Z' },
+        }),
+      ],
+    },
+    before: dropFile(`${faceitMatchId(5)}-1-1.dem.zst`),
+  },
+  // A file held over the page: the frame that says where to let it go.
+  {
+    name: 'bring-drag',
+    pages: ['matches'],
+    languages: ['uz'],
+    viewports: [DESKTOP],
+    backend: { me: MEMBER, playerMatches: withFaceitIds(playerMatchesFixture) },
+    before: dropFile('whatever.dem', true),
+  },
+  // The player's own clips with their actions: "Cancel" on the queued one, "Try again" on the failed one, the download
+  // on the ready ones.
+  { name: 'bring-clips', pages: ['clips'], languages: ['uz', 'en'], backend: { me: MEMBER, clips: MINE_CLIPS } },
   // The first scoreboard scrolled to its right end, on a phone: the player column and the team header stay in place.
   // The default scoreboard fits in 390px and has nothing to scroll; the one with the 32-character nickname overflows.
   { name: 'scrolled-long', pages: ['match'], viewports: [PHONE], backend: LONG_BACKEND, before: scrollScoreboard },
@@ -666,6 +776,8 @@ async function setLanguage(page: Page, language: Language) {
 interface Reply {
   status?: number
   body: unknown
+  /** The request is never answered (an upload that is still going when the picture is taken). */
+  hang?: true
 }
 
 /** The highlight a clip was recorded from: the same player, type, round and start, as the app itself matches them. */
@@ -696,6 +808,9 @@ function answersFor(backend: Backend): Map<string, Reply> {
         : { status: 204, body: undefined },
     ],
     ['GET /api/v1/auth/providers', { body: backend.providers }],
+    // The sync that the page of one's own matches asks for when it opens: nothing was queued.
+    ['POST /api/v1/matches/sync', { status: 202, body: { enabled: true, queued: 0 } }],
+    ...backend.uploads,
     ...backend.clips.map((clip): [string, Reply] => {
       const source = highlightOf(clip, backend.highlights)
       return [`GET /api/v1/clips/${clip.id}`, { body: source ? clipDetailFixture(clip, source) : clip }]
@@ -746,6 +861,9 @@ async function mockApi(page: Page, answers: Map<string, Reply>) {
       const url = new URL(route.request().url())
       const key = `${route.request().method()} ${url.pathname}${url.search}`
       const reply = answers.get(key)
+      if (reply?.hang) {
+        return
+      }
       if (reply) {
         await route.fulfill({ status: reply.status ?? 200, json: reply.body })
       } else {

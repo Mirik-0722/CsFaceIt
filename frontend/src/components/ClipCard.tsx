@@ -1,13 +1,20 @@
+import { Download, RotateCcw } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useDeleteClip, useRetryClip } from '@/api/queries'
 import MapEmblem from '@/components/MapEmblem'
 import StatusChip from '@/components/StatusChip'
 import ViewfinderFrame from '@/components/ViewfinderFrame'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { useLocale, useT } from '@/i18n'
 import { clipFailureText, clipLabel, formatBytes, frameLabel } from '@/lib/clips'
+import { errorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/formatDate'
 import { formatDuration } from '@/lib/highlightLabels'
 import { mapLabel } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
+import { useViewer } from '@/lib/viewer'
+import type { ApiError } from '@/api/client'
 import type { ClipResponse } from '@/api/types'
 
 /** What the middle of the frame says: a play mark on a finished clip, the percentage of a recording, else the state. */
@@ -47,20 +54,113 @@ function FrameCenter({ clip }: { clip: ClipResponse }) {
 }
 
 /**
+ * What the owner of a clip can do on its card, as buttons at the end of the state line (positioned, so that they are
+ * above the card's link, which is stretched over everything else): take back an order that still
+ * waits ("Cancel", after a second click that confirms it), order a failed clip again, download a finished one. They
+ * are siblings of the card's link in its box, never inside it. What went wrong is said under the line. The same
+ * requests as on the clip's own page, without the admin key: the card is of the signed-in visitor's own.
+ */
+function ClipActions({ clip, label }: { clip: ClipResponse; label: string }) {
+  const t = useT()
+  const remove = useDeleteClip()
+  const retry = useRetryClip()
+  const [confirming, setConfirming] = useState(false)
+  const [failure, setFailure] = useState<ApiError | null>(null)
+  const busy = remove.isPending || retry.isPending
+  const failed = (error: ApiError) => {
+    setConfirming(false)
+    setFailure(error)
+  }
+
+  const buttons =
+    clip.status === 'QUEUED' ? (
+      confirming ? (
+        <span role="group" aria-label={t.clip.card.confirmCancel} className="relative ml-auto flex items-center gap-1">
+          <span className="mr-1 text-[13px]">{t.clip.card.confirmCancel}</span>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              setFailure(null)
+              remove.mutate({ clip }, { onError: failed })
+            }}
+          >
+            {t.clip.card.confirmYes}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" autoFocus disabled={busy} onClick={() => setConfirming(false)}>
+            {t.clip.card.keep}
+          </Button>
+        </span>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label={t.clip.card.cancelFor(label)}
+          className="relative ml-auto"
+          onClick={() => setConfirming(true)}
+        >
+          {t.clip.card.cancel}
+        </Button>
+      )
+    ) : clip.status === 'FAILED' ? (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        aria-label={t.clip.card.retryFor(label)}
+        disabled={busy}
+        className="relative ml-auto"
+        onClick={() => {
+          setFailure(null)
+          retry.mutate({ clip }, { onError: failed })
+        }}
+      >
+        <RotateCcw aria-hidden="true" />
+        {t.clip.retry}
+      </Button>
+    ) : clip.status === 'DONE' && clip.videoUrl !== null ? (
+      <a
+        href={`${clip.videoUrl}?download=1`}
+        download
+        aria-label={t.clip.card.downloadFor(label)}
+        title={t.clip.page.download}
+        className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), 'relative ml-auto')}
+      >
+        <Download aria-hidden="true" />
+      </a>
+    ) : null
+
+  return (
+    <>
+      {buttons}
+      {/* Under the state line, whatever the line holds: always in the page, so that its first message is announced. */}
+      <p aria-live="polite" className="basis-full text-xs leading-normal text-negative empty:hidden">
+        {failure && (failure.status === 401 ? t.auth.sessionEnded : errorMessage(failure, t))}
+      </p>
+    </>
+  )
+}
+
+/**
  * One clip as a card (spec 3): the frame with where the clip is from, how long it is and in what quality, then what it
- * shows, whose it is, and its state. The whole card is the link to the clip's page, in whatever state the clip is.
+ * shows, whose it is, and its state. The whole card is the link to the clip's page, in whatever state the clip is: the
+ * link is the title, stretched over the card, so that the owner's buttons can stand in the card without being in the
+ * link (a button in a link is two interactive elements in one).
  */
 export default function ClipCard({ clip }: { clip: ClipResponse }) {
   const t = useT()
   const locale = useLocale()
+  const viewer = useViewer()
   const recording = clip.status === 'RECORDING'
   const failure = clip.status === 'FAILED' ? clipFailureText(clip, t) : null
+  const label = `${clipLabel(clip, t)} · ${clip.nickname}`
+  const manage = viewer.canManageClip(clip).allowed
   return (
-    <Link
-      to={`/clips/${clip.id}`}
-      className="flex h-full flex-col border border-border bg-card -outline-offset-2 hover:bg-secondary"
-    >
-      <article className="flex h-full flex-col">
+    <article className="relative flex h-full flex-col border border-border bg-card -outline-offset-2 hover:bg-secondary has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:outline-ring">
+      <div className="flex h-full flex-col">
         <div className="relative">
           <ViewfinderFrame
             mapName={clip.mapName}
@@ -88,7 +188,13 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
         </div>
         <div className="flex min-w-0 flex-col gap-1 px-4 pt-3.5 pb-1.5">
           <h3 className="truncate text-[15px] font-semibold">
-            {clipLabel(clip, t)} · {clip.nickname}
+            <Link
+              to={`/clips/${clip.id}`}
+              data-card-link
+              className="outline-hidden after:absolute after:inset-0 after:content-['']"
+            >
+              {label}
+            </Link>
           </h3>
           <p className="truncate text-[13px] text-muted-foreground">
             {/* In the line of text, 16px, as a letter would be: the emblem is the first thing of the line, so it is
@@ -106,7 +212,7 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
           </p>
         </div>
         {/* 44px of line and 6px under it, as the design's card has. */}
-        <div className="mt-auto flex min-h-12.5 min-w-0 items-center gap-2 px-4 pb-1.5">
+        <div className="mt-auto flex min-h-12.5 min-w-0 flex-wrap items-center gap-x-2 px-4 pb-1.5">
           {/* The frame above has the blinking dot and the large percentage of a recording; the line says the word, and
               the number stays there for a screen reader, who does not see the frame (not announced: it changes with
               every answer of the backend). */}
@@ -124,8 +230,9 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
           {failure && (
             <span className="min-w-0 truncate font-mono text-[11px] tracking-[0.06em] text-subtle">{failure}</span>
           )}
+          {manage && <ClipActions clip={clip} label={label} />}
         </div>
-      </article>
-    </Link>
+      </div>
+    </article>
   )
 }

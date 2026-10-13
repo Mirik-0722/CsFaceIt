@@ -229,6 +229,26 @@ export const uz: Messages = {
       ready: (count) => `${count} tayyor`,
       readyAlone: (count) => `${count} klip tayyor`,
     },
+    bring: {
+      title: 'Demo yuklash',
+      text: ".dem yoki .dem.zst faylni shu yerga tashlang. FACEIT demosi match xonasidan yuklab olinadi.",
+      choose: 'Fayl tanlash',
+      linkLabel: 'Demo havolasi',
+      linkPlaceholder: 'Yoki havolani joylang',
+      linkSubmit: 'Olish',
+      drop: 'Demoni yuklash uchun faylni tashlang',
+      row: 'Demo yuklash',
+      rowFor: (label) => `${label} uchun demo yuklash`,
+      feedLabel: 'Demo yuklashlar',
+      sending: (percent) => `Yuklanmoqda ${percent}%`,
+      fetching: 'Olinmoqda…',
+      sent: "Yuborildi. Qator demoning bosqichlarini o'zi ko'rsatadi.",
+      dismiss: 'Yopish',
+      noMatchId: (name) =>
+        `«${name}» nomida match id yo'q, shuning uchun u qaysi matchniki ekanini bilib bo'lmaydi. Uni ro'yxatdagi o'sha match qatoridan «Demo yuklash» orqali yuklang.`,
+      noLinkId:
+        "Havoladagi fayl nomida match id yo'q, shuning uchun u qaysi matchniki ekanini bilib bo'lmaydi. Faylni ro'yxatdagi o'sha match qatoridan «Demo yuklash» orqali yuklang.",
+    },
     recorder: {
       title: 'Yozuvchi kompyuter',
       loading: 'Yozuvchi holati yuklanmoqda…',
@@ -324,6 +344,9 @@ export const uz: Messages = {
     uploadInterrupted:
       "Yuklash uzilib qoldi. So'rov rad etilgan bo'lishi mumkin: qayta urinib ko'ring yoki qaytadan kiring.",
     importFailedPlain: "Demoni FACEIT'dan olib bo'lmadi.",
+    linkInvalid: "Bu demo fayliga havola emas. Havolani FACEIT bergan ko'rinishda joylang.",
+    linkHostNotAllowed: "Sayt demoni bu manzildan olmaydi. FACEIT'dagi match xonasidan olingan havolani joylang.",
+    linkMismatch: 'Havoladagi fayl boshqa matchning demosi.',
     stages: {
       label: 'Demo bosqichlari',
       steps: {
@@ -369,6 +392,15 @@ export const uz: Messages = {
     record: 'Klip yozish',
     watch: "Ko'rish",
     retry: 'Qayta urinish',
+    card: {
+      cancel: 'Bekor qilish',
+      cancelFor: (label) => `${label} buyurtmasini bekor qilish`,
+      confirmCancel: 'Bekor qilinsinmi?',
+      confirmYes: 'Ha',
+      keep: "Yo'q",
+      retryFor: (label) => `Qayta urinish: ${label}`,
+      downloadFor: (label) => `${label} ni yuklab olish`,
+    },
     status: {
       QUEUED: 'Navbatda',
       RECORDING: 'Yozilmoqda',

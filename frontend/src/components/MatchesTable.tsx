@@ -1,15 +1,18 @@
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Upload } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import DemoStages from '@/components/DemoStages'
 import FaceitTag from '@/components/FaceitTag'
 import MapEmblem from '@/components/MapEmblem'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { useLocale, useT } from '@/i18n'
 import { formatMatchTime } from '@/lib/formatDate'
 import { formatScore } from '@/lib/formatScore'
 import { kindText, summarizeHighlights } from '@/lib/matchHighlights'
 import { mapLabel } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
-import type { ClipCounts, PlayerMatchResponse } from '@/api/overview'
+import { isDemoInProgress, type ClipCounts, type PlayerMatchResponse } from '@/api/overview'
+import type { Bringing } from '@/lib/useDemoBringing'
 import type { DemoStatus, MatchResult } from '@/api/types'
 
 // The columns of the header and of every row: the map with where the match is from and its date, the score, K / D / A,
@@ -43,20 +46,34 @@ function Figure({ value, digits = 0 }: { value: number | null; digits?: number }
   return value.toFixed(digits)
 }
 
-/** A demo that nothing has finished with yet: it is being fetched, read or analyzed. */
-function isInProgress(status: DemoStatus | null): boolean {
-  return status === 'QUEUED' || status === 'STORED' || status === 'PARSED'
+/**
+ * What the player's own rows can do about a demo: the files in the rows' state of bringing, and the way to ask for a
+ * file for a match. Only the page of the signed-in player's own matches has it; the others' rows have no action.
+ */
+export interface RowBringing {
+  states: Record<string, Bringing>
+  /** Opens the file chooser for this match. */
+  pick: (matchId: string) => void
+}
+
+/** Whether a row's own action is the "Upload a demo" button: the match has no demo or its demo failed, and no file is on its way. */
+function offersUpload(match: PlayerMatchResponse, state: Bringing | undefined): boolean {
+  return (match.demoStatus === null || match.demoStatus === 'FAILED') && state?.phase !== 'sending' && state?.phase !== 'sent'
 }
 
 /**
  * The strongest highlight of the match as a tag (only an ace is filled) and the others as a line of text. Without an
  * analyzed demo there is nothing to show: a match that has no demo, or whose demo failed, says that it has none, one
- * that is on its way gets a dash.
+ * that is on its way shows the stages it has been through.
  */
 function HighlightsCell({ match }: { match: PlayerMatchResponse }) {
   const t = useT()
   if (match.demoStatus === null || match.demoStatus === 'FAILED') {
     return <span className="font-mono text-xs text-subtle">{t.demo.none}</span>
+  }
+  // A demo on its way: where it has got to, as the line of its stages (the same as the demo panel of the match shows).
+  if (match.demoStatus !== null && isDemoInProgress(match.demoStatus)) {
+    return <DemoStages demo={{ status: match.demoStatus, error: null, errorCode: null }} compact />
   }
   const { top, rest } = summarizeHighlights(match.highlights, t)
   if (match.demoStatus !== 'ANALYZED' || !top) {
@@ -102,7 +119,7 @@ function ClipsCell({ clips, demoStatus }: { clips: ClipCounts; demoStatus: DemoS
   if (clips.done > 0) {
     return <span>{t.matches.clips.readyAlone(clips.done)}</span>
   }
-  if (isInProgress(demoStatus)) {
+  if (isDemoInProgress(demoStatus)) {
     return (
       <span className="font-mono text-[11px] tracking-[0.06em] text-foreground uppercase">{t.matches.analyzing}</span>
     )
@@ -110,18 +127,68 @@ function ClipsCell({ clips, demoStatus }: { clips: ClipCounts; demoStatus: DemoS
   return null
 }
 
-/** One match: the whole row is the link to the match, so its name is everything the row says. */
-function MatchRow({ match }: { match: PlayerMatchResponse }) {
+/**
+ * The action of a player's own row that brings a demo, drawn over the right-hand end of the row, where the clips column
+ * is (a match without a demo has no clips): "Upload a demo" while there is nothing to start from, the percent while a
+ * file goes. It is the row's sibling, not inside the link: a button in a link is two interactive elements in one. It
+ * sits at the row's right edge, past the arrow's column (16px of arrow, 16px of gap and the row's 4px).
+ */
+function RowAction({ match, state, bringing }: { match: PlayerMatchResponse; state: Bringing | undefined; bringing: RowBringing }) {
+  const t = useT()
+  const locale = useLocale()
+  const label = `${mapLabel(match.mapName) ?? t.match.unknownMap}, ${formatMatchTime(match.startedAt, locale)}`
+  if (state?.phase === 'sending') {
+    // Not pressable and not read twice (the feed above the rows is the live region): the row only shows the figure.
+    return (
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute top-1/2 right-9 flex w-36 -translate-y-1/2 flex-col items-end gap-1.5"
+      >
+        <span className="font-mono text-[11px] tracking-[0.06em] uppercase">
+          {state.percent === null ? t.matches.bring.fetching : t.matches.bring.sending(state.percent)}
+        </span>
+        {state.percent !== null && (
+          <span className="block h-0.5 w-full bg-border">
+            <span className="block h-full bg-foreground" style={{ width: `${state.percent}%` }} />
+          </span>
+        )}
+      </span>
+    )
+  }
+  if (!offersUpload(match, state)) {
+    return null
+  }
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      aria-label={t.matches.bring.rowFor(label)}
+      className="absolute top-1/2 right-9 -translate-y-1/2"
+      onClick={() => bringing.pick(match.matchId)}
+    >
+      <Upload aria-hidden="true" />
+      {t.matches.bring.row}
+    </Button>
+  )
+}
+
+/**
+ * One match: the whole row is the link to the match, so its name is everything the row says. A player's own row may
+ * also carry an action beside the link, which is why the row is a box with the link and the action in it, not the link
+ * alone.
+ */
+function MatchRow({ match, bringing }: { match: PlayerMatchResponse; bringing: RowBringing | undefined }) {
   const t = useT()
   const locale = useLocale()
   const resultClass = match.result === 'WIN' ? 'text-positive' : match.result === 'LOSS' ? 'text-negative' : undefined
   const resultWord =
     match.result === 'WIN' ? t.matchList.win : match.result === 'LOSS' ? t.matchList.loss : t.matchList.unknown
   return (
-    <li className="border-b border-border">
+    <li className="group relative border-b border-border">
       <Link
         to={`/matches/${encodeURIComponent(match.matchId)}`}
-        className={cn(COLUMNS, 'min-h-18 -outline-offset-2 hover:bg-secondary', RESULT_ROW[match.result])}
+        className={cn(COLUMNS, 'min-h-18 -outline-offset-2 group-hover:bg-secondary', RESULT_ROW[match.result])}
       >
         <span className="flex min-w-0 items-center gap-3">
           <MapEmblem mapName={match.mapName} size={44} />
@@ -159,6 +226,7 @@ function MatchRow({ match }: { match: PlayerMatchResponse }) {
         </span>
         <ChevronRight aria-hidden="true" className="size-4 text-subtle" />
       </Link>
+      {bringing && <RowAction match={match} state={bringing.states[match.matchId]} bringing={bringing} />}
     </li>
   )
 }
@@ -166,9 +234,10 @@ function MatchRow({ match }: { match: PlayerMatchResponse }) {
 /**
  * A player's matches as a table of rows (spec 3, screen 2): a header of mono labels and a link per match. It is as wide
  * as its six columns need, and scrolls in its box on a phone. The header only names the columns for the eye: each row's
- * name carries the words of what its figures are.
+ * name carries the words of what its figures are. With `bringing`, the rows that have no demo carry the action that
+ * uploads one.
  */
-export default function MatchesTable({ items }: { items: PlayerMatchResponse[] }) {
+export default function MatchesTable({ items, bringing }: { items: PlayerMatchResponse[]; bringing?: RowBringing }) {
   const t = useT()
   return (
     // Positioned, so that the words only a screen reader hears (absolutely positioned, with the row they are in) are
@@ -185,7 +254,7 @@ export default function MatchesTable({ items }: { items: PlayerMatchResponse[] }
         </div>
         <ul aria-label={t.matches.title}>
           {items.map((match) => (
-            <MatchRow key={match.matchId} match={match} />
+            <MatchRow key={match.matchId} match={match} bringing={bringing} />
           ))}
         </ul>
       </div>

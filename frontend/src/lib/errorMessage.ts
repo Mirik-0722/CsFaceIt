@@ -63,6 +63,15 @@ export function errorMessage(error: Error, t: Messages): string {
     if (error.code === 'DEMO_ALREADY_PARSED') {
       return t.demo.alreadyParsed
     }
+    if (error.code === 'DEMO_LINK_INVALID') {
+      return t.demo.linkInvalid
+    }
+    if (error.code === 'DEMO_LINK_HOST_NOT_ALLOWED') {
+      return t.demo.linkHostNotAllowed
+    }
+    if (error.code === 'DEMO_LINK_MISMATCH') {
+      return t.demo.linkMismatch
+    }
     if (error.code === 'DEMO_ALREADY_ANALYZED') {
       return t.demo.alreadyAnalyzed
     }

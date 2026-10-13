@@ -152,3 +152,44 @@ export async function apiPost<T>(path: string, { apiKey, body }: PostOptions = {
 export async function apiDelete(path: string, { apiKey }: WriteOptions = {}): Promise<void> {
   await send(buildUrl(path), { method: 'DELETE', headers: writeHeaders(apiKey) })
 }
+
+interface UploadOptions extends WriteOptions {
+  body: FormData
+  /** Called as the file goes out, with how much of the request has been sent, 0 to 100. */
+  onProgress?: (percent: number) => void
+}
+
+/**
+ * POSTs a form like {@link apiPost} does, and reports how far the upload is: `fetch` cannot, so this one is a
+ * `XMLHttpRequest`. It fails the same way (an {@link ApiError}); the 100 of the last report only means that everything
+ * has been sent, not that the backend has answered.
+ */
+export function apiUpload<T>(path: string, { apiKey, body, onProgress }: UploadOptions): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', buildUrl(path))
+    for (const [name, value] of Object.entries(writeHeaders(apiKey))) {
+      xhr.setRequestHeader(name, value)
+    }
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress?.(Math.min(100, Math.floor((event.loaded / event.total) * 100)))
+      }
+    }
+    xhr.onerror = () => reject(new ApiError(0, 'NETWORK_ERROR', 'Network request failed'))
+    xhr.onload = () => {
+      // The answer is read as a `Response` so that a refusal is understood exactly as the other writes' are.
+      const retryAfter = xhr.getResponseHeader('Retry-After')
+      const res = new Response(xhr.status === 204 ? null : xhr.responseText, {
+        status: xhr.status === 0 ? 599 : xhr.status,
+        headers: retryAfter === null ? undefined : { 'Retry-After': retryAfter },
+      })
+      if (!res.ok) {
+        void toApiError(res).then(reject)
+        return
+      }
+      void parseJson<T>(res).then(resolve, reject)
+    }
+    xhr.send(body)
+  })
+}

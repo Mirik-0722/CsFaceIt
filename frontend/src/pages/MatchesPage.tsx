@@ -1,13 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { CLIPS_POLL_MS, type PlayerMatchResponse, usePlayerMatches } from '@/api/overview'
+import { CLIPS_POLL_MS, type PlayerMatchResponse, usePlayerMatches, useSyncMatches } from '@/api/overview'
 import { usePlayer } from '@/api/queries'
+import DemoBringingFeed from '@/components/DemoBringingFeed'
+import DemoDropOverlay from '@/components/DemoDropOverlay'
+import DemoUploadBox from '@/components/DemoUploadBox'
 import MatchesTable from '@/components/MatchesTable'
 import RecorderCard from '@/components/RecorderCard'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
+import { useDemoBringing } from '@/lib/useDemoBringing'
+import { useViewer } from '@/lib/viewer'
 
 /**
  * How old the rows may get while the refreshes keep failing before the page says so: three of the page's own polling
@@ -36,13 +41,22 @@ function isIn(filter: Filter, match: PlayerMatchResponse): boolean {
 
 /**
  * The player's matches in a table, a page at a time, under three filters that work on the rows loaded so far (each
- * carries how many rows it shows), with the recorder beside them. A failure stays inside the part that failed.
+ * carries how many rows it shows), with the recorder beside them. The signed-in player's own matches also bring demos
+ * in: a box beside the rows, an action on the rows that have none, and the whole page as a place to drop a file on.
+ * A failure stays inside the part that failed.
  */
 function PlayerMatches({ playerId }: { playerId: string }) {
   const t = useT()
   const player = usePlayer(playerId)
   const matches = usePlayerMatches(playerId)
   const [filter, setFilter] = useState<Filter>('all')
+  // The player's own page: the matches are the visitor's, so the visitor's demos can be brought for them.
+  const viewer = useViewer()
+  const own = viewer.signedIn && viewer.playerId === playerId
+  useSyncMatches(playerId, own)
+  const rowInput = useRef<HTMLInputElement>(null)
+  // The match the chooser of a row's action was opened for.
+  const rowMatch = useRef<string | null>(null)
   // The `dataUpdatedAt` of the rows that have grown older than `STALE_AFTER_MS` while the refresh that would renew them
   // fails. Rows that are renewed have another time, so the line goes by itself. A timer, not a reading of the clock
   // while drawing: nothing redraws the page between two failed ticks.
@@ -63,6 +77,12 @@ function PlayerMatches({ playerId }: { playerId: string }) {
     .flatMap((page) => page.items)
     .filter((item, index, all) => all.findIndex((other) => other.matchId === item.matchId) === index)
   const shown = items?.filter((match) => isIn(filter, match))
+  const bring = useDemoBringing(items)
+  function bringFiles(files: File[]) {
+    for (const file of files) {
+      bring.bringFile(file)
+    }
+  }
   // A player that cannot be shown has no matches to show either: its error is the one message on the page.
   const playerFailed = player.isError && !player.data
   const labels: Record<Filter, string> = {
@@ -73,6 +93,24 @@ function PlayerMatches({ playerId }: { playerId: string }) {
 
   return (
     <>
+      {own && <DemoDropOverlay onFiles={bringFiles} />}
+      {own && (
+        <input
+          ref={rowInput}
+          type="file"
+          accept=".dem,.gz,.zst"
+          tabIndex={-1}
+          aria-hidden="true"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            if (file && rowMatch.current !== null) {
+              bring.bringFile(file, rowMatch.current)
+            }
+            event.target.value = ''
+          }}
+        />
+      )}
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <h1 className="heading-page">{t.matches.title}</h1>
         <div aria-live="polite">
@@ -126,6 +164,15 @@ function PlayerMatches({ playerId }: { playerId: string }) {
                   ))}
                 </div>
               )}
+              {own && (
+                <DemoBringingFeed
+                  states={bring.states}
+                  notice={bring.notice}
+                  items={items ?? []}
+                  onDismiss={bring.dismiss}
+                  onDismissNotice={bring.dismissNotice}
+                />
+              )}
               <div aria-live="polite" className="flex flex-col gap-2">
                 {matches.isPending && (
                   <>
@@ -133,7 +180,22 @@ function PlayerMatches({ playerId }: { playerId: string }) {
                     <Skeleton className="h-64 w-full" />
                   </>
                 )}
-                {shown && shown.length > 0 && <MatchesTable items={shown} />}
+                {shown && shown.length > 0 && (
+                  <MatchesTable
+                    items={shown}
+                    bringing={
+                      own
+                        ? {
+                            states: bring.states,
+                            pick: (matchId) => {
+                              rowMatch.current = matchId
+                              rowInput.current?.click()
+                            },
+                          }
+                        : undefined
+                    }
+                  />
+                )}
                 {items && items.length === 0 && <p className="pt-4 text-sm text-muted-foreground">{t.matchList.empty}</p>}
                 {items && items.length > 0 && shown?.length === 0 && (
                   <p className="pt-4 text-sm text-muted-foreground">{t.matches.emptyFilter}</p>
@@ -163,6 +225,7 @@ function PlayerMatches({ playerId }: { playerId: string }) {
             )}
           </div>
           <aside className="flex min-w-0 flex-[1_1_280px] flex-col gap-4">
+            {own && <DemoUploadBox onFile={bring.bringFile} onLink={bring.bringLink} />}
             <RecorderCard />
           </aside>
         </div>

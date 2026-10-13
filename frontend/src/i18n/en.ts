@@ -265,6 +265,30 @@ export const en = {
       ready: (count: number) => `${count} ready`,
       readyAlone: (count: number) => `${count} ${count === 1 ? 'clip' : 'clips'} ready`,
     },
+    // The box beside the list of the signed-in player's own matches, where a demo is brought in: a file, a pasted link,
+    // or a file dropped anywhere on the page; the feed above the rows says how each one goes.
+    bring: {
+      title: 'Upload a demo',
+      text: 'Drop a .dem or .dem.zst file here. A FACEIT demo is downloaded from the match room.',
+      choose: 'Choose a file',
+      linkLabel: 'Demo link',
+      linkPlaceholder: 'Or paste a link',
+      linkSubmit: 'Fetch',
+      drop: 'Drop the demo file to upload it',
+      // The action of a row whose match has no demo; `label` is the match, for the name a screen reader hears.
+      row: 'Upload a demo',
+      rowFor: (label: string) => `Upload a demo for ${label}`,
+      feedLabel: 'Demo uploads',
+      sending: (percent: number) => `Uploading ${percent}%`,
+      fetching: 'Fetching…',
+      sent: 'Sent. The row follows the demo by itself.',
+      dismiss: 'Close',
+      // A file whose name has no match id (it was renamed): why it is not uploaded, and where the way out is.
+      noMatchId: (name: string) =>
+        `The name of "${name}" has no match id, so the site cannot tell which match it is. Upload it with "Upload a demo" on that match's row in the list.`,
+      noLinkId:
+        'The file in this link has no match id in its name, so the site cannot tell which match it is. Upload the file with "Upload a demo" on that match\'s row in the list.',
+    },
     recorder: {
       title: 'Recording PC',
       loading: 'Loading the recorder status…',
@@ -369,6 +393,11 @@ export const en = {
     // An upload by the session that ended without an answer: the backend refuses an upload before it reads the file
     // and may close the connection, which the browser reports as a failed request.
     uploadInterrupted: 'The upload was interrupted. It may have been refused: try again, or sign in again.',
+    // The 400 codes of a pasted link: the text is not a usable link, it points to a host the site does not fetch from,
+    // or its file is the demo of another match.
+    linkInvalid: 'This is not a link to a demo file. Paste the link as FACEIT gives it.',
+    linkHostNotAllowed: 'The site does not fetch demos from this address. Use the link from the match room on FACEIT.',
+    linkMismatch: 'The file in this link is the demo of another match.',
     // IMPORT_FAILED for a signed-in visitor who cannot upload (see `reasons` for everybody else).
     importFailedPlain: 'The demo could not be fetched from FACEIT.',
     // The line of four steps under the status: its name for a screen reader, the steps (shown in upper case), and the
@@ -420,6 +449,16 @@ export const en = {
     record: 'Record clip',
     watch: 'Watch',
     retry: 'Try again',
+    // The actions on the card of one's own clip. The name of each says which clip, since a page has many.
+    card: {
+      cancel: 'Cancel',
+      cancelFor: (label: string) => `Cancel the order of ${label}`,
+      confirmCancel: 'Cancel the order?',
+      confirmYes: 'Yes',
+      keep: 'No',
+      retryFor: (label: string) => `Try again: ${label}`,
+      downloadFor: (label: string) => `Download ${label}`,
+    },
     // The stages of a clip, as a status chip shows them (in upper case, by CSS).
     status: {
       QUEUED: 'Queued',
