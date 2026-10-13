@@ -27,7 +27,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
  * {@code GET} and {@code HEAD} on {@code /api/v1/**}, {@code /actuator/health} and {@code /actuator/prometheus} are
- * public; every other request needs the {@code X-API-Key} header. The one exception is the recorder's API under
+ * public; every other request needs the {@code X-API-Key} header, or the session of an administrator, and a few
+ * writes are open to any session (below). The one exception is the recorder's API under
  * {@code /api/worker/**}: it takes the {@code X-Worker-Token} header instead, for every method (none of it is public),
  * and the token opens nothing outside it. The key and the token travel in headers, so there are no HTTP sessions or
  * CSRF tokens, and no login form, HTTP Basic or default user either. A write endpoint added later (for example a POST)
@@ -35,9 +36,15 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  * unless a rule is added here.
  *
  * <p>A visitor who has signed in carries one more credential, the {@code csf_session} cookie, which
- * {@link SessionAuthFilter} turns into {@code ROLE_USER}. A session identifies the visitor and nothing more: the last
- * rule asks for the role of the admin key by name ({@link ApiKeyAuthFilter#ROLE}), not for "any authenticated request",
- * which a session would satisfy and which would make every signed-in visitor an administrator. The sign-in itself is
+ * {@link SessionAuthFilter} turns into {@code ROLE_USER}, and into the role of the admin key as well when the session
+ * is an administrator's (a SteamID in {@code auth.admin-steam-ids} now). The last rule asks for the role of the admin
+ * key by name ({@link ApiKeyAuthFilter#ROLE}), not for "any authenticated request", which a session would satisfy and
+ * which would make every signed-in visitor an administrator. What any session may reach is listed by name
+ * ({@link #USER_POSTS}, {@link #USER_DELETES}): bringing and analyzing the demo of a match, and ordering, retrying and
+ * deleting a clip. Reaching one of them is not being allowed to do it: this chain knows the path, not whose match or
+ * clip it is, so the rule that decides is in {@link io.csfaceit.backend.auth.Access}, which the controller's service
+ * asks. A write added later is the key's and an administrator's until it is put on one of the lists. The sign-in itself
+ * is
  * open (its redirects and their callbacks, the list of providers), and so are {@code /api/v1/auth/me} and
  * {@code /api/v1/auth/logout}, which answer a visitor without a session themselves instead of with this chain's 401.
  * There is no CSRF token for the cookie. It is {@code SameSite=Lax}, so the browser does not send it with a request
@@ -48,8 +55,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  * answered 403 before the rule is asked.
  *
  * <p>A request without a valid credential is answered 401. One that is authenticated but not allowed on its path (the
- * admin key on the worker API, a session on anything that needs the key) is answered 403 {@code FORBIDDEN}; the worker
- * token on {@code /api/v1/**} is no credential there, so it is a 401.
+ * admin key or any session on the worker API, the session of a user on anything that is not listed for it) is answered
+ * 403 {@code FORBIDDEN}; the worker token on {@code /api/v1/**} is no credential there, so it is a 401.
  */
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfig {
@@ -73,6 +80,18 @@ public class SecurityConfig {
 
     /** Signing out. The controller answers 204 whether or not there was a session. */
     private static final String LOGOUT_PATH = "/api/v1/auth/logout";
+
+    /**
+     * The writes a signed-in user reaches without the admin key: bringing the demo of a match (import, upload) and
+     * asking for its analysis, ordering the clip of a highlight and a compilation, and retrying a clip. {@code *}
+     * stands for one path segment, the id.
+     */
+    private static final String[] USER_POSTS = {
+            "/api/v1/matches/*/demo/import", "/api/v1/matches/*/demo/upload", "/api/v1/matches/*/demo/analyze",
+            "/api/v1/highlights/*/clips", "/api/v1/matches/*/clips", "/api/v1/clips/*/retry"};
+
+    /** And the one delete: a clip. */
+    private static final String[] USER_DELETES = {"/api/v1/clips/*"};
 
     private static final String UNAUTHORIZED = "UNAUTHORIZED";
     private static final String FORBIDDEN = "FORBIDDEN";
@@ -105,7 +124,7 @@ public class SecurityConfig {
                 // After the key's filter, so that a request with both credentials is a worker's on the worker API.
                 .addFilterAfter(new WorkerTokenAuthFilter(clip.workerToken()), ApiKeyAuthFilter.class)
                 // Last of the three, and it leaves a request alone that one of the others has authenticated: a
-                // request with a session cookie and the admin key is the admin's, and one with the worker token is the
+                // request with a session cookie and the admin key is the key's, and one with the worker token is the
                 // worker's. It is also where a write that rides on the cookie from outside the site is refused.
                 .addFilterAfter(new SessionAuthFilter(sessions, knownOrigins, mapper), WorkerTokenAuthFilter.class)
                 .authorizeHttpRequests(requests -> {
@@ -120,9 +139,15 @@ public class SecurityConfig {
                         requests.requestMatchers(read, READ_ONLY_PATHS).permitAll();
                     }
                     requests.requestMatchers(HttpMethod.POST, LOGOUT_PATH).permitAll();
-                    // Everything else needs the admin key itself. Not "any authenticated request": a session
-                    // authenticates a request too, and would let every signed-in visitor upload demos and order and
-                    // delete clips.
+                    // What a signed-in user may ask for; whether it is theirs to ask is the service's question to
+                    // Access. The role of the key is named too, which an administrator's session also has.
+                    requests.requestMatchers(HttpMethod.POST, USER_POSTS)
+                            .hasAnyRole(ApiKeyAuthFilter.ROLE, SessionAuthFilter.ROLE);
+                    requests.requestMatchers(HttpMethod.DELETE, USER_DELETES)
+                            .hasAnyRole(ApiKeyAuthFilter.ROLE, SessionAuthFilter.ROLE);
+                    // Everything else needs the admin key itself, or an administrator's session, which has its role.
+                    // Not "any authenticated request": a session authenticates a request too, and that would let every
+                    // signed-in visitor do whatever a write added later does.
                     requests.anyRequest().hasRole(ApiKeyAuthFilter.ROLE);
                 })
                 .build();
