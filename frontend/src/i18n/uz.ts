@@ -38,6 +38,26 @@ export const uz: Messages = {
     signInFailed: "Kirish amalga oshmadi. Qayta urinib ko'ring.",
     unlinkedTag: 'FACEIT topilmadi',
     unlinked: "Bu Steam hisobiga FACEIT bog'lanmagan. Nickname bo'yicha qidirishingiz mumkin.",
+    sessionEnded: 'Sessiya tugadi. Qaytadan kiring.',
+  },
+  access: {
+    FACEIT_NOT_LINKED:
+      "Bu Steam hisobiga FACEIT bog'lanmagan, shuning uchun qaysi matchlar sizniki ekanini aniqlab bo'lmaydi. FACEIT profilingizda Steam'ni bog'lang, so'ng qaytadan kiring.",
+    NOT_IN_MATCH: "Siz bu matchda o'ynamagansiz. Uning demosini match o'yinchilari boshqaradi.",
+    NOT_YOUR_PLAYER: "Faqat o'z highlight'laringizdan klip yoza olasiz.",
+    NOT_YOUR_CLIP: 'Bu klipni boshqa foydalanuvchi buyurtma qilgan.',
+    CROSS_SITE_REQUEST: "So'rov shu saytdan kelmadi. Sahifani yangilab, qayta urinib ko'ring.",
+    notAllowed: "Bu amalga ruxsat yo'q.",
+    useAdminKey: 'Admin kaliti bilan',
+  },
+  limits: {
+    nextAt: (time, day) => (day ? `${day} kuni soat ${time} dan keyin` : `soat ${time} dan keyin`),
+    UPLOAD_LIMIT_REACHED: (next) =>
+      `Demo yuklash cheklovi tugadi. ${next ? `Keyingisi ${next} mumkin.` : "Keyinroq urinib ko'ring."}`,
+    IMPORT_LIMIT_REACHED: (next) =>
+      `Demo olish so'rovlari cheklovi tugadi. ${next ? `Keyingisi ${next} mumkin.` : "Keyinroq urinib ko'ring."}`,
+    CLIP_LIMIT_REACHED: (next) =>
+      `Klip buyurtmalari cheklovi tugadi. ${next ? `Keyingisi ${next} mumkin.` : "Keyinroq urinib ko'ring."}`,
   },
   home: {
     eyebrow: 'CS2 demo tahlili · highlight kliplar',
@@ -291,17 +311,37 @@ export const uz: Messages = {
     // A demo that failed with the code DOWNLOAD_NEEDS_ACCESS: the site is not given the file, so the visitor fetches it.
     needsAccess:
       "FACEIT bu demoni avtomatik yuklashga ruxsat bermadi. Demoni FACEIT'dagi match xonasidan yuklab oling va pastda admin kaliti bilan fayl sifatida yuklang.",
+    needsAccessMember:
+      "FACEIT bu demoni avtomatik yuklashga ruxsat bermadi. Demoni FACEIT'dagi match xonasidan yuklab oling va pastda fayl sifatida yuklang.",
     needsAccessLink: "FACEIT'dagi match xonasi",
     // Heard by a screen reader after the link's text, because the link opens another tab.
     newTab: '(yangi tabda ochiladi)',
     notParsed: "Demo hali o'qilmagan.",
     tooLarge: 'Fayl juda katta.',
+    alreadyParsed: "Bu matchning demosi allaqachon o'qilgan. Uni faqat administrator almashtira oladi.",
+    alreadyAnalyzed: 'Demo allaqachon tahlil qilingan.',
+    stages: {
+      label: 'Demo bosqichlari',
+      steps: {
+        download: 'Yuklash',
+        read: "O'qish",
+        analysis: 'Tahlil',
+        ready: 'Tayyor',
+      },
+      state: {
+        done: 'bajarildi',
+        current: 'jarayonda',
+        failed: 'xato',
+        waiting: 'boshlanmagan',
+      },
+    },
     // The codes of `DemoResponse.errorCode` the page words itself (DOWNLOAD_NEEDS_ACCESS has `needsAccess` above, with its
     // link). IMPORT_FAILED sends the visitor to the upload, as the panel's controls do.
     reasons: {
       IMPORT_FAILED: "Demoni FACEIT'dan olib bo'lmadi. Uni fayl sifatida yuklashingiz mumkin.",
       PARSE_FAILED: "Demo faylini o'qib bo'lmadi. Fayl buzilgan bo'lishi mumkin.",
       ANALYSIS_FAILED: "Demo tahlili yakunlanmadi. Qayta urinib ko'ring.",
+      WRONG_MATCH: "Bu fayl boshqa matchning demosi: undagi o'yinchilar bu matchniki emas.",
     },
   },
   clip: {
@@ -340,7 +380,11 @@ export const uz: Messages = {
       quality: 'Sifat',
       fasterSmaller: 'Tezroq, kichikroq fayl',
       recommended: 'Tavsiya etiladi',
-      adminOnly: 'Hozircha klipni faqat admin yoza oladi.',
+      needsKey: "O'z highlight'laringizdan klip yozish uchun kiring. Kirmasdan klip yozishga admin kaliti kerak.",
+      orders: 'Buyurtmalar',
+      ordersLeft: (remaining, limit) => `bugun ${limit} tadan ${remaining} tasi qoldi`,
+      noneLeft: (next) =>
+        `Bugungi buyurtmalar tugadi. ${next ? `Keyingisi ${next} mumkin.` : "Keyinroq urinib ko'ring."}`,
       queue: 'Navbat',
       queueAhead: (count) => (count === 0 ? "sizdan oldin klip yo'q" : `sizdan oldin ${count} ta klip`),
       recorderOffline: "Yozuvchi kompyuter o'chiq: klip navbatda kutadi.",
@@ -371,6 +415,9 @@ export const uz: Messages = {
       confirmDelete: "Klip videosi bilan birga o'chirilsinmi?",
       confirmYes: "Ha, o'chirish",
       keep: 'Qoldirish',
+      cancel: 'Buyurtmani bekor qilish',
+      confirmCancel: 'Buyurtma bekor qilinsinmi?',
+      confirmCancelYes: 'Ha, bekor qilish',
       kills: "Kill'lar",
       noKills: "Bu klipda kill yo'q",
       seek: (time) => `${time} ga o'tish`,
@@ -399,6 +446,7 @@ export const uz: Messages = {
       tooLong: 'Klip juda uzun chiqadi.',
       noKills: "Bu o'yinchining demoda kill'i yo'q.",
       inProgress: "Klip yozilmoqda, hozir o'chirib bo'lmaydi.",
+      notFailed: "Faqat xato bilan tugagan klipni qayta urinib ko'rish mumkin.",
     },
     // Why a clip failed, by the code of `ClipResponse.errorCode`; a reason the recorder reports has no code and is shown
     // as the recorder wrote it.

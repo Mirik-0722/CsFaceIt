@@ -97,7 +97,8 @@ export type DemoStatus = 'QUEUED' | 'STORED' | 'PARSED' | 'ANALYZED' | 'FAILED'
  * The state of a match's demo. `matchId` is the FACEIT match id; `error` is set while the demo is FAILED, and while
  * it is PARSED after an analysis that failed: an English sentence for the logs. `errorCode` is the same reason as a
  * code to translate (`DOWNLOAD_NEEDS_ACCESS`: FACEIT did not let the site download the demo; `IMPORT_FAILED`,
- * `PARSE_FAILED` and `ANALYSIS_FAILED`: the import, the parsing or the analysis failed on every attempt), and is null
+ * `PARSE_FAILED` and `ANALYSIS_FAILED`: the import, the parsing or the analysis failed on every attempt; `WRONG_MATCH`:
+ * the file is the demo of another match, its players are not this match's), and is null
  * for every failure that has none. It is typed as a plain string because a newer backend may name a code this page
  * does not know; the page then shows `error` as it is.
  */
@@ -213,7 +214,8 @@ export interface ClipKill {
  * reason as a code to translate when the backend found it itself (`RECORDER_STOPPED`, `NO_REASON`, `DEMO_GONE`,
  * `STEAM_ID_UNKNOWN`) and is null for the recorder's own words; it is a plain string because a newer backend may name
  * a code this page does not know, and the page then shows `error` as it is. `kills` is filled only when one clip is
- * asked for by its id.
+ * asked for by its id. `mine` says that the signed-in visitor ordered the clip: the owner may cancel, delete or retry
+ * it without the admin key (false for everybody else, and for a visitor who is not signed in).
  */
 export interface ClipResponse {
   id: number
@@ -240,6 +242,7 @@ export interface ClipResponse {
   finishedAt: string | null
   expiresAt: string | null
   kills: ClipKill[]
+  mine: boolean
 }
 
 /** A page of clips, newest first; `offset` and `limit` echo the request. */
@@ -260,8 +263,12 @@ export interface RecorderStatusResponse {
   active: number
 }
 
-/** The body of every error response: a stable machine-readable `code` and a human-readable `message`. */
+/**
+ * The body of every error response: a stable machine-readable `code` and a human-readable `message`. A refusal for a
+ * used-up limit (429) also says from when the request is possible again (`retryAt`, an ISO-8601 instant).
+ */
 export interface ApiErrorBody {
   code: string
   message: string
+  retryAt?: string | null
 }

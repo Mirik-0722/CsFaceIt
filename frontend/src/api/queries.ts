@@ -8,6 +8,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { isFinished } from '@/lib/clipStatus'
+import { refreshMe } from './auth'
 import { ApiError, apiDelete, apiGet, apiPost } from './client'
 import type {
   ClipPageResponse,
@@ -161,35 +162,47 @@ export function invalidateDemoResults(queryClient: QueryClient, matchId: string)
   void queryClient.invalidateQueries({ queryKey: ['player-stats'] })
 }
 
-/** A demo request that needs the admin key; its answer is the demo as it is now, which replaces the cached one. */
-function useDemoAction<Variables extends { apiKey: string }>(
+/**
+ * What every write carries: the admin key when the visitor typed one. Without it the request is the signed-in
+ * visitor's own, authenticated by the session cookie.
+ */
+interface WriteVariables {
+  apiKey?: string
+}
+
+/**
+ * A demo request, made as the signed-in visitor or with the admin key; its answer is the demo as it is now, which
+ * replaces the cached one.
+ */
+function useDemoAction<Variables extends WriteVariables>(
   matchId: string,
   send: (variables: Variables) => Promise<DemoResponse>,
 ) {
   const queryClient = useQueryClient()
   return useMutation<DemoResponse, ApiError, Variables>({
     mutationFn: send,
-    // The variables hold the admin key. A finished request is dropped from the cache as soon as nothing observes it,
-    // not five minutes later; the hook of a mounted panel still observes it, so a rejected key is cleared there (see
-    // DemoPanel).
+    // The variables may hold the admin key. A finished request is dropped from the cache as soon as nothing observes
+    // it, not five minutes later; the hook of a mounted panel still observes it, so a rejected key is cleared there
+    // (see DemoPanel).
     gcTime: 0,
     onSuccess: (demo) => {
       queryClient.setQueryData<DemoResponse | null>(['demo', matchId], demo)
       invalidateDemoResults(queryClient, matchId)
     },
+    onSettled: () => refreshMe(queryClient),
   })
 }
 
 /** Has the backend download the demo of the match from FACEIT. */
 export function useImportDemo(matchId: string) {
-  return useDemoAction(matchId, ({ apiKey }: { apiKey: string }) =>
+  return useDemoAction(matchId, ({ apiKey }: WriteVariables) =>
     apiPost<DemoResponse>(`/matches/${matchId}/demo/import`, { apiKey }),
   )
 }
 
 /** Uploads a demo file for the match; the part is named `file`, as the backend expects. */
 export function useUploadDemo(matchId: string) {
-  return useDemoAction(matchId, ({ apiKey, file }: { apiKey: string; file: File }) => {
+  return useDemoAction(matchId, ({ apiKey, file }: WriteVariables & { file: File }) => {
     const body = new FormData()
     body.append('file', file)
     return apiPost<DemoResponse>(`/matches/${matchId}/demo/upload`, { apiKey, body })
@@ -198,7 +211,7 @@ export function useUploadDemo(matchId: string) {
 
 /** Has the parsed demo of the match analyzed again. The analysis runs in the background. */
 export function useAnalyzeDemo(matchId: string) {
-  return useDemoAction(matchId, ({ apiKey }: { apiKey: string }) =>
+  return useDemoAction(matchId, ({ apiKey }: WriteVariables) =>
     apiPost<DemoResponse>(`/matches/${matchId}/demo/analyze`, { apiKey }),
   )
 }
@@ -360,13 +373,14 @@ function takeInRequestedClip(queryClient: QueryClient, clip: ClipResponse) {
  */
 export function useRequestHighlightClip() {
   const queryClient = useQueryClient()
-  return useMutation<ClipResponse, ApiError, { apiKey: string; highlightId: number; quality: ClipQuality }>({
+  return useMutation<ClipResponse, ApiError, WriteVariables & { highlightId: number; quality: ClipQuality }>({
     mutationFn: ({ apiKey, highlightId, quality }) =>
       apiPost<ClipResponse>(`/highlights/${highlightId}/clips`, { apiKey, body: { quality } }),
-    // The variables hold the admin key: see useDemoAction.
+    // The variables may hold the admin key: see useDemoAction.
     gcTime: 0,
     ...SEND_AT_ONCE,
     onSuccess: (clip) => takeInRequestedClip(queryClient, clip),
+    onSettled: () => refreshMe(queryClient),
   })
 }
 
@@ -379,20 +393,21 @@ export function useRequestCompilation() {
   return useMutation<
     ClipResponse,
     ApiError,
-    { apiKey: string; matchId: string; playerId: string; quality: ClipQuality }
+    WriteVariables & { matchId: string; playerId: string; quality: ClipQuality }
   >({
     mutationFn: ({ apiKey, matchId, playerId, quality }) =>
       apiPost<ClipResponse>(`/matches/${matchId}/clips`, { apiKey, body: { playerId, quality } }),
     gcTime: 0,
     ...SEND_AT_ONCE,
     onSuccess: (clip) => takeInRequestedClip(queryClient, clip),
+    onSettled: () => refreshMe(queryClient),
   })
 }
 
 /** Deletes a clip and its files. A clip that is being recorded cannot be deleted (409 `CLIP_IN_PROGRESS`). */
 export function useDeleteClip() {
   const queryClient = useQueryClient()
-  return useMutation<void, ApiError, { apiKey: string; clip: ClipResponse }>({
+  return useMutation<void, ApiError, WriteVariables & { clip: ClipResponse }>({
     mutationFn: ({ apiKey, clip }) => apiDelete(`/clips/${clip.id}`, { apiKey }),
     gcTime: 0,
     ...SEND_AT_ONCE,
@@ -400,5 +415,28 @@ export function useDeleteClip() {
       queryClient.removeQueries({ queryKey: ['clip', clip.id] })
       invalidateClipLists(queryClient, clip.matchId)
     },
+    onSettled: () => refreshMe(queryClient),
+  })
+}
+
+/**
+ * Orders a failed clip again, with what it was of and its quality. The answer (201) is the new clip in the queue; the
+ * failed one is gone with the request, so its page is too, and it leaves the list of its match at once. A clip that
+ * has not failed is refused (409 `CLIP_NOT_FAILED`), and the order counts against the day's limit like any other.
+ */
+export function useRetryClip() {
+  const queryClient = useQueryClient()
+  return useMutation<ClipResponse, ApiError, WriteVariables & { clip: ClipResponse }>({
+    mutationFn: ({ apiKey, clip }) => apiPost<ClipResponse>(`/clips/${clip.id}/retry`, { apiKey }),
+    gcTime: 0,
+    ...SEND_AT_ONCE,
+    onSuccess: (retried, { clip }) => {
+      queryClient.removeQueries({ queryKey: ['clip', clip.id] })
+      queryClient.setQueryData<ClipResponse[]>(['match-clips', clip.matchId], (clips) =>
+        clips?.filter((other) => other.id !== clip.id),
+      )
+      takeInRequestedClip(queryClient, retried)
+    },
+    onSettled: () => refreshMe(queryClient),
   })
 }

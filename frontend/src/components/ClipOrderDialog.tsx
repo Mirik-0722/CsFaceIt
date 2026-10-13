@@ -10,10 +10,12 @@ import { Input } from '@/components/ui/input'
 import { useT } from '@/i18n'
 import { setAdminKey, useAdminKey } from '@/lib/adminKey'
 import { CLIP_QUALITIES } from '@/lib/clips'
-import { errorMessage } from '@/lib/errorMessage'
+import { denialText, errorMessage } from '@/lib/errorMessage'
 import { describeHighlight, formatDuration, highlightLabel } from '@/lib/highlightLabels'
+import { nextPossible } from '@/lib/limits'
 import { mapLabel } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
+import { useViewer } from '@/lib/viewer'
 import type { ApiError } from '@/api/client'
 import type { ClipQuality, HighlightResponse } from '@/api/types'
 
@@ -88,9 +90,13 @@ interface OrderFormProps {
 }
 
 /**
- * The order itself. It is mounted when the dialog opens, so every opening starts from the defaults. The admin key is
- * asked for here when the page does not hold one yet, as in the demo panel: a key the backend took is kept until the
- * page is reloaded, and a key it rejects is forgotten.
+ * The order itself. It is mounted when the dialog opens, so every opening starts from the defaults.
+ *
+ * Who may order, as in the demo panel: the signed-in player whose highlight (or kills) it is, and an administrator,
+ * by the session alone, with no key field; anybody with the admin key. The player is told how many orders of the day
+ * are left, and at none the button is off and the form says from when the next is possible. A signed-in visitor who
+ * may not order reads why; the key field is then behind the quiet switch. A visitor who is not signed in is shown the
+ * field: a key the backend took is kept until the page is reloaded, and a key it rejects is forgotten.
  */
 function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps) {
   const t = useT()
@@ -100,9 +106,22 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
   const [quality, setQuality] = useState<ClipQuality>('1080p')
   const [typedKey, setTypedKey] = useState('')
   const [keyRejected, setKeyRejected] = useState(false)
+  // The backend refused an order made by the session alone as nobody's: the session has ended since the page asked.
+  const [sessionEnded, setSessionEnded] = useState(false)
+  // A signed-in visitor opened the key field (an operator's way in where the session is not enough).
+  const [keyOpen, setKeyOpen] = useState(false)
   const [failure, setFailure] = useState<ApiError | null>(null)
+  const viewer = useViewer()
+  const permission = viewer.canOrderFor(order.kind === 'highlight' ? order.highlight.playerId : order.playerId)
   const storedKey = useAdminKey()
-  const apiKey = storedKey ?? typedKey.trim()
+  const keyField = storedKey === null && (!viewer.signedIn || keyOpen)
+  // The key that goes with the order, if any: see the demo panel.
+  const apiKey = storedKey ?? (keyField ? typedKey.trim() : '')
+  const withKey = apiKey.length > 0
+  const denial = denialText(permission.reason, t)
+  // The day's limit counts only the orders a player makes by the session; null when there is none to name.
+  const limit = permission.allowed && !withKey ? (viewer.limits?.clipOrders ?? null) : null
+  const noneLeft = limit !== null && limit.remaining <= 0
   const recorder = useRecorderStatus()
   const highlightClip = useRequestHighlightClip()
   const compilation = useRequestCompilation()
@@ -112,7 +131,10 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
   useEffect(() => () => onSendingChange(false), [onSendingChange])
 
   function start() {
+    // The key this order goes out with, if any: what its answer says is about that key.
+    const sentKey = withKey ? apiKey : null
     setKeyRejected(false)
+    setSessionEnded(false)
     setFailure(null)
     // Set with the click itself and not read from the state of the request, which follows a moment later: the dialog
     // has to refuse to close from the very next key press on.
@@ -120,13 +142,18 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
     const callbacks = {
       onSuccess: () => {
         onSendingChange(false)
-        // The backend took the key, so it is the right one: keep it for the next clip.
-        setAdminKey(apiKey)
+        if (sentKey !== null) {
+          // The backend took the key, so it is the right one: keep it for the next clip.
+          setAdminKey(sentKey)
+        }
         onClose()
       },
       onError: (error: ApiError) => {
         onSendingChange(false)
-        if (error.status === 401) {
+        if (error.status === 401 && sentKey === null) {
+          // No key went out, so it is the session that has ended, not a key that is wrong.
+          setSessionEnded(true)
+        } else if (error.status === 401) {
           // A rejected key is forgotten everywhere: the stored one, the one in the field and the one the rejected
           // request keeps in its variables.
           setAdminKey(null)
@@ -140,9 +167,12 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
       },
     }
     if (order.kind === 'highlight') {
-      highlightClip.mutate({ apiKey, highlightId: order.highlight.id, quality }, callbacks)
+      highlightClip.mutate({ apiKey: sentKey ?? undefined, highlightId: order.highlight.id, quality }, callbacks)
     } else {
-      compilation.mutate({ apiKey, matchId: order.matchId, playerId: order.playerId, quality }, callbacks)
+      compilation.mutate(
+        { apiKey: sentKey ?? undefined, matchId: order.matchId, playerId: order.playerId, quality },
+        callbacks,
+      )
     }
   }
 
@@ -187,7 +217,9 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
           ))}
         </div>
       </fieldset>
-      {storedKey === null && (
+      {/* Why not, before the key field: a signed-in visitor is never left with a bare key field. */}
+      {denial !== null && <p className="text-sm leading-normal text-muted-foreground">{denial}</p>}
+      {keyField && (
         <div className="flex flex-col gap-1.5">
           <label htmlFor={keyId} className="label-mono">
             {t.demo.adminKey}
@@ -201,15 +233,25 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
             aria-invalid={keyRejected ? true : undefined}
             aria-describedby={messagesId}
           />
-          <p className="text-[13px] text-muted-foreground">{t.clip.order.adminOnly}</p>
+          {!viewer.signedIn && <p className="text-[13px] text-muted-foreground">{t.clip.order.needsKey}</p>}
         </div>
       )}
-      {recorder.data && (
+      {(recorder.data || limit !== null) && (
         <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2 border-t border-border pt-4 text-sm">
-          <dt className="text-muted-foreground">{t.clip.order.queue}</dt>
-          <dd className="text-right">{t.clip.order.queueAhead(recorder.data.queued + recorder.data.active)}</dd>
-          {!recorder.data.online && (
-            <dd className="col-span-2 text-[13px] text-muted-foreground">{t.clip.order.recorderOffline}</dd>
+          {recorder.data && (
+            <>
+              <dt className="text-muted-foreground">{t.clip.order.queue}</dt>
+              <dd className="text-right">{t.clip.order.queueAhead(recorder.data.queued + recorder.data.active)}</dd>
+              {!recorder.data.online && (
+                <dd className="col-span-2 text-[13px] text-muted-foreground">{t.clip.order.recorderOffline}</dd>
+              )}
+            </>
+          )}
+          {limit !== null && (
+            <>
+              <dt className="text-muted-foreground">{t.clip.order.orders}</dt>
+              <dd className="text-right">{t.clip.order.ordersLeft(Math.max(0, limit.remaining), limit.limit)}</dd>
+            </>
           )}
         </dl>
       )}
@@ -217,13 +259,32 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
       <div id={messagesId} aria-live="polite" className="text-sm empty:-mt-5.5">
         {sending && <p className="text-muted-foreground">{t.demo.sending}</p>}
         {keyRejected && <p className="text-destructive">{t.demo.wrongKey}</p>}
+        {sessionEnded && <p className="text-destructive">{t.auth.sessionEnded}</p>}
         {failure && <p className="text-destructive">{errorMessage(failure, t)}</p>}
+        {/* Not a failure: the button is off, and this is why and until when. */}
+        {noneLeft && !sending && !failure && (
+          <p className="text-foreground">{t.clip.order.noneLeft(nextPossible(limit.resetsAt, t))}</p>
+        )}
       </div>
-      <div className="flex flex-wrap justify-end gap-3">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {/* The operator's way in for a signed-in visitor, at the far end of the row from the two buttons; on a phone it
+            has a row of its own above them. */}
+        {viewer.signedIn && !viewer.admin && storedKey === null && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-expanded={keyOpen}
+            className="mr-auto -ml-3.5 font-normal text-muted-foreground max-sm:basis-full max-sm:justify-start"
+            onClick={() => setKeyOpen(!keyOpen)}
+          >
+            {t.access.useAdminKey}
+          </Button>
+        )}
         <Button type="button" variant="outline" disabled={sending} onClick={onClose}>
           {t.clip.order.cancel}
         </Button>
-        <Button type="submit" disabled={sending || apiKey.length === 0}>
+        <Button type="submit" disabled={sending || noneLeft || !(permission.allowed || withKey)}>
           <RecDot />
           {t.clip.order.start}
         </Button>

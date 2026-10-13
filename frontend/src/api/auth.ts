@@ -1,10 +1,19 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { AuthProvider, AuthProvidersResponse, MeResponse } from './authTypes'
 import { ApiError, apiGet, apiGetOrNull } from './client'
 
-export type { AuthProvider, AuthProvidersResponse, MeResponse, UserRole } from './authTypes'
+export type { ActionLimit, AuthProvider, AuthProvidersResponse, MeLimits, MeResponse, UserRole } from './authTypes'
 
 const ME_KEY = ['auth', 'me'] as const
+
+/**
+ * Asks again who is signed in. Every write does it once it is answered, whichever way: a write may have used up one of
+ * the day's limits, and a refused one may mean that the session has ended (signed out in another tab, expired), which
+ * is when the pages have to draw themselves for a visitor again.
+ */
+export function refreshMe(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: ME_KEY })
+}
 
 /**
  * Who is signed in: the visitor, or `null` for one who is not (the backend answers 204 No Content, which is a state of
@@ -42,7 +51,7 @@ export function useAuthProviders() {
 export function useLogout(onSignedOut?: () => void) {
   const queryClient = useQueryClient()
   return useMutation<void, ApiError>({
-    // Not `apiPost`: that one carries the admin key and reads a JSON body, and this answer (204) has neither.
+    // Not `apiPost`: that one reads a JSON body, and this answer (204) has none.
     mutationFn: async () => {
       let res: Response
       try {

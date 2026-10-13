@@ -4,6 +4,21 @@
 
 export type UserRole = 'USER' | 'ADMIN'
 
+/** One daily limit of a signed-in visitor: how many are left of how many, and when the count starts again. */
+export interface ActionLimit {
+  limit: number
+  remaining: number
+  /** The instant the oldest counted action leaves the window; null while nothing is counted. */
+  resetsAt: string | null
+}
+
+/** The limits of a signed-in visitor who is not an administrator, one per kind of write that is counted. */
+export interface MeLimits {
+  demoUploads: ActionLimit
+  demoImports: ActionLimit
+  clipOrders: ActionLimit
+}
+
 /** The signed-in visitor, as `GET /api/v1/auth/me` answers. */
 export interface MeResponse {
   id: number
@@ -14,6 +29,11 @@ export interface MeResponse {
   steamId: string | null
   /** The id of `/players/{playerId}`; null while no FACEIT account is linked to this Steam account. */
   playerId: string | null
+  /**
+   * What is left of the day's limits; null for an administrator, who has none. A backend that does not count yet
+   * leaves the field out: that is "no limit known", and the pages then name no number.
+   */
+  limits?: MeLimits | null
 }
 
 /** Which ways of signing in the backend has turned on. */

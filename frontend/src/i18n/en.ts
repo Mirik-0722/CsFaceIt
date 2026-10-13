@@ -43,6 +43,34 @@ export const en = {
     signInFailed: 'The sign-in did not work. Try again.',
     unlinkedTag: 'FACEIT not found',
     unlinked: 'No FACEIT account is linked to this Steam account. You can search by nickname.',
+    // A write that the backend refused as nobody's (401) although the page thought somebody was signed in: the visitor
+    // signed out in another tab, or the session ran out.
+    sessionEnded: 'Your session has ended. Sign in again.',
+  },
+  // Why a signed-in visitor may not do something, with the way out where there is one. The upper-case keys are the
+  // backend's 403 codes: the page says the same words when it foresees the refusal and when the backend gives it.
+  access: {
+    FACEIT_NOT_LINKED:
+      'No FACEIT account is linked to this Steam account, so the site cannot tell which matches are yours. Link Steam in your FACEIT profile, then sign in again.',
+    NOT_IN_MATCH: 'You did not play in this match. Its demo is managed by the players of the match.',
+    NOT_YOUR_PLAYER: 'You can record clips of your own highlights only.',
+    NOT_YOUR_CLIP: 'This clip was ordered by someone else.',
+    CROSS_SITE_REQUEST: 'The request did not come from this site. Reload the page and try again.',
+    // A 403 with a code the page does not know, or with no code at all.
+    notAllowed: 'You are not allowed to do this.',
+    // The quiet switch that opens the admin key field for an operator who is signed in.
+    useAdminKey: 'Use the admin key',
+  },
+  // A used-up limit (429). `nextAt` words the moment the next request is possible: the hour when it is today, the day
+  // and the hour otherwise; each sentence takes it, or null when the backend named no moment.
+  limits: {
+    nextAt: (time: string, day: string | null) => (day ? `on ${day} at ${time}` : `at ${time}`),
+    UPLOAD_LIMIT_REACHED: (next: string | null) =>
+      `You have reached the limit of demo uploads. ${next ? `The next one is possible ${next}.` : 'Try again later.'}`,
+    IMPORT_LIMIT_REACHED: (next: string | null) =>
+      `You have reached the limit of demo imports. ${next ? `The next one is possible ${next}.` : 'Try again later.'}`,
+    CLIP_LIMIT_REACHED: (next: string | null) =>
+      `You have reached the limit of clip orders. ${next ? `The next one is possible ${next}.` : 'Try again later.'}`,
   },
   home: {
     eyebrow: 'CS2 demo analysis · highlight clips',
@@ -324,17 +352,42 @@ export const en = {
     // A demo that failed with the code DOWNLOAD_NEEDS_ACCESS: the site is not given the file, so the visitor fetches it.
     needsAccess:
       "FACEIT did not let this site download the demo. Download it from the match's room on FACEIT and upload the file below with the admin key.",
+    // The same for a visitor who may upload without the key: a player of the match, or an administrator.
+    needsAccessMember:
+      "FACEIT did not let this site download the demo. Download it from the match's room on FACEIT and upload the file below.",
     needsAccessLink: "The match's room on FACEIT",
     // Heard by a screen reader after the link's text, because the link opens another tab.
     newTab: '(opens in a new tab)',
     notParsed: 'The demo has not been parsed yet.',
     tooLarge: 'The file is too large.',
+    // 409 DEMO_ALREADY_PARSED and DEMO_ALREADY_ANALYZED; the first is also what the panel says in place of the upload
+    // to a player of a match whose demo is read.
+    alreadyParsed: 'A demo of this match has already been read. Only an administrator can replace it.',
+    alreadyAnalyzed: 'The demo is already analyzed.',
+    // The line of four steps under the status: its name for a screen reader, the steps (shown in upper case), and the
+    // state of a step in words, heard after its name.
+    stages: {
+      label: 'Stages of the demo',
+      steps: {
+        download: 'Download',
+        read: 'Read',
+        analysis: 'Analysis',
+        ready: 'Ready',
+      },
+      state: {
+        done: 'done',
+        current: 'in progress',
+        failed: 'failed',
+        waiting: 'not started',
+      },
+    },
     // The codes of `DemoResponse.errorCode` the page words itself (DOWNLOAD_NEEDS_ACCESS has `needsAccess` above, with its
     // link). IMPORT_FAILED sends the visitor to the upload, as the panel's controls do.
     reasons: {
       IMPORT_FAILED: 'The demo could not be fetched from FACEIT. You can upload it as a file.',
       PARSE_FAILED: 'The demo file could not be read. The file may be damaged.',
       ANALYSIS_FAILED: 'The demo analysis did not finish. Try again.',
+      WRONG_MATCH: 'This file is the demo of another match: its players are not the players of this one.',
     },
   },
   clip: {
@@ -376,7 +429,14 @@ export const en = {
       quality: 'Quality',
       fasterSmaller: 'Faster, smaller file',
       recommended: 'Recommended',
-      adminOnly: 'For now only an admin can record clips.',
+      // Under the key field of a visitor who is not signed in.
+      needsKey: 'Sign in to record clips of your own highlights. Without signing in, a clip needs the admin key.',
+      // The day's limit of a signed-in visitor: the name of the row, what is left, and the line at zero (`next` is
+      // `limits.nextAt`, or null).
+      orders: 'Orders',
+      ordersLeft: (remaining: number, limit: number) => `${remaining} of ${limit} left today`,
+      noneLeft: (next: string | null) =>
+        `No orders left today. ${next ? `The next one is possible ${next}.` : 'Try again later.'}`,
       queue: 'Queue',
       queueAhead: (count: number) =>
         count === 0 ? 'No clips ahead of yours' : `${count} ${count === 1 ? 'clip' : 'clips'} ahead of yours`,
@@ -408,6 +468,10 @@ export const en = {
       confirmDelete: 'Delete this clip and its video?',
       confirmYes: 'Yes, delete',
       keep: 'Keep',
+      // The same for a clip that still waits in the queue: deleting it is taking the order back.
+      cancel: 'Cancel order',
+      confirmCancel: 'Cancel this order?',
+      confirmCancelYes: 'Yes, cancel',
       kills: 'Kills',
       noKills: 'No kills in this clip',
       seek: (time: string) => `Jump to ${time}`,
@@ -436,6 +500,7 @@ export const en = {
       tooLong: 'The clip would be too long.',
       noKills: 'This player has no kills in the demo.',
       inProgress: 'The clip is being recorded and cannot be deleted now.',
+      notFailed: 'Only a failed clip can be tried again.',
     },
     // Why a clip failed, by the code of `ClipResponse.errorCode`; a reason the recorder reports has no code and is shown
     // as the recorder wrote it.

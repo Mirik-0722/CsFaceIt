@@ -1,7 +1,7 @@
-import { Download, Link2 } from 'lucide-react'
+import { Download, Link2, RotateCcw } from 'lucide-react'
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useClip, useDeleteClip, useMatchClips, useMatchStats, usePlayer } from '@/api/queries'
+import { useClip, useDeleteClip, useMatchClips, useMatchStats, usePlayer, useRetryClip } from '@/api/queries'
 import KillTimeline from '@/components/KillTimeline'
 import LevelRing from '@/components/LevelRing'
 import MapEmblem from '@/components/MapEmblem'
@@ -23,7 +23,7 @@ import { formatDuration } from '@/lib/highlightLabels'
 import { mapSceneryUrl } from '@/lib/mapArt'
 import { mapLabel, mapScene } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
-import { useHasUnlinkedNotice } from '@/lib/viewer'
+import { useHasUnlinkedNotice, useViewer } from '@/lib/viewer'
 import { isKnife, weaponLabel } from '@/lib/weapons'
 import type { ApiError } from '@/api/client'
 import type { ClipKill, ClipResponse } from '@/api/types'
@@ -102,20 +102,25 @@ function ClipPlaceholder({ clip }: { clip: ClipResponse }) {
   )
 }
 
-interface DeleteControlProps {
+/** Which of the two things a 401 can mean: the admin key that went out is wrong, or the session has ended. */
+type Refusal = 'key' | 'session'
+
+interface ClipControlProps {
   clip: ClipResponse
-  apiKey: string
-  /** The backend did not take the key: it is forgotten, this control goes with it, and the page says why. */
-  onKeyRejected: () => void
+  /** The admin key the page holds, which then goes with the request; null: the request is the signed-in owner's own. */
+  apiKey: string | null
+  /** The backend took the request for nobody's (401): the page says which way, since the control may be gone by then. */
+  onRefused: (refusal: Refusal) => void
 }
 
 /**
- * Deletes the clip, after a second click that confirms it. Offered only while the page holds the admin key; a key the
- * backend rejects is forgotten, and the control goes with it. The focus follows the question: to "Keep", the answer
- * that changes nothing, when it is asked (the question is the name of the group, so it is read then), and back to the
- * button when the clip is kept.
+ * Deletes the clip, after a second click that confirms it; for a clip that still waits in the queue the same request
+ * takes the order back, and the words say that. Offered to whoever ordered the clip and to an administrator, by the
+ * session, and to whoever holds the admin key; a key the backend rejects is forgotten. The focus follows the question:
+ * to "Keep", the answer that changes nothing, when it is asked (the question is the name of the group, so it is read
+ * then), and back to the button when the clip is kept.
  */
-function DeleteControl({ clip, apiKey, onKeyRejected }: DeleteControlProps) {
+function DeleteControl({ clip, apiKey, onRefused }: ClipControlProps) {
   const t = useT()
   const questionId = useId()
   const navigate = useNavigate()
@@ -124,19 +129,22 @@ function DeleteControl({ clip, apiKey, onKeyRejected }: DeleteControlProps) {
   // The question was asked and answered with "Keep": the button it replaced takes the focus back.
   const [kept, setKept] = useState(false)
   const [failure, setFailure] = useState<ApiError | null>(null)
+  const waiting = clip.status === 'QUEUED'
 
   function confirm() {
     setFailure(null)
     remove.mutate(
-      { apiKey, clip },
+      { apiKey: apiKey ?? undefined, clip },
       {
         // The clip is gone, and so is its page: back to the match it was recorded from.
         onSuccess: () => navigate(`/matches/${encodeURIComponent(clip.matchId)}`),
         onError: (error) => {
-          if (error.status === 401) {
+          if (error.status === 401 && apiKey !== null) {
             setAdminKey(null)
             remove.reset()
-            onKeyRejected()
+            onRefused('key')
+          } else if (error.status === 401) {
+            onRefused('session')
           } else {
             setFailure(error)
           }
@@ -154,17 +162,17 @@ function DeleteControl({ clip, apiKey, onKeyRejected }: DeleteControlProps) {
         onClick={() => setConfirming(true)}
         className="max-sm:h-12 max-sm:flex-1"
       >
-        {t.clip.page.delete}
+        {waiting ? t.clip.page.cancel : t.clip.page.delete}
       </Button>
     )
   }
   return (
     <div role="group" aria-labelledby={questionId} className="flex basis-full flex-wrap items-center gap-3">
       <p id={questionId} className="text-sm">
-        {t.clip.page.confirmDelete}
+        {waiting ? t.clip.page.confirmCancel : t.clip.page.confirmDelete}
       </p>
       <Button type="button" variant="destructive" disabled={remove.isPending} onClick={confirm}>
-        {t.clip.page.confirmYes}
+        {waiting ? t.clip.page.confirmCancelYes : t.clip.page.confirmYes}
       </Button>
       <Button
         type="button"
@@ -182,6 +190,57 @@ function DeleteControl({ clip, apiKey, onKeyRejected }: DeleteControlProps) {
         {failure && errorMessage(failure, t)}
       </p>
     </div>
+  )
+}
+
+/**
+ * Orders a failed clip again, as it was. Offered to those the deletion is offered to. The new clip has a page of its
+ * own, and the failed one is gone with the request: the visitor is taken to the new page.
+ */
+function RetryControl({ clip, apiKey, onRefused }: ClipControlProps) {
+  const t = useT()
+  const navigate = useNavigate()
+  const retry = useRetryClip()
+  const [failure, setFailure] = useState<ApiError | null>(null)
+
+  function send() {
+    setFailure(null)
+    retry.mutate(
+      { apiKey: apiKey ?? undefined, clip },
+      {
+        onSuccess: (retried) => navigate(`/clips/${retried.id}`),
+        onError: (error) => {
+          if (error.status === 401 && apiKey !== null) {
+            setAdminKey(null)
+            retry.reset()
+            onRefused('key')
+          } else if (error.status === 401) {
+            onRefused('session')
+          } else {
+            setFailure(error)
+          }
+        },
+      },
+    )
+  }
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={retry.isPending}
+        onClick={send}
+        className="max-sm:h-12 max-sm:flex-1"
+      >
+        <RotateCcw aria-hidden="true" />
+        {t.clip.retry}
+      </Button>
+      {/* Under the row of actions, whatever stands after this button in it. */}
+      <p aria-live="polite" className="order-last basis-full text-sm text-destructive empty:hidden">
+        {failure && errorMessage(failure, t)}
+      </p>
+    </>
   )
 }
 
@@ -476,6 +535,8 @@ function ClipByline({ clip }: { clip: ClipResponse }) {
 function ClipView({ clip }: { clip: ClipResponse }) {
   const t = useT()
   const adminKey = useAdminKey()
+  // Whoever ordered the clip, and an administrator, manage it by the session; the admin key does for anybody else.
+  const manages = useViewer().canManageClip(clip).allowed || adminKey !== null
   const belowNotice = useHasUnlinkedNotice()
   const video = useRef<HTMLVideoElement>(null)
   // What became of the last "Copy link", for as long as the button says it.
@@ -484,8 +545,10 @@ function ClipView({ clip }: { clip: ClipResponse }) {
   const [videoFailed, setVideoFailed] = useState(false)
   // The visitor started the video (the play button, or a kill of the list): the frame over it is gone for good.
   const [started, setStarted] = useState(false)
-  // The backend rejected the admin key of a deletion: the key is forgotten and "Delete" is gone, so the page says why.
-  const [keyRejected, setKeyRejected] = useState(false)
+  // The backend took a deletion or a retry for nobody's: the admin key was wrong (it is forgotten, and the controls may
+  // be gone with it), or the session has ended (the controls go once the page has asked who is signed in). Either way
+  // the page says why.
+  const [refusal, setRefusal] = useState<Refusal | null>(null)
   const ready = clip.status === 'DONE' && clip.videoUrl !== null
 
   useEffect(() => {
@@ -595,13 +658,22 @@ function ClipView({ clip }: { clip: ClipResponse }) {
                     : t.clip.page.copyLink}
               </span>
             </Button>
-            {/* A clip that is being recorded cannot be deleted (the backend answers 409), so it is not offered then. */}
-            {adminKey !== null && (isFinished(clip.status) || clip.status === 'QUEUED') && (
-              <DeleteControl clip={clip} apiKey={adminKey} onKeyRejected={() => setKeyRejected(true)} />
+            {/* Only a failed clip can be ordered again (the backend answers 409 for any other). */}
+            {manages && clip.status === 'FAILED' && (
+              <RetryControl clip={clip} apiKey={adminKey} onRefused={setRefusal} />
             )}
-            {keyRejected && adminKey === null && (
-              <p role="alert" className="basis-full text-sm text-destructive">
+            {/* A clip that is being recorded cannot be deleted (the backend answers 409), so it is not offered then. */}
+            {manages && (isFinished(clip.status) || clip.status === 'QUEUED') && (
+              <DeleteControl clip={clip} apiKey={adminKey} onRefused={setRefusal} />
+            )}
+            {refusal === 'key' && adminKey === null && (
+              <p role="alert" className="order-last basis-full text-sm text-destructive">
                 {t.demo.wrongKey}
+              </p>
+            )}
+            {refusal === 'session' && (
+              <p role="alert" className="order-last basis-full text-sm text-destructive">
+                {t.auth.sessionEnded}
               </p>
             )}
           </div>

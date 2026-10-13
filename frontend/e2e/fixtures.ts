@@ -447,6 +447,8 @@ export function clipFixture(
     finishedAt: done || status === 'FAILED' ? '2023-11-14T23:24:00Z' : null,
     expiresAt: done ? '2023-12-14T23:24:00Z' : null,
     kills: [],
+    // Nobody's by default: the scenarios of a signed-in owner say so themselves.
+    mine: false,
     ...overrides,
   }
 }

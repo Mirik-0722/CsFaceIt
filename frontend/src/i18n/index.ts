@@ -65,6 +65,14 @@ export function messagesFor(locale: Locale): Messages {
   return DICTIONARIES[locale]
 }
 
+/**
+ * The language a dictionary is of, for what is given the texts and has to format a date to go with them. A dictionary
+ * that is none of the known ones (there is no such) counts as the default language.
+ */
+export function localeOf(messages: Messages): Locale {
+  return LOCALES.find((locale) => DICTIONARIES[locale] === messages) ?? DEFAULT_LOCALE
+}
+
 /** The texts of the current language; the component re-renders when the language changes. */
 export function useT(): Messages {
   return messagesFor(useLocale())
