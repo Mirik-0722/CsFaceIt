@@ -174,6 +174,7 @@ export const uz: Messages = {
     loadedSoFar: 'yuklangan',
     needsDemo: 'Demo kerak',
     emptyFilter: "Yuklangan matchlar orasida bu filtrga mos keladigani yo'q",
+    notUpdating: "Ma'lumot yangilanmayapti. Qayta urinilmoqda.",
     form: {
       label: (count) => `So'nggi ${count} match`,
       name: (count, wins, losses, unknown) =>

@@ -31,7 +31,7 @@ const MATCHES_PAGE_SIZE = 20
  * of clips in progress does not stay what it was when the page was opened. The clips page asks every three seconds; a
  * list of matches that is only a summary of them can wait longer.
  */
-const CLIPS_POLL_MS = 15_000
+export const CLIPS_POLL_MS = 15_000
 
 /**
  * A player's matches with their demos, highlights and clips, one page of `limit` at a time, as `usePlayerHistory` pages

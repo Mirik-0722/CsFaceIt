@@ -214,6 +214,7 @@ function tenMatches(): MatchHistoryResponse {
 
 // The wins that differ from the E2E fixture's, by map (see DEFAULT_OVERVIEW).
 const WINS_BY_MAP: Record<string, number> = { de_mirage: 4, de_inferno: 1 }
+
 /**
  * The E2E fixture's maps with one share of wins under 50%, so that the maps table shows a red bar as well as the green
  * ones (Mirage 80%, Inferno 33%, Ancient 50%, Nuke 100%, Dust2 0%: no fill). One win moves from Inferno to Mirage, so

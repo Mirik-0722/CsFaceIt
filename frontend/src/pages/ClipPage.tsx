@@ -18,6 +18,7 @@ import { clipFailureText, clipLabel, formatBytes, frameLabel, qualityMark } from
 import { isFinished } from '@/lib/clipStatus'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate, formatDateTime } from '@/lib/formatDate'
+import { formatInteger } from '@/lib/formatNumber'
 import { formatDuration } from '@/lib/highlightLabels'
 import { mapSceneryUrl } from '@/lib/mapArt'
 import { mapLabel, mapScene } from '@/lib/mapTint'
@@ -422,7 +423,7 @@ function ClipByline({ clip }: { clip: ClipResponse }) {
   const profile = !clip.playerId.startsWith('steam:')
   const player = usePlayer(clip.playerId, profile).data
   const teams = useMatchStats(clip.matchId).data?.teams
-  const elo = player && player.elo !== null ? new Intl.NumberFormat(locale).format(player.elo) : null
+  const elo = player && player.elo !== null ? formatInteger(player.elo, locale) : null
   const facts = player ? t.clip.page.faceitFacts(player.level, elo) : ''
   const match =
     teams?.length === 2

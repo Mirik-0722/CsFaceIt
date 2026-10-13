@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { type PlayerMatchResponse, usePlayerMatches } from '@/api/overview'
+import { CLIPS_POLL_MS, type PlayerMatchResponse, usePlayerMatches } from '@/api/overview'
 import { usePlayer } from '@/api/queries'
 import MatchesTable from '@/components/MatchesTable'
 import RecorderCard from '@/components/RecorderCard'
@@ -8,6 +8,12 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
+
+/**
+ * How old the rows may get while the refreshes keep failing before the page says so: three of the page's own polling
+ * intervals, so that one or two failed ticks stay silent.
+ */
+const STALE_AFTER_MS = 3 * CLIPS_POLL_MS
 
 type Filter = 'all' | 'analyzed' | 'needsDemo'
 
@@ -37,6 +43,20 @@ function PlayerMatches({ playerId }: { playerId: string }) {
   const player = usePlayer(playerId)
   const matches = usePlayerMatches(playerId)
   const [filter, setFilter] = useState<Filter>('all')
+  // The `dataUpdatedAt` of the rows that have grown older than `STALE_AFTER_MS` while the refresh that would renew them
+  // fails. Rows that are renewed have another time, so the line goes by itself. A timer, not a reading of the clock
+  // while drawing: nothing redraws the page between two failed ticks.
+  const [staleRows, setStaleRows] = useState<number | null>(null)
+  const refreshFailing = matches.isRefetchError
+  const loadedAt = matches.dataUpdatedAt
+  useEffect(() => {
+    if (!refreshFailing) {
+      return
+    }
+    const timer = setTimeout(() => setStaleRows(loadedAt), Math.max(0, loadedAt + STALE_AFTER_MS - Date.now()))
+    return () => clearTimeout(timer)
+  }, [refreshFailing, loadedAt])
+  const notUpdating = refreshFailing && staleRows === loadedAt
   // Offset paging can return the same match on two pages (each page is cached on its own), so keep the first.
   const items = matches.data?.pages
     .flatMap((page) => page.items)
@@ -118,8 +138,13 @@ function PlayerMatches({ playerId }: { playerId: string }) {
                   <p className="pt-4 text-sm text-muted-foreground">{t.matches.emptyFilter}</p>
                 )}
                 {/* A failed refresh of rows that are already shown (the page asks again every 15 s while a clip is in
-                    progress) says nothing: the rows are still good, and the next try is on its way. The first page and a
-                    "load more" that fail are said. */}
+                    progress) says nothing at first: the rows are still good, and the next try is on its way. If the
+                    refreshes go on failing until the rows are three intervals old, one quiet line says that the list is
+                    not updating, and it goes when a refresh succeeds. The first page and a "load more" that fail are said
+                    at once. */}
+                {items && items.length > 0 && refreshFailing && notUpdating && (
+                  <p className="text-sm text-muted-foreground">{t.matches.notUpdating}</p>
+                )}
                 {matches.isError && !matches.isRefetchError && (
                   <p className="text-sm text-destructive">{errorMessage(matches.error, t)}</p>
                 )}

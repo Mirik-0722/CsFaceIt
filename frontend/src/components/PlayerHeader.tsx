@@ -100,12 +100,16 @@ function ProfileHeader({ player, aside, scenery }: { player: PlayerResponse; asi
   return (
     <div
       data-scenery={shown ? 'shown' : undefined}
-      // Under `sm` the header is at least 92px high: with the ring the mono line wraps on most phones (below about 417px)
-      // and the header is 92px, so every header is, and the loading skeleton (see PlayerPage) is as tall.
-      className="group/head relative isolate flex flex-wrap items-center justify-between gap-x-8 gap-y-5 max-sm:min-h-23"
+      // Under `md` the aside (the form strip) always takes a row of its own below the name and the line (a column), so
+      // that the head's height does not depend on whether the name and its line leave room for the strip: with a level
+      // the line is wider, and the strip would drop below it at about 640-700px but not without one. Under `sm` that
+      // first row is at least 92px high: with the ring the mono line wraps on most phones (below about 417px) and the
+      // row is 92px, so every first row is, and the loading block (see PlayerPage) is made of the same parts. From `md`
+      // the strip stands beside the name where there is room, and drops below it where there is not.
+      className="group/head relative isolate flex flex-wrap items-center justify-between gap-x-8 gap-y-5 max-md:flex-col max-md:items-start"
     >
       {scenery && <HeaderScenery url={scenery} shown={shown} onLoad={() => setLoadedUrl(scenery)} />}
-      <div className="flex min-w-0 items-center gap-4.5">
+      <div className="flex min-w-0 items-center gap-4.5 max-sm:min-h-23">
         <PlayerAvatar nickname={player.nickname} avatar={player.avatar} size="lg" />
         {/* The scrim reaches 12px beyond the block: on a phone the block runs to 16px from the screen's edge, and a wider
             bleed would make the page scroll sideways. */}

@@ -17,8 +17,9 @@ import type { SceneStack } from './useSceneStack'
  * What the sample clip is: its map and round, the ace in it and the facts under it. The corner label, the drawn kill
  * feed and the caption are made from this. The values are an ace by a player who does not exist, and the label above the
  * picture says so. When a real video is put in `src/assets/landing/` (see the README there) it replaces the drawing, and
- * this is edited to say what is in that video: the map and round of the corner label, who got the kills and with what,
- * how long the file is, how big, and where in it the kills are.
+ * this is edited to say what is in that video: the map and round of the corner label, its REC timecode, the quality
+ * named at the bottom right, who got the kills and with what, how long the file is, how big, and where in it the kills
+ * are.
  */
 const SAMPLE_CLIP = {
   mapName: 'de_mirage',
@@ -89,8 +90,9 @@ export default function HeroIllustration({
   // or failed one leaves the previous map's on top (see `useSceneStack`). A video is the clip's own map.
   const frameMap = HAS_VIDEO ? SAMPLE_CLIP.mapName : (mapOfSceneryUrl(scenes.over) ?? mapName)
   return (
-    // The whole sample stands on one panel of frosted glass: the page's backdrop is behind it, blurred, and its small
-    // grey lines need a ground of their own. The picture shows around the panel.
+    // The whole sample stands on one panel (`glass-panel`): from `lg` it is frosted glass, the page's backdrop behind it
+    // blurred; below that it is a plain dark panel. Its small grey lines need a ground of their own either way. The
+    // picture shows around the panel.
     <div aria-hidden="true" className={cn('glass-panel flex min-w-0 flex-col gap-3.5 border border-border p-4', className)}>
       <p className="label-mono text-muted-foreground">{t.home.sample}</p>
       <ViewfinderFrame

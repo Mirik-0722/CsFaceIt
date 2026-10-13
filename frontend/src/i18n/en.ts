@@ -198,6 +198,8 @@ export const en = {
     loadedSoFar: 'loaded so far',
     needsDemo: 'Needs a demo',
     emptyFilter: 'None of the loaded matches fits this filter',
+    // Under the rows when the list has not been refreshed for a while although it is being asked again.
+    notUpdating: 'The list is not updating. Trying again.',
     // The newest matches as squares in the header of the profile; `count` is how many there are (up to ten).
     form: {
       label: (count: number) => (count === 1 ? 'Last match' : `Last ${count} matches`),

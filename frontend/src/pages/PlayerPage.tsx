@@ -201,12 +201,16 @@ function PlayerProfile({ playerId }: { playerId: string }) {
     <>
       <div aria-live="polite">
         {player.isPending && (
-          // The label and the skeleton together are as tall as the header (72px, the avatar's; 92px under `sm`, where
-          // the header is at least that tall because the mono line wraps beside the ring), so that what follows does not
-          // move when the player arrives.
-          <div className="flex h-18 flex-col max-sm:h-23">
-            <p className="label-mono mb-2">{t.player.loading}</p>
-            <Skeleton className="min-h-0 w-full flex-1" />
+          // Made of the head's own parts, so that what follows does not move when the player arrives (see
+          // `ProfileHeader`): the first row (the label and the skeleton) is as tall as the head's, 72px, and 92px under
+          // `sm`, where the mono line wraps beside the ring; under `md` the strip's place is a row of its own below it, as
+          // in the head, whatever the player is; from `md` it is beside the row, as the strip is where there is room.
+          <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-5 max-md:flex-col max-md:items-start">
+            <div className="flex h-18 min-w-0 flex-col max-md:w-full max-sm:h-23 md:flex-1">
+              <p className="label-mono mb-2">{t.player.loading}</p>
+              <Skeleton className="min-h-0 w-full flex-1" />
+            </div>
+            <FormStripPlaceholder />
           </div>
         )}
         {playerFailed && <p className="text-sm text-destructive">{errorMessage(player.error, t)}</p>}
@@ -214,8 +218,8 @@ function PlayerProfile({ playerId }: { playerId: string }) {
           <PlayerHeader
             player={player.data}
             size="lg"
-            // Its place is kept while the history is awaited: where the strip takes a row of its own, the rest of the page
-            // would move down by that row when the history arrives.
+            // Its place is kept while the history is awaited, as in the loading block above: where the strip takes a row of
+            // its own, the rest of the page would move down by that row when the history arrives.
             aside={history.isPending ? <FormStripPlaceholder /> : <FormStrip matches={matches ?? []} />}
             scenery={scenery}
           />
