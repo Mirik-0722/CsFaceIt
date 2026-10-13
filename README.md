@@ -100,7 +100,7 @@ Then edit `.env`:
 | `FACEIT_API_KEY` | **Required.** Your FACEIT Data API key. The backend refuses to start when it is empty. | empty |
 | `APP_API_KEY` | **Required.** Secret that clients send in the `X-API-Key` header. Everything except `GET`/`HEAD` on `/api/v1/**`, `/actuator/health` and `/actuator/prometheus` requires it (signing out, `POST /api/v1/auth/logout`, is the one exception, see [Signing in](#signing-in)), and `/api/worker/**`, which takes the worker token instead (`CLIP_WORKER_TOKEN`). Being signed in does not replace it. Choose a long random value, for example `openssl rand -hex 32`. While it is empty the backend logs a warning and rejects every protected request. | empty |
 | `CLIP_WORKER_TOKEN` | The secret the recorder sends in the `X-Worker-Token` header (see [Worker API](#worker-api-the-recorder)). It opens `/api/worker/**` and nothing else, and the admin key does not open that. Choose a long random value, for example `openssl rand -hex 32`, and give the same one to the recorder. While it is empty the backend logs a warning and rejects every request of a recorder. The fake-FACEIT mode sets `dev-worker-token`. | empty |
-| `AUTH_ADMIN_STEAM_IDS` | The SteamID64s (17 digits, comma separated) of the people who get the role `ADMIN` when they sign in with Steam (see [Signing in](#signing-in)). The role is shown on the site and does not yet let anyone act without `APP_API_KEY`. | empty |
+| `AUTH_ADMIN_STEAM_IDS` | The SteamID64s (17 digits, comma separated) of the people who get the role `ADMIN` when they sign in with Steam (see [Signing in](#signing-in)). The role is in the answer of `GET /api/v1/auth/me` (the site does not show it) and does not yet let anyone act without `APP_API_KEY`. | empty |
 | `FACEIT_OAUTH_CLIENT_ID`, `FACEIT_OAUTH_CLIENT_SECRET` | The FACEIT OAuth application, for signing in with FACEIT. The sign-in with FACEIT itself is not written yet, so the two are read and nothing more: `GET /api/v1/auth/providers` answers `faceit: false` whatever they hold, and only Steam is offered. The secret is never logged. | empty |
 | `FACEIT_BASE_URL` | FACEIT Data API address; override it only to point the backend at a fake FACEIT. Commented out in `.env.example`. | `https://open.faceit.com/data/v4` |
 | `FACEIT_HISTORY_LOOKBACK` | How far back a player's match history reaches (`faceit.history-lookback`). FACEIT itself returns only the last month unless the request names a start time, so the backend always sends one. Commented out in `.env.example`. | `365d` |
@@ -306,8 +306,10 @@ themselves after a reboot.
 
 Either way everything works over plain HTTP because the page and the API are one origin. **The admin key then travels
 unencrypted**: the page sends it in a header with every upload, analysis and clip order, and anyone on the way between
-the browser and the server can read it. Use this way for a trial or on a network you trust, not for a site that other
-people use, and change the key when you move to HTTPS.
+the browser and the server can read it. The session cookie of a signed-in visitor (`csf_session`) travels unencrypted
+as well, and whoever reads it can act as that visitor. Use this way for a trial or on a network you trust, not for a
+site that other people use, and change the key when you move to HTTPS. The cookie is `Secure` only over HTTPS, so after
+the move to HTTPS visitors sign in again.
 
 If a proxy of your own terminates HTTPS in front of the web port (Cloudflare, or an Nginx or Traefik you run), set
 `PUBLIC_ORIGIN=https://example.com`, the address the browser shows. Without it the page loads and the reads work, but
@@ -605,7 +607,7 @@ removed by a lookup that fails or finds nothing. No call to Steam or FACEIT is m
 
 | Setting | Variable | Default | Meaning |
 | --- | --- | --- | --- |
-| `auth.admin-steam-ids` | `AUTH_ADMIN_STEAM_IDS` | empty | SteamID64s (17 digits, comma separated) that get the role `ADMIN` at every sign-in; everyone else is a `USER`. The role is stored and shown, and gives a session no authority yet. |
+| `auth.admin-steam-ids` | `AUTH_ADMIN_STEAM_IDS` | empty | SteamID64s (17 digits, comma separated) that get the role `ADMIN` at every sign-in; everyone else is a `USER`. The role is stored and given by `/auth/me`, and gives a session no authority yet. |
 | `auth.steam.login-url` | `AUTH_STEAM_LOGIN_URL` | `https://steamcommunity.com/openid/login` | Where the browser is sent to sign in; the answer must name it as its `openid.op_endpoint`. |
 | `auth.steam.verify-url` | `AUTH_STEAM_VERIFY_URL` | the same | Where the backend posts the answer back to have it confirmed. |
 | `auth.faceit.client-id`, `auth.faceit.client-secret` | `FACEIT_OAUTH_CLIENT_ID`, `FACEIT_OAUTH_CLIENT_SECRET` | empty | The FACEIT OAuth application. Neither is logged. Read, but not used until the sign-in with FACEIT is written (`/auth/providers` answers `faceit: false`). |
