@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useT, type Messages } from '@/i18n'
 import { setAdminKey, useAdminKey } from '@/lib/adminKey'
 import { copyText } from '@/lib/clipboard'
-import { clipLabel, formatBytes, frameLabel, qualityMark } from '@/lib/clips'
+import { clipFailureText, clipLabel, formatBytes, frameLabel, qualityMark } from '@/lib/clips'
 import { isFinished } from '@/lib/clipStatus'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate, formatDateTime } from '@/lib/formatDate'
@@ -54,6 +54,7 @@ function clipTitle(clip: ClipResponse, t: Messages): string {
 function ClipPlaceholder({ clip }: { clip: ClipResponse }) {
   const t = useT()
   const recording = clip.status === 'RECORDING'
+  const failure = clip.status === 'FAILED' ? clipFailureText(clip, t) : null
   return (
     // The state changes by itself (the clip is asked for again every three seconds); a change is announced.
     <div aria-live="polite" className="flex flex-col gap-3">
@@ -91,10 +92,9 @@ function ClipPlaceholder({ clip }: { clip: ClipResponse }) {
           />
         )}
       </div>
-      {/* The recorder's own words about what went wrong, as they are: a technical message. */}
-      {clip.status === 'FAILED' && clip.error && (
-        <p className="font-mono text-xs break-words text-negative">{clip.error}</p>
-      )}
+      {/* Why it failed: in the visitor's language when the backend gave the reason a code, else the recorder's own
+          words, as they are: a technical message. */}
+      {failure && <p className="font-mono text-xs break-words text-negative">{failure}</p>}
       {/* Why a clip may be waiting: whether a recorder is there at all, and how long the queue is. */}
       {clip.status === 'QUEUED' && <RecorderBanner />}
     </div>

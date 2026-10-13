@@ -327,6 +327,13 @@ export const en = {
     newTab: '(opens in a new tab)',
     notParsed: 'The demo has not been parsed yet.',
     tooLarge: 'The file is too large.',
+    // The codes of `DemoResponse.errorCode` the page words itself (DOWNLOAD_NEEDS_ACCESS has `needsAccess` above, with its
+    // link). IMPORT_FAILED sends the visitor to the upload, as the panel's controls do.
+    reasons: {
+      IMPORT_FAILED: 'The demo could not be fetched from FACEIT. You can upload it as a file.',
+      PARSE_FAILED: 'The demo file could not be read. The file may be damaged.',
+      ANALYSIS_FAILED: 'The demo analysis did not finish. Try again.',
+    },
   },
   clip: {
     title: 'Clip',
@@ -427,6 +434,14 @@ export const en = {
       tooLong: 'The clip would be too long.',
       noKills: 'This player has no kills in the demo.',
       inProgress: 'The clip is being recorded and cannot be deleted now.',
+    },
+    // Why a clip failed, by the code of `ClipResponse.errorCode`; a reason the recorder reports has no code and is shown
+    // as the recorder wrote it.
+    reasons: {
+      RECORDER_STOPPED: 'The recorder did not respond',
+      NO_REASON: 'The recorder did not say why',
+      DEMO_GONE: 'The demo file is no longer stored',
+      STEAM_ID_UNKNOWN: "The player's Steam ID is not known",
     },
   },
   errors: {

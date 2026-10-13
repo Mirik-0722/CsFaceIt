@@ -12,5 +12,20 @@ public enum DemoErrorCode {
      * the demo address is FACEIT's private cloud, which does not answer anyone but the Downloads API. Another try
      * changes nothing; the demo can be fetched from the match's room on FACEIT and uploaded.
      */
-    DOWNLOAD_NEEDS_ACCESS
+    DOWNLOAD_NEEDS_ACCESS,
+
+    /**
+     * The import of the demo from FACEIT failed on every attempt (its message was dead-lettered), for a reason that is
+     * not FACEIT refusing the site. The demo can be fetched from the match's room on FACEIT and uploaded.
+     */
+    IMPORT_FAILED,
+
+    /** The parsing of the demo file failed on every attempt, or the parser gave the file up: it may be damaged. */
+    PARSE_FAILED,
+
+    /**
+     * The analysis of a parsed demo failed on every attempt. The demo stays PARSED with this code next to its error;
+     * starting the analysis again clears both.
+     */
+    ANALYSIS_FAILED
 }

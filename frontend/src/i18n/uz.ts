@@ -295,6 +295,13 @@ export const uz: Messages = {
     newTab: '(yangi tabda ochiladi)',
     notParsed: "Demo hali o'qilmagan.",
     tooLarge: 'Fayl juda katta.',
+    // The codes of `DemoResponse.errorCode` the page words itself (DOWNLOAD_NEEDS_ACCESS has `needsAccess` above, with its
+    // link). IMPORT_FAILED sends the visitor to the upload, as the panel's controls do.
+    reasons: {
+      IMPORT_FAILED: "Demoni FACEIT'dan olib bo'lmadi. Uni fayl sifatida yuklashingiz mumkin.",
+      PARSE_FAILED: "Demo faylini o'qib bo'lmadi. Fayl buzilgan bo'lishi mumkin.",
+      ANALYSIS_FAILED: "Demo tahlili yakunlanmadi. Qayta urinib ko'ring.",
+    },
   },
   clip: {
     title: 'Klip',
@@ -391,6 +398,14 @@ export const uz: Messages = {
       tooLong: 'Klip juda uzun chiqadi.',
       noKills: "Bu o'yinchining demoda kill'i yo'q.",
       inProgress: "Klip yozilmoqda, hozir o'chirib bo'lmaydi.",
+    },
+    // Why a clip failed, by the code of `ClipResponse.errorCode`; a reason the recorder reports has no code and is shown
+    // as the recorder wrote it.
+    reasons: {
+      RECORDER_STOPPED: 'Yozuvchi javob bermadi',
+      NO_REASON: 'Yozuvchi sababini aytmadi',
+      DEMO_GONE: 'Demo fayli endi saqlanmagan',
+      STEAM_ID_UNKNOWN: "O'yinchining Steam ID'si noma'lum",
     },
   },
   errors: {

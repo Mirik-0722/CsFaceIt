@@ -1,6 +1,7 @@
 import type { Messages } from '@/i18n'
 import type { ClipQuality, ClipResponse, ClipStatus, HighlightResponse } from '@/api/types'
 import { highlightLabel } from '@/lib/highlightLabels'
+import { reasonText } from '@/lib/errorMessage'
 import { mapLabel } from '@/lib/mapTint'
 
 /** The qualities a clip can be asked for in, the lower first. */
@@ -50,6 +51,15 @@ export function compilationFor(playerId: string, clips: ClipResponse[]): ClipRes
   return clips
     .filter((clip) => clip.kind === 'COMPILATION' && clip.playerId === playerId)
     .sort(byPreference)[0]
+}
+
+/**
+ * Why a clip failed, for whoever shows the failure: the translation of the reason when the backend gave it a code this
+ * page knows, otherwise the backend's own sentence (the recorder's words, or a code from a newer backend), or null when
+ * the clip has no reason.
+ */
+export function clipFailureText(clip: Pick<ClipResponse, 'error' | 'errorCode'>, t: Messages): string | null {
+  return reasonText(clip.errorCode, t.clip.reasons) ?? clip.error
 }
 
 /** What a clip shows, as its tag says it: the label of its highlight (`4K`, `1v3 CLUTCH`), or the word for a compilation. */

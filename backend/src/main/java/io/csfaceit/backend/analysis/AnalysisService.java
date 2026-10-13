@@ -84,7 +84,7 @@ public class AnalysisService {
         Claim claim = claimed.get();
         MatchFacts facts = loader.load(claim.matchRowId(), claim.tickRate());
         if (!facts.rosterRecorded()) {
-            boolean noted = demos.noteAnalysisFailure(claim.demoId(), NO_ROSTERS_ERROR);
+            boolean noted = demos.noteAnalysisFailure(claim.demoId(), NO_ROSTERS_ERROR, null);
             log.warn("Not analyzing demo {} of match {}: its facts have no round rosters ({}); the demo file has to be "
                     + "uploaded again", demoId, claim.faceitMatchId(),
                     noted ? "the error is noted on the demo" : "the demo is not PARSED, so it is left as it is");

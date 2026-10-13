@@ -20,9 +20,10 @@ import java.time.temporal.ChronoUnit;
 /**
  * The demo of one match and its place in the pipeline. {@code error} says why the demo FAILED and is cleared when
  * the demo leaves that status; {@code errorCode} is the reason in a form a page can translate, for the failures that
- * have one (see {@link DemoErrorCode}), and goes with {@code error}. A PARSED demo whose analysis failed also has an {@code error} (see
- * {@link DemoRepository#noteError}, which leaves {@code updatedAt} alone); it stays PARSED, because the facts the
- * parser wrote are intact, and the error goes when the demo is analyzed or stored again.
+ * have one (see {@link DemoErrorCode}), and goes with {@code error}. A PARSED demo whose analysis failed also has an
+ * {@code error}, with its code when it has one (see {@link DemoRepository#noteError}, which leaves {@code updatedAt}
+ * alone); it stays PARSED, because the facts the parser wrote are intact, and the error and its code go when the demo
+ * is analyzed or stored again.
  */
 @Entity
 @Table(name = "demos")

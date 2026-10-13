@@ -36,17 +36,18 @@ public interface DemoRepository extends JpaRepository<Demo, Long> {
     int clearStorageKey(@Param("storageKey") String storageKey);
 
     /**
-     * Sets {@code error} on the demo and nothing else: the status stays, and so does {@code updated_at}. A bulk update,
+     * Sets {@code error} and {@code errorCode} on the demo and nothing else: the status stays, and so does
+     * {@code updated_at}. A bulk update,
      * so the entity lifecycle does not run. Noting that an analysis failed is no change of the demo's place in the
      * pipeline, and {@code updated_at} is the version an analysis compares to see whether the demo was uploaded or
      * parsed again; a bump here would make an analysis that claimed the demo just before look outdated and drop its
      * result. The caller holds the row lock and has checked the status.
      *
      * <p>A bulk update does not touch the persistence context: the {@link Demo} the caller loaded for the row lock
-     * keeps the {@code error} it had, so the caller must not write that entity after this call (an update of any of
-     * its fields would write the old {@code error} back).
+     * keeps the {@code error} and {@code errorCode} it had, so the caller must not write that entity after this call
+     * (an update of any of its fields would write the old ones back).
      */
     @Modifying
-    @Query("update Demo d set d.error = :error where d.id = :id")
-    int noteError(@Param("id") Long id, @Param("error") String error);
+    @Query("update Demo d set d.error = :error, d.errorCode = :errorCode where d.id = :id")
+    int noteError(@Param("id") Long id, @Param("error") String error, @Param("errorCode") DemoErrorCode errorCode);
 }

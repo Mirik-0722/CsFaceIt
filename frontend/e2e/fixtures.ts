@@ -439,6 +439,7 @@ export function clipFixture(
     durationMs: done ? highlight.durationSeconds * 1000 : null,
     sizeBytes: done ? highlight.durationSeconds * 1_400_000 : null,
     error: null,
+    errorCode: null,
     queuePosition: status === 'QUEUED' ? 1 : null,
     videoUrl: done ? `/api/v1/clips/${id}/video` : null,
     thumbnailUrl: null,

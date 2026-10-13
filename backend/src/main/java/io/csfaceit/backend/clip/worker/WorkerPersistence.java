@@ -1,6 +1,7 @@
 package io.csfaceit.backend.clip.worker;
 
 import io.csfaceit.backend.clip.Clip;
+import io.csfaceit.backend.clip.ClipErrorCode;
 import io.csfaceit.backend.clip.ClipFacts;
 import io.csfaceit.backend.clip.ClipKind;
 import io.csfaceit.backend.clip.ClipQuality;
@@ -50,10 +51,6 @@ public class WorkerPersistence {
 
     static final String CLIP_NOT_CLAIMED = "CLIP_NOT_CLAIMED";
     static final String CLIP_VIDEO_MISSING = "CLIP_VIDEO_MISSING";
-
-    /** Why a queued clip is failed instead of claimed; not retried, nothing a later attempt does can change it. */
-    static final String DEMO_GONE = "The demo file is no longer stored";
-    static final String STEAM_ID_UNKNOWN = "The player's Steam ID is not known";
 
     /** The values of {@code clip_workers.state}. */
     static final String STATE_IDLE = "IDLE";
@@ -139,17 +136,18 @@ public class WorkerPersistence {
         Match match = clip.getMatch();
         Player player = clip.getPlayer();
         Demo demo = demos.findByMatchId(match.getId()).filter(ClipFacts::hasStoredFile).orElse(null);
-        String refusal = null;
+        // Why a queued clip is failed instead of claimed; not retried, nothing a later attempt does can change it.
+        ClipErrorCode refusal = null;
         if (demo == null) {
-            refusal = DEMO_GONE;
+            refusal = ClipErrorCode.DEMO_GONE;
         } else if (player.getSteamId() == null || player.getSteamId().isBlank()) {
-            refusal = STEAM_ID_UNKNOWN;
+            refusal = ClipErrorCode.STEAM_ID_UNKNOWN;
         }
         if (refusal != null) {
-            clip.fail(refusal);
+            clip.fail(refusal.sentence(), refusal);
             clips.saveAndFlush(clip);
             touchWorker(worker, version, mode, STATE_IDLE, null);
-            return new Turn.Rejected(clip.getId(), refusal);
+            return new Turn.Rejected(clip.getId(), refusal.sentence());
         }
 
         clip.claim(worker);
@@ -277,13 +275,15 @@ public class WorkerPersistence {
 
     /**
      * Ends the recorder's attempt with {@code error}: back to the queue when it may be tried again
-     * ({@code retryable}, and fewer than {@code maxAttempts} attempts so far), otherwise given up.
+     * ({@code retryable}, and fewer than {@code maxAttempts} attempts so far), otherwise given up. {@code errorCode} is
+     * the code of {@code error} when the backend found the reason itself, and {@code null} for the recorder's own text.
      *
      * @throws ConflictException {@code CLIP_NOT_CLAIMED}
      */
     @Transactional
-    public Ended fail(long clipId, String worker, String error, boolean retryable, int maxAttempts) {
-        return endAttempt(lockHeldBy(clipId, worker), error, retryable, maxAttempts);
+    public Ended fail(long clipId, String worker, String error, ClipErrorCode errorCode, boolean retryable,
+                      int maxAttempts) {
+        return endAttempt(lockHeldBy(clipId, worker), error, errorCode, retryable, maxAttempts);
     }
 
     /** Notes that the recorder is there, and what it is doing. The clip it names, if any, is not touched. */
@@ -310,13 +310,13 @@ public class WorkerPersistence {
      * @return what became of the clip, or empty when it was not silent any more
      */
     @Transactional
-    public Optional<Ended> takeBackIfSilent(long clipId, Instant cutoff, String error, int maxAttempts) {
+    public Optional<Ended> takeBackIfSilent(long clipId, Instant cutoff, ClipErrorCode reason, int maxAttempts) {
         Clip clip = clips.findByIdForUpdate(clipId).orElse(null);
         if (clip == null || !clip.getStatus().isActive()
                 || (clip.getHeartbeatAt() != null && !clip.getHeartbeatAt().isBefore(cutoff))) {
             return Optional.empty();
         }
-        return Optional.of(endAttempt(clip, error, true, maxAttempts));
+        return Optional.of(endAttempt(clip, reason.sentence(), reason, true, maxAttempts));
     }
 
     /** The clip locked, provided the recorder holds it. */
@@ -342,13 +342,13 @@ public class WorkerPersistence {
     }
 
     /** Back to the queue while there are attempts left and the attempt may be repeated, otherwise given up. */
-    private Ended endAttempt(Clip clip, String error, boolean retryable, int maxAttempts) {
+    private Ended endAttempt(Clip clip, String error, ClipErrorCode errorCode, boolean retryable, int maxAttempts) {
         Fate fate;
         if (retryable && clip.getAttempts() < maxAttempts) {
-            clip.requeue(error);
+            clip.requeue(error, errorCode);
             fate = Fate.REQUEUED;
         } else {
-            clip.fail(error);
+            clip.fail(error, errorCode);
             fate = Fate.FAILED;
         }
         clips.saveAndFlush(clip);

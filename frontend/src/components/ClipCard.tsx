@@ -3,7 +3,7 @@ import MapEmblem from '@/components/MapEmblem'
 import StatusChip from '@/components/StatusChip'
 import ViewfinderFrame from '@/components/ViewfinderFrame'
 import { useLocale, useT } from '@/i18n'
-import { clipLabel, formatBytes, frameLabel } from '@/lib/clips'
+import { clipFailureText, clipLabel, formatBytes, frameLabel } from '@/lib/clips'
 import { formatDate } from '@/lib/formatDate'
 import { formatDuration } from '@/lib/highlightLabels'
 import { mapLabel } from '@/lib/mapTint'
@@ -54,6 +54,7 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
   const t = useT()
   const locale = useLocale()
   const recording = clip.status === 'RECORDING'
+  const failure = clip.status === 'FAILED' ? clipFailureText(clip, t) : null
   return (
     <Link
       to={`/clips/${clip.id}`}
@@ -118,9 +119,10 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
           {clip.status === 'DONE' && clip.sizeBytes !== null && (
             <span className="font-mono text-[11px] tracking-[0.06em] text-subtle">{formatBytes(clip.sizeBytes)}</span>
           )}
-          {/* The recorder's own words about what went wrong, as they are: a technical message. */}
-          {clip.status === 'FAILED' && clip.error && (
-            <span className="min-w-0 truncate font-mono text-[11px] tracking-[0.06em] text-subtle">{clip.error}</span>
+          {/* Why it failed: in the visitor's language when the backend gave the reason a code, else the recorder's own
+              words, as they are. */}
+          {failure && (
+            <span className="min-w-0 truncate font-mono text-[11px] tracking-[0.06em] text-subtle">{failure}</span>
           )}
         </div>
       </article>

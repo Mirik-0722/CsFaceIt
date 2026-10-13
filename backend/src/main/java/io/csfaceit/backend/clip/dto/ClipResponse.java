@@ -1,6 +1,7 @@
 package io.csfaceit.backend.clip.dto;
 
 import io.csfaceit.backend.analysis.highlight.HighlightType;
+import io.csfaceit.backend.clip.ClipErrorCode;
 import io.csfaceit.backend.clip.ClipKind;
 import io.csfaceit.backend.clip.ClipQuality;
 import io.csfaceit.backend.clip.ClipStatus;
@@ -14,7 +15,9 @@ import java.util.List;
  * player the backend knows only from a demo). {@code highlightType}, {@code roundNumber} and {@code tickStart} name
  * the highlight of a clip of one highlight and are {@code null} in a compilation. {@code progress} is the percent
  * done of the attempt that is running. {@code error} says why the clip failed, or why its last attempt did while it
- * waits to be recorded again.
+ * waits to be recorded again. {@code errorCode} is the same reason as a code a page can translate (see
+ * {@link ClipErrorCode}); it is {@code null} for the recorder's own words, which have none, and whenever there is no
+ * {@code error}.
  *
  * <p>{@code queuePosition} counts from 1 and is set only while the clip is {@code QUEUED}. {@code videoUrl},
  * {@code thumbnailUrl} and {@code expiresAt} are set only once the clip is {@code DONE} (the thumbnail only if the
@@ -41,6 +44,7 @@ public record ClipResponse(
         Integer durationMs,
         Long sizeBytes,
         String error,
+        ClipErrorCode errorCode,
         Integer queuePosition,
         String videoUrl,
         String thumbnailUrl,

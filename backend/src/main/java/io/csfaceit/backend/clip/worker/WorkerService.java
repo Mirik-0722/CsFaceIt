@@ -1,5 +1,6 @@
 package io.csfaceit.backend.clip.worker;
 
+import io.csfaceit.backend.clip.ClipErrorCode;
 import io.csfaceit.backend.clip.ClipFiles;
 import io.csfaceit.backend.clip.ClipMetrics;
 import io.csfaceit.backend.clip.ClipProperties;
@@ -56,9 +57,6 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 public class WorkerService {
 
     static final String DEMO_NOT_AVAILABLE = "DEMO_NOT_AVAILABLE";
-
-    /** What is stored when a recorder gives up a clip and says nothing of why. */
-    static final String NO_REASON = "The recorder gave no reason";
 
     /** The most of a recorder's error text that is kept; a longer text is cut. */
     static final int MAX_ERROR_LENGTH = 2000;
@@ -208,7 +206,10 @@ public class WorkerService {
      */
     public void fail(long clipId, FailRequest request) {
         String error = storableError(request.error());
-        Ended ended = persistence.fail(clipId, request.worker(), error, request.retryable(), properties.maxAttempts());
+        // Only the sentence that the backend itself puts in when the recorder says nothing has a code.
+        ClipErrorCode errorCode = request.error() == null || request.error().isBlank() ? ClipErrorCode.NO_REASON : null;
+        Ended ended = persistence.fail(clipId, request.worker(), error, errorCode, request.retryable(),
+                properties.maxAttempts());
         if (ended.fate() == Fate.REQUEUED) {
             metrics.requeued();
         } else {
@@ -248,10 +249,11 @@ public class WorkerService {
         }
         if (demoSize.isEmpty()) {
             try {
-                persistence.fail(clip.clipId(), worker, WorkerPersistence.DEMO_GONE, false, properties.maxAttempts());
+                ClipErrorCode reason = ClipErrorCode.DEMO_GONE;
+                persistence.fail(clip.clipId(), worker, reason.sentence(), reason, false, properties.maxAttempts());
                 metrics.failed();
                 log.info("Failed clip {} instead of giving it to {}: {} ({} is not in the storage)", clip.clipId(),
-                        worker, WorkerPersistence.DEMO_GONE, clip.demoStorageKey());
+                        worker, reason.sentence(), clip.demoStorageKey());
             } catch (ConflictException e) {
                 log.warn("Clip {} was taken from {} before it could be failed for its missing demo file", clip.clipId(),
                         worker);
@@ -434,7 +436,7 @@ public class WorkerService {
      */
     static String storableError(String error) {
         if (error == null || error.isBlank()) {
-            return NO_REASON;
+            return ClipErrorCode.NO_REASON.sentence();
         }
         String text = error.strip().replace('\u0000', '?');
         if (text.length() <= MAX_ERROR_LENGTH) {

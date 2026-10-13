@@ -2,6 +2,7 @@ package io.csfaceit.backend.messaging;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.csfaceit.backend.demo.DemoErrorCode;
 import io.csfaceit.backend.demo.DemoPersistence;
 import io.csfaceit.backend.demo.DemoStatus;
 import java.io.IOException;
@@ -49,8 +50,10 @@ import org.springframework.stereotype.Component;
  * instead of republishing it to {@code demo.dlx}, because a republished dead letter would land in this very queue
  * again (see {@link RabbitConfig#dlqListenerContainerFactory}).
  *
- * <p>{@code demos.error} is shown to users, so it is a fixed sentence per queue. The exception text that the retry
- * recoverer puts in the message headers can name internal hosts and is only logged.
+ * <p>{@code demos.error} is shown to users, so it is a fixed sentence per queue, and each sentence has a
+ * {@link DemoErrorCode} next to it ({@code IMPORT_FAILED}, {@code PARSE_FAILED}, {@code ANALYSIS_FAILED}) for a page
+ * to translate. The exception text that the retry recoverer puts in the message headers can name internal hosts and is
+ * only logged.
  */
 @Component
 public class DemoDlqListener {
@@ -79,7 +82,12 @@ public class DemoDlqListener {
             DemoMessages.Q_IMPORT, "Importing the demo failed after " + RabbitConfig.MAX_ATTEMPTS + " attempts",
             DemoMessages.Q_PARSE, "Parsing the demo failed after " + RabbitConfig.MAX_ATTEMPTS + " attempts");
 
-    /** What {@code demos.error} says of a PARSED demo whose analysis failed for good. */
+    /** The code that goes with the sentence of the same queue, for a page to translate. */
+    private static final Map<String, DemoErrorCode> CODE_BY_QUEUE = Map.of(
+            DemoMessages.Q_IMPORT, DemoErrorCode.IMPORT_FAILED,
+            DemoMessages.Q_PARSE, DemoErrorCode.PARSE_FAILED);
+
+    /** What {@code demos.error} says of a PARSED demo whose analysis failed for good; its code is ANALYSIS_FAILED. */
     static final String ANALYSIS_FAILED = "Analyzing the demo failed after " + RabbitConfig.MAX_ATTEMPTS
             + " attempts. The parsed data is kept; start the analysis again.";
 
@@ -112,7 +120,8 @@ public class DemoDlqListener {
                     + "cannot be told", demoId, queue);
             return;
         }
-        if (persistence.failIfStatus(demoId, expected, ERROR_BY_QUEUE.get(queue))) {
+        if (persistence.failIfStatus(demoId, expected, ERROR_BY_QUEUE.get(queue),
+                CODE_BY_QUEUE.get(queue))) {
             // The demo is FAILED and committed. Nothing that can throw may follow: a retry of this message would find
             // the demo FAILED and could count it a second time in the branch below.
             metrics.failed(DemoMetrics.stageOfQueue(queue));
@@ -135,7 +144,7 @@ public class DemoDlqListener {
      * For any other demo, or none, the message is late or made up and nothing happens.
      */
     private void onAnalysisDeadLetter(long demoId, String cause) {
-        if (persistence.noteAnalysisFailure(demoId, ANALYSIS_FAILED)) {
+        if (persistence.noteAnalysisFailure(demoId, ANALYSIS_FAILED, DemoErrorCode.ANALYSIS_FAILED)) {
             // The error is committed. Nothing that can throw may follow: a retry of this message would note the
             // error again and count the failure a second time.
             metrics.failed(DemoMetrics.STAGE_ANALYZE);

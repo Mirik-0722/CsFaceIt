@@ -52,3 +52,12 @@ export function errorMessage(error: Error, t: Messages): string {
   }
   return t.errors.generic
 }
+
+/**
+ * The wording of a failure reason that the backend gave a code, in the language of the dictionary `reasons`; null when
+ * there is no code, or when it is one this page does not know (a newer backend): the caller then shows the backend's
+ * own sentence.
+ */
+export function reasonText(code: string | null, reasons: Readonly<Record<string, string>>): string | null {
+  return typeof code === 'string' && Object.hasOwn(reasons, code) ? reasons[code] : null
+}

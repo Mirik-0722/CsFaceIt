@@ -96,7 +96,8 @@ export type DemoStatus = 'QUEUED' | 'STORED' | 'PARSED' | 'ANALYZED' | 'FAILED'
 /**
  * The state of a match's demo. `matchId` is the FACEIT match id; `error` is set while the demo is FAILED, and while
  * it is PARSED after an analysis that failed: an English sentence for the logs. `errorCode` is the same reason as a
- * code to translate (so far only `DOWNLOAD_NEEDS_ACCESS`: FACEIT did not let the site download the demo), and is null
+ * code to translate (`DOWNLOAD_NEEDS_ACCESS`: FACEIT did not let the site download the demo; `IMPORT_FAILED`,
+ * `PARSE_FAILED` and `ANALYSIS_FAILED`: the import, the parsing or the analysis failed on every attempt), and is null
  * for every failure that has none. It is typed as a plain string because a newer backend may name a code this page
  * does not know; the page then shows `error` as it is.
  */
@@ -208,8 +209,11 @@ export interface ClipKill {
  * `queuePosition` is set only while `QUEUED` (the head of the queue is 1); `durationMs`, `videoUrl`, `thumbnailUrl`
  * and `expiresAt` only once `DONE` (the thumbnail only if the recorder uploaded one; `expiresAt` stays null when clips
  * are kept for good); `sizeBytes` from the upload of the video on; `finishedAt` once `DONE` or `FAILED`. `error` holds
- * the reason of a failure, or of the last attempt while the clip waits to be recorded again. `kills` is filled only
- * when one clip is asked for by its id.
+ * the reason of a failure, or of the last attempt while the clip waits to be recorded again. `errorCode` is the same
+ * reason as a code to translate when the backend found it itself (`RECORDER_STOPPED`, `NO_REASON`, `DEMO_GONE`,
+ * `STEAM_ID_UNKNOWN`) and is null for the recorder's own words; it is a plain string because a newer backend may name
+ * a code this page does not know, and the page then shows `error` as it is. `kills` is filled only when one clip is
+ * asked for by its id.
  */
 export interface ClipResponse {
   id: number
@@ -228,6 +232,7 @@ export interface ClipResponse {
   durationMs: number | null
   sizeBytes: number | null
   error: string | null
+  errorCode: string | null
   queuePosition: number | null
   videoUrl: string | null
   thumbnailUrl: string | null

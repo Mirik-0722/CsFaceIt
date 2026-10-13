@@ -107,6 +107,10 @@ public class Clip {
     @Column(name = "error", columnDefinition = "TEXT")
     private String error;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "error_code", length = 32)
+    private ClipErrorCode errorCode;
+
     @Column(name = "claimed_by", length = 64)
     private String claimedBy;
 
@@ -211,6 +215,7 @@ public class Clip {
         this.progress = 0;
         this.attempts++;
         this.error = null;
+        this.errorCode = null;
         this.updatedAt = now;
     }
 
@@ -268,35 +273,39 @@ public class Clip {
         this.height = height;
         this.progress = PERCENT_MAX;
         this.error = null;
+        this.errorCode = null;
         this.finishedAt = now;
         this.updatedAt = now;
     }
 
     /**
      * The clip is given up for good: a {@code QUEUED} or active clip becomes {@code FAILED} with the reason in
-     * {@code error}. It is finished, so {@code finishedAt} is set as it is for {@code DONE}; the clean-up of old clips
+     * {@code error}, and its code when the backend found the reason itself ({@code null} for a reason the recorder
+     * reported). It is finished, so {@code finishedAt} is set as it is for {@code DONE}; the clean-up of old clips
      * selects both by it.
      */
-    public void fail(String error) {
+    public void fail(String error, ClipErrorCode errorCode) {
         if (status != ClipStatus.QUEUED && !status.isActive()) {
             throw illegal("fail");
         }
         Instant now = now();
         this.status = ClipStatus.FAILED;
         this.error = error;
+        this.errorCode = errorCode;
         this.finishedAt = now;
         this.updatedAt = now;
     }
 
     /**
      * The attempt is over and the clip is to be recorded again: an active clip goes back to {@code QUEUED} with the
-     * reason of the failed attempt in {@code error}, which stays until the next {@link #claim}. {@code attempts}
-     * stays. The claim, the progress and everything the attempt uploaded are forgotten, so that the next attempt cannot
-     * be completed with the previous one's video.
+     * reason of the failed attempt in {@code error} and, when the backend found it itself, in {@code errorCode}; both
+     * stay until the next {@link #claim}. {@code attempts} stays. The claim, the progress and everything the attempt
+     * uploaded are forgotten, so that the next attempt cannot be completed with the previous one's video.
      */
-    public void requeue(String error) {
+    public void requeue(String error, ClipErrorCode errorCode) {
         requireActive("be queued again");
         this.error = error;
+        this.errorCode = errorCode;
         forgetAttempt();
     }
 
@@ -394,6 +403,10 @@ public class Clip {
 
     public String getError() {
         return error;
+    }
+
+    public ClipErrorCode getErrorCode() {
+        return errorCode;
     }
 
     public String getClaimedBy() {

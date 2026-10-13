@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useT, type Messages } from '@/i18n'
 import { setAdminKey, useAdminKey } from '@/lib/adminKey'
-import { errorMessage } from '@/lib/errorMessage'
+import { errorMessage, reasonText } from '@/lib/errorMessage'
 import type { ApiError } from '@/api/client'
 import type { DemoStatus } from '@/api/types'
 
@@ -28,6 +28,9 @@ type Action = 'import' | 'upload' | 'analyze'
 
 /** The code of a demo that FACEIT did not let the site download (see `DemoResponse.errorCode`). */
 const DOWNLOAD_NEEDS_ACCESS = 'DOWNLOAD_NEEDS_ACCESS'
+
+/** The code of a demo whose import failed on every attempt: the upload is the way out, as it is for the code above. */
+const IMPORT_FAILED = 'IMPORT_FAILED'
 
 /** What a failed action says. A rejected upload is about the file: the backend checks nothing else of the request. */
 function failureText(action: Action, error: ApiError, t: Messages): string {
@@ -67,12 +70,15 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
   const storedKey = useAdminKey()
   const apiKey = storedKey ?? typedKey.trim()
   const demo = useDemo(matchId, watching)
-  // A demo that FACEIT did not let the site download is fixed by the controls: the explanation sends the visitor to the
-  // upload and to the admin key. So the first time the demo is seen in that state the controls are open, and after that
-  // the visitor decides (state adjusted while rendering, so that there is no frame with them closed).
+  // A demo that FACEIT did not let the site download, or that could not be imported, is fixed by the controls: the
+  // explanation sends the visitor to the upload and to the admin key. So the first time the demo is seen in that state
+  // the controls are open, and after that the visitor decides (state adjusted while rendering, so that there is no
+  // frame with them closed).
   const needsAccess = demo.data?.errorCode === DOWNLOAD_NEEDS_ACCESS
+  // The wording of the other codes the page knows; a code it does not know shows the backend's sentence.
+  const reason = reasonText(demo.data?.errorCode ?? null, t.demo.reasons)
   const [openedForAccess, setOpenedForAccess] = useState(false)
-  if (needsAccess && !openedForAccess) {
+  if ((needsAccess || demo.data?.errorCode === IMPORT_FAILED) && !openedForAccess) {
     setOpenedForAccess(true)
     setOpen(true)
   }
@@ -183,8 +189,8 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
           {t.demo.manage}
         </Button>
       </div>
-      {/* A failure the backend gives a code to is explained in the visitor's language, with the way out; any other is
-          the backend's own words about what went wrong, as they are: a technical message. */}
+      {/* A failure the backend gives a code to is explained in the visitor's language (with the way out, where there
+          is one); any other is the backend's own words about what went wrong, as they are: a technical message. */}
       <div aria-live="polite">
         {demo.data?.error &&
           (needsAccess ? (
@@ -199,6 +205,8 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
                 {t.demo.needsAccessLink} <span className="sr-only">{t.demo.newTab}</span>
               </a>
             </div>
+          ) : reason !== null ? (
+            <p className="border-t border-border px-4 py-3 text-sm text-negative">{reason}</p>
           ) : (
             <p className="border-t border-border px-4 py-3 font-mono text-xs break-words text-negative">
               {demo.data.error}

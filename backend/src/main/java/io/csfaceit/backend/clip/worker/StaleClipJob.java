@@ -1,5 +1,6 @@
 package io.csfaceit.backend.clip.worker;
 
+import io.csfaceit.backend.clip.ClipErrorCode;
 import io.csfaceit.backend.clip.ClipMetrics;
 import io.csfaceit.backend.clip.ClipProperties;
 import io.csfaceit.backend.clip.worker.WorkerPersistence.Ended;
@@ -16,8 +17,8 @@ import org.springframework.stereotype.Component;
  * Takes a clip back from a recorder that has gone quiet: the computer went to sleep, the game crashed, the network is
  * down. A recorder keeps its clip alive by reporting progress, at most {@code 10} seconds apart in every active stage;
  * a clip that has had no report for {@code clip.stale-after} is taken back, so that no clip stays active for ever. It
- * goes back to the queue, or is failed ("The recorder stopped responding") when it has had {@code clip.max-attempts}
- * attempts, which is what bounds the retries.
+ * goes back to the queue, or is failed when it has had {@code clip.max-attempts} attempts, which is what bounds the
+ * retries. The reason, shown with the clip until it is recorded again, is {@link ClipErrorCode#RECORDER_STOPPED}.
  *
  * <p>The clips that look silent are found with no lock, and each is then handled in a transaction of its own under its
  * row lock ({@link WorkerPersistence#takeBackIfSilent}), where it is looked at again: a progress report may have come
@@ -30,9 +31,6 @@ public class StaleClipJob {
 
     /** How long the job waits between one run and the next. */
     static final long INTERVAL_MILLIS = 30_000;
-
-    /** The reason given for a clip that is taken back; shown with the clip until it is recorded again. */
-    static final String RECORDER_STOPPED = "The recorder stopped responding";
 
     private static final Logger log = LoggerFactory.getLogger(StaleClipJob.class);
 
@@ -60,7 +58,7 @@ public class StaleClipJob {
         }
         for (long clipId : silent) {
             try {
-                persistence.takeBackIfSilent(clipId, cutoff, RECORDER_STOPPED, properties.maxAttempts())
+                persistence.takeBackIfSilent(clipId, cutoff, ClipErrorCode.RECORDER_STOPPED, properties.maxAttempts())
                         .ifPresent(ended -> report(clipId, ended));
             } catch (RuntimeException e) {
                 log.warn("Could not take back clip {}, going on with the others: {}", clipId, e.toString());

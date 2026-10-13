@@ -185,7 +185,7 @@ const DEFAULT_CLIPS: ClipResponse[] = [
   clipFixture(RECORDING_CLIP_ID, highlight(3), 'RECORDING', { progress: 45 }),
   clipFixture(4, highlight(7), 'ENCODING', { progress: 80 }),
   clipFixture(3, highlight(1), 'QUEUED'),
-  clipFixture(2, highlight(6), 'FAILED', { error: 'The recorder stopped responding' }),
+  clipFixture(2, highlight(6), 'FAILED', { error: 'The recorder stopped responding', errorCode: 'RECORDER_STOPPED' }),
   clipFixture(READY_CLIP_ID, highlight(5), 'DONE'),
 ]
 
@@ -345,7 +345,7 @@ const OWN_CLIPS: ClipResponse[] = [
     sizeBytes: 11_740_000,
   }),
   clipFixture(52, ownHighlight(67, 'K3', 'de_nuke', 18), 'DONE', { durationMs: 12_000, sizeBytes: 15_830_000 }),
-  clipFixture(51, ownHighlight(68, 'NO_SCOPE', 'de_inferno', 4), 'FAILED', { error: 'The recorder stopped responding' }),
+  clipFixture(51, ownHighlight(68, 'NO_SCOPE', 'de_inferno', 4), 'FAILED', { error: 'The recorder stopped responding', errorCode: 'RECORDER_STOPPED' }),
 ]
 
 // A 32-character nickname and team names longer than 32 characters (one with spaces, one without).
@@ -513,6 +513,21 @@ const SCENARIOS: Scenario[] = [
         error:
           "Demo download rejected: FACEIT did not let this site download the demo. Download it from the match's room on FACEIT and upload the .dem file manually.",
         errorCode: 'DOWNLOAD_NEEDS_ACCESS',
+      },
+    },
+  },
+  // A demo whose import failed on every attempt: the explanation in the language of the page, in place of the backend's
+  // English sentence, and the controls open by themselves, because it sends the visitor to the upload below it.
+  {
+    name: 'importfailed',
+    pages: ['match'],
+    languages: ['uz', 'en'],
+    backend: {
+      demo: {
+        ...demoFixture,
+        status: 'FAILED',
+        error: 'Importing the demo failed after 3 attempts',
+        errorCode: 'IMPORT_FAILED',
       },
     },
   },

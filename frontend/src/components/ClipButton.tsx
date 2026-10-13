@@ -3,6 +3,7 @@ import RecDot from '@/components/RecDot'
 import StatusChip from '@/components/StatusChip'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { useT } from '@/i18n'
+import { clipFailureText } from '@/lib/clips'
 import { cn } from '@/lib/utils'
 import type { ClipResponse } from '@/api/types'
 
@@ -61,14 +62,15 @@ export default function ClipButton({ clip, onOrder, label, variant = 'default', 
     )
   }
   if (clip.status === 'FAILED') {
+    // In the visitor's language when the backend gave the reason a code, else the recorder's own words, as they are.
+    const failure = clipFailureText(clip, t)
     return (
       <>
         <span className="flex min-w-0 flex-1 items-center gap-2">
           <StatusChip clip={clip} />
-          {/* The recorder's own words about what went wrong, as they are: a technical message. */}
-          {clip.error && (
-            <span title={clip.error} className="min-w-0 truncate font-mono text-[11px] text-subtle">
-              {clip.error}
+          {failure && (
+            <span title={failure} className="min-w-0 truncate font-mono text-[11px] text-subtle">
+              {failure}
             </span>
           )}
         </span>

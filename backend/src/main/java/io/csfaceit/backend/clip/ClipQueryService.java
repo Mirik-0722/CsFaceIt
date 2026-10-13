@@ -73,8 +73,8 @@ public class ClipQueryService {
     private static final String CLIPS_SQL = """
             SELECT c.id, c.match_id, c.player_id, c.kind, c.status, c.progress, m.faceit_match_id, m.map_name,
                    p.faceit_id AS player_faceit_id, p.nickname, c.highlight_type, c.round_number, c.tick_start,
-                   c.quality, c.fps, c.duration_ms, c.size_bytes, c.error, c.video_key, c.thumbnail_key, c.created_at,
-                   c.finished_at, c.segments, d.tick_rate,
+                   c.quality, c.fps, c.duration_ms, c.size_bytes, c.error, c.error_code, c.video_key, c.thumbnail_key,
+                   c.created_at, c.finished_at, c.segments, d.tick_rate,
                    CASE WHEN c.status = :queued THEN (
                        SELECT count(*) FROM clips q
                        WHERE q.status = :queued AND (q.created_at, q.id) <= (c.created_at, c.id)) END AS queue_position
@@ -289,8 +289,8 @@ public class ClipQueryService {
                 rs.getString("player_faceit_id"), rs.getString("nickname"), highlightType,
                 nullableInt(rs, "round_number"), nullableInt(rs, "tick_start"), quality, rs.getInt("fps"),
                 nullableInt(rs, "duration_ms"), nullableLong(rs, "size_bytes"), rs.getString("error"),
-                rs.getString("video_key"), rs.getString("thumbnail_key"),
-                rs.getObject("created_at", OffsetDateTime.class).toInstant(),
+                ClipErrorCode.fromName(rs.getString("error_code")), rs.getString("video_key"),
+                rs.getString("thumbnail_key"), rs.getObject("created_at", OffsetDateTime.class).toInstant(),
                 finishedAt == null ? null : finishedAt.toInstant(), rs.getString("segments"),
                 ClipFacts.tickRate(nullableInt(rs, "tick_rate")), nullableInt(rs, "queue_position"));
     }
@@ -329,8 +329,9 @@ public class ClipQueryService {
     private record Row(long id, long matchRowId, long playerRowId, ClipKind kind, ClipStatus status, int progress,
                        String matchId, String mapName, String playerId, String nickname, HighlightType highlightType,
                        Integer roundNumber, Integer tickStart, ClipQuality quality, int fps, Integer durationMs,
-                       Long sizeBytes, String error, String videoKey, String thumbnailKey, Instant createdAt,
-                       Instant finishedAt, String segmentsJson, int tickRate, Integer queuePosition) {
+                       Long sizeBytes, String error, ClipErrorCode errorCode, String videoKey, String thumbnailKey,
+                       Instant createdAt, Instant finishedAt, String segmentsJson, int tickRate,
+                       Integer queuePosition) {
 
         ClipResponse toResponse(ClipProperties properties, List<ClipKill> kills) {
             boolean done = status == ClipStatus.DONE;
@@ -338,7 +339,7 @@ public class ClipQueryService {
                     ? finishedAt.plus(properties.retentionDays(), ChronoUnit.DAYS) : null;
             return new ClipResponse(id, kind, status, progress, matchId, mapName, playerId, nickname, highlightType,
                     roundNumber, tickStart, quality, fps, durationMs, sizeBytes, error,
-                    status == ClipStatus.QUEUED ? queuePosition : null,
+                    errorCode, status == ClipStatus.QUEUED ? queuePosition : null,
                     done ? "/api/v1/clips/" + id + "/video" : null,
                     done && thumbnailKey != null ? "/api/v1/clips/" + id + "/thumbnail" : null,
                     createdAt, finishedAt, expiresAt, kills);

@@ -242,7 +242,7 @@ public class DemoPersistence {
      * Records that the analysis of the demo failed for good (its {@code demo.parsed} message was dead-lettered) or
      * cannot be done at all (its facts have no round roster, which the analysis itself reports). The
      * demo is not FAILED: its facts are intact and the analysis can be started again, so a PARSED demo stays PARSED and
-     * only gets {@code error}. A demo in any other status is left as it is, an ANALYZED one included: it keeps the
+     * only gets {@code error} and, when the reason has one, {@code errorCode}. A demo in any other status is left as it is, an ANALYZED one included: it keeps the
      * results of its earlier analysis, and a demo that was uploaded again is on its way to a new parse. The check and
      * the update happen under the row lock. {@code updated_at} keeps its value (see {@link DemoRepository#noteError}),
      * so an analysis that is running does not take the error for a new upload or parse and drop its result.
@@ -250,12 +250,12 @@ public class DemoPersistence {
      * @return whether the error was recorded, that is, whether the demo is PARSED
      */
     @Transactional
-    public boolean noteAnalysisFailure(long demoId, String error) {
+    public boolean noteAnalysisFailure(long demoId, String error, DemoErrorCode errorCode) {
         Demo demo = demos.findByIdForUpdate(demoId).orElse(null);
         if (demo == null || demo.getStatus() != DemoStatus.PARSED) {
             return false;
         }
-        demos.noteError(demoId, error);
+        demos.noteError(demoId, error, errorCode);
         return true;
     }
 
