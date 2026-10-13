@@ -22,6 +22,8 @@
         <wiremock.version>3.13.2</wiremock.version>
         <minio.version>8.5.17</minio.version>
         <zstd-jni.version>1.5.7-6</zstd-jni.version>
+        <!-- The version MinIO's client is built with, so that both use one OkHttp. -->
+        <okhttp.version>4.12.0</okhttp.version>
     </properties>
 
     <dependencies>
@@ -88,6 +90,13 @@
             <groupId>com.github.luben</groupId>
             <artifactId>zstd-jni</artifactId>
             <version>${zstd-jni.version}</version>
+        </dependency>
+        <!-- The download of a pasted demo link (DemoDownloader#downloadLink): OkHttp connects to the addresses that
+             LinkGuard checked (its Dns hook), which the JDK's HTTP clients cannot be told. -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>${okhttp.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

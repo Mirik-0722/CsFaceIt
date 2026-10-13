@@ -33,6 +33,12 @@ services:
       # the import without access, override it with an empty value (FACEIT_DOWNLOADS_TOKEN: "" in a file of your own).
       FACEIT_DOWNLOADS_URL: http://fake-faceit:8080/download/v2/demos/download
       FACEIT_DOWNLOADS_TOKEN: fake-downloads-token
+      # A pasted demo link may lead to the fake only (dev/fake-faceit/README.md, "Demo links"). The fake is on this
+      # network's private addresses, which a link may never reach on a server: DEMO_LINK_PRIVATE_HOSTS lets this one
+      # name through that last check, and the backend says so with a WARN at startup. Both are written out here and not
+      # read from the environment, so that the main file's list and a server's settings stay as they are.
+      DEMO_LINK_ALLOWED_ORIGINS: http://fake-faceit:8080
+      DEMO_LINK_PRIVATE_HOSTS: fake-faceit
       # Admin key of the demo stack (the X-API-Key header); override it by setting APP_API_KEY.
       APP_API_KEY: ${APP_API_KEY:-dev-admin-key}
       # Worker token of the demo stack (the X-Worker-Token header of a recorder); override it by setting CLIP_WORKER_TOKEN.

@@ -1,0 +1,33 @@
+{
+  "mappings": [
+    {
+      "name": "GET /links/<main match>-1-1.dem: a demo link a player pastes",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/links/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1-1.dem"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/octet-stream"
+        },
+        "bodyFileName": "demos/sample.dem"
+      }
+    },
+    {
+      "name": "GET /links/redirect/<main match>-1-1.dem: a demo link that redirects into the stack",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/links/redirect/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-1-1.dem"
+      },
+      "response": {
+        "status": 302,
+        "headers": {
+          "Location": "http://backend:8080/"
+        }
+      }
+    }
+  ]
+}

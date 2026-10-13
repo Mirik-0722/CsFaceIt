@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
+import java.net.Proxy;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
@@ -13,6 +14,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import okhttp3.ConnectionPool;
+import okhttp3.Dns;
+import okhttp3.HttpUrl;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -22,6 +33,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class DemoDownloader {
+
+    private static final Logger log = LoggerFactory.getLogger(DemoDownloader.class);
 
     /** FACEIT refuses these for good: no access, or no such demo. Asking again changes nothing. */
     private static final Set<Integer> REJECTED_STATUSES = Set.of(401, 403, 404, 410);
@@ -38,6 +51,15 @@ public class DemoDownloader {
     }
 
     private final DemoDownloadProperties properties;
+    private final DemoLinkProperties linkProperties;
+    private final LinkGuard linkGuard;
+
+    /**
+     * The client of the pasted links: it follows no redirect itself, uses no proxy (a proxy would look the name up on its
+     * own), keeps no connection for later and does not unpack a compressed answer. Each download gets a copy whose
+     * name lookup answers only the addresses {@link LinkGuard} checked.
+     */
+    private final OkHttpClient linkClient;
 
     /**
      * The host of {@code faceit.base-url}, resolved as a control when the host of a demo does not resolve (see
@@ -45,9 +67,21 @@ public class DemoDownloader {
      */
     private final String controlHost;
 
-    public DemoDownloader(DemoDownloadProperties properties, FaceitProperties faceit) {
+    public DemoDownloader(DemoDownloadProperties properties, FaceitProperties faceit,
+                          DemoLinkProperties linkProperties, LinkGuard linkGuard) {
         this.properties = properties;
         this.controlHost = hostOf(faceit.baseUrl());
+        this.linkProperties = linkProperties;
+        this.linkGuard = linkGuard;
+        this.linkClient = new OkHttpClient.Builder()
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .proxy(Proxy.NO_PROXY)
+                .connectionPool(new ConnectionPool(0, 1, TimeUnit.SECONDS))
+                .retryOnConnectionFailure(false)
+                .connectTimeout(properties.connectTimeout())
+                .readTimeout(properties.readTimeout())
+                .build();
     }
 
     /**
@@ -79,6 +113,138 @@ public class DemoDownloader {
      */
     public Path downloadFaceitAddress(String url) {
         return download(url, Source.DEMO_URL);
+    }
+
+    /**
+     * Downloads the demo behind a link that a player pasted, and normalizes it like {@link #download(String)}. The link
+     * and every address a redirect leads to pass {@link LinkGuard} before anything connects to them, and the connection
+     * goes to the addresses that were checked: the name is not looked up a second time. At most
+     * {@code demo.link.max-duration} is spent on the whole download, redirects included, on top of the size and stall
+     * limits of every download.
+     *
+     * <p>Nothing of the link reaches a message that is kept: it can carry a signature. The sentences of the exceptions
+     * thrown here hold no address; for a failure of the connection only the class of the exception is said, and the
+     * exception is not kept as the cause (a failed import message is dead-lettered with its stack trace). A refused
+     * host is logged, its name only.
+     *
+     * @throws DemoDownloadRejectedException the download will never work: a refused address (also of a redirect), an
+     *         answer 401, 403, 404 or 410, too many redirects, a file too large or a download that takes too long
+     * @throws DemoDownloadException any other failure, which trying again may get past (the host does not resolve,
+     *         the connection fails or stalls, a server error)
+     */
+    public Path downloadLink(URI link) {
+        Path downloaded = DemoFiles.createTempFile();
+        boolean done = false;
+        try {
+            fetchLink(link, downloaded);
+            Path normalized = DemoFiles.normalize(downloaded, properties.maxSize());
+            done = true;
+            return normalized;
+        } finally {
+            if (!done) {
+                DemoFiles.deleteQuietly(downloaded);
+            }
+        }
+    }
+
+    private void fetchLink(URI link, Path target) {
+        long deadline = System.nanoTime() + linkProperties.maxDuration().toNanos();
+        URI uri = link;
+        for (int redirects = 0; ; redirects++) {
+            LinkGuard.CheckedHop hop = checkHop(uri, redirects);
+            long left = deadline - System.nanoTime();
+            if (left <= 0) {
+                throw tookTooLong();
+            }
+            HttpUrl url = HttpUrl.parse(hop.uri().toASCIIString());
+            if (url == null || !url.host().equals(hop.host()) || url.port() != hop.port()) {
+                // OkHttp reads the address differently from java.net.URI; whatever it would connect to was not checked.
+                throw invalidAddress();
+            }
+            OkHttpClient client = linkClient.newBuilder()
+                    .dns(onlyChecked(hop))
+                    .callTimeout(Duration.ofNanos(left))
+                    .build();
+            Request request = new Request.Builder()
+                    .url(url)
+                    .header("Accept", "*/*")
+                    // The file as it is stored there: OkHttp would otherwise ask for gzip and unpack it on its own.
+                    .header("Accept-Encoding", "identity")
+                    .build();
+            try (Response response = client.newCall(request).execute()) {
+                int status = response.code();
+                if (REDIRECT_STATUSES.contains(status)) {
+                    if (redirects == MAX_REDIRECTS) {
+                        throw new DemoDownloadRejectedException(
+                                "Demo download rejected: the demo link redirects too many times.");
+                    }
+                    uri = redirectTarget(uri, response.header("Location"));
+                    continue;
+                }
+                if (REJECTED_STATUSES.contains(status)) {
+                    throw new DemoDownloadRejectedException("Demo download rejected: the demo link answered HTTP "
+                            + status + ". It may have expired: paste a new link, or upload the .dem manually.");
+                }
+                if (status < 200 || status >= 300) {
+                    throw new DemoDownloadException("The demo link answered HTTP " + status);
+                }
+                ResponseBody body = response.body();
+                if (body == null) {
+                    throw new DemoDownloadException("The demo link answered without a body");
+                }
+                if (body.contentLength() > properties.maxSize().toBytes()) {
+                    throw DemoFiles.tooLarge(properties.maxSize());
+                }
+                long size;
+                try (InputStream in = body.byteStream(); OutputStream out = Files.newOutputStream(target)) {
+                    size = DemoFiles.copyBounded(in, out, properties.maxSize());
+                }
+                if (size == 0) {
+                    throw new DemoDownloadException("The demo link sent an empty file");
+                }
+                return;
+            } catch (IOException e) {
+                if (System.nanoTime() - deadline >= 0) {
+                    throw tookTooLong();
+                }
+                // The class only: the message of a connection failure can hold the host, the address or the link.
+                throw new DemoDownloadException("The demo could not be downloaded from the link: "
+                        + e.getClass().getName());
+            }
+        }
+    }
+
+    /**
+     * Runs {@link LinkGuard} on one address of a pasted link. A refusal is final (the demo FAILS with a sentence that
+     * names nothing) and the host is logged; a host that does not resolve may be a passing failure of the lookups.
+     */
+    private LinkGuard.CheckedHop checkHop(URI uri, int redirects) {
+        try {
+            return linkGuard.check(uri);
+        } catch (DemoLinkRefusedException e) {
+            log.warn("Refused to download a demo link ({}): {} [{}]",
+                    redirects == 0 ? "the link itself" : "after " + redirects + " redirect(s)", e.getMessage(),
+                    e.getCode());
+            throw new DemoDownloadRejectedException("Demo download rejected: the demo link, or an address it "
+                    + "redirects to, is not one this site downloads from. Upload the .dem manually.");
+        } catch (UnknownHostException e) {
+            throw new DemoDownloadException("The host of the demo link does not resolve");
+        }
+    }
+
+    /** A name lookup that knows one name, the one that was checked, and answers the addresses that were checked. */
+    private static Dns onlyChecked(LinkGuard.CheckedHop hop) {
+        return hostname -> {
+            if (!hostname.equals(hop.host())) {
+                throw new UnknownHostException("Not the host that was checked");
+            }
+            return hop.addresses();
+        };
+    }
+
+    private DemoDownloadRejectedException tookTooLong() {
+        return new DemoDownloadRejectedException("Demo download rejected: the download from the demo link took longer "
+                + "than " + linkProperties.maxDuration().toMinutes() + " minutes. Upload the .dem manually.");
     }
 
     private Path download(String url, Source source) {

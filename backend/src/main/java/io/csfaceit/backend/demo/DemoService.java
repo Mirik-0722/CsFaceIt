@@ -26,6 +26,8 @@ import io.csfaceit.backend.usage.UsageService;
 import io.csfaceit.backend.usage.UsageService.Reservation;
 import java.io.EOFException;
 import java.io.InputStream;
+import java.net.URI;
+import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -82,12 +84,15 @@ public class DemoService {
     private final Access access;
     private final UsageService usage;
     private final FaceitDownloadsApi downloadsApi;
+    private final LinkGuard linkGuard;
+    private final PastedLinks pastedLinks;
 
     public DemoService(MatchService matchService, MatchRepository matches, DemoRepository demos,
                        DemoPersistence persistence, AmqpTemplate amqp, FaceitGateway faceit,
                        RosterSteamIdMapper rosterSteamIds, StorageService storage, DemoStoredPublisher storedPublisher,
                        DemoUploadProperties uploadProperties, DemoMetrics metrics, Access access,
-                       UsageService usage, FaceitDownloadsApi downloadsApi) {
+                       UsageService usage, FaceitDownloadsApi downloadsApi, LinkGuard linkGuard,
+                       PastedLinks pastedLinks) {
         this.matchService = matchService;
         this.matches = matches;
         this.demos = demos;
@@ -102,6 +107,8 @@ public class DemoService {
         this.access = access;
         this.usage = usage;
         this.downloadsApi = downloadsApi;
+        this.linkGuard = linkGuard;
+        this.pastedLinks = pastedLinks;
     }
 
     /**
@@ -131,9 +138,33 @@ public class DemoService {
      *         no demo import left today; nothing is queued
      */
     public DemoResponse requestImport(Actor actor, String faceitMatchId) {
+        return requestImport(faceitMatchId, null, actor);
+    }
+
+    /**
+     * Like {@link #requestImport(Actor, String)}, from a link to the demo file that the actor pasted (the address their
+     * browser downloaded it from), or as that method when {@code link} is null. The server fetches the link itself, so
+     * it is checked before anything is queued, after the actor's right to the match: {@link LinkGuard}'s three steps
+     * (shape, allow-list, public addresses; the download checks them again, for the link and for every redirect), and
+     * the name of the file, which has to be this match's demo ({@link DemoFileName}). A refused link writes nothing and
+     * counts nothing. The link does not go into the {@code demo.import} message: it is held in {@link PastedLinks} for
+     * the worker, put there before the message is published. It is never logged; a refused host is, by name.
+     *
+     * <p>Everything else is as without a link: a demo that is there or under way is reported as it is and the link is
+     * not used; a FAILED demo or a lost message is queued again, now with the link. A link does not need FACEIT to
+     * have a demo address for the match, and its import always counts as one of the user's day, because unlike
+     * FACEIT's own address without the Downloads API it can work.
+     *
+     * @throws DemoLinkRefusedException {@code DEMO_LINK_INVALID}, {@code DEMO_LINK_HOST_NOT_ALLOWED} or
+     *         {@code DEMO_LINK_MISMATCH}; nothing is queued or counted
+     */
+    public DemoResponse requestImport(String faceitMatchId, URI link, Actor actor) {
         requireMember(actor, faceitMatchId);
+        if (link != null) {
+            checkLink(faceitMatchId, link, actor);
+        }
         String demoUrl = matchService.getMatch(faceitMatchId).demoUrl();
-        boolean demoUrlAvailable = demoUrl != null && !demoUrl.isBlank();
+        boolean demoUrlAvailable = link != null || (demoUrl != null && !demoUrl.isBlank());
         long matchRowId = mapRosterSteamIds(faceitMatchId);
 
         // The place this request takes, if it queues something. A repeat of the step after a lost race starts from a
@@ -145,7 +176,7 @@ public class DemoService {
                     () -> {
                         place.set(null);
                         return persistence.queue(matchRowId, demoUrlAvailable, publish -> {
-                            if (countsAsImport(publish)) {
+                            if (link != null || countsAsImport(publish)) {
                                 place.set(usage.reserve(actor, UsageKind.DEMO_IMPORT));
                             }
                         });
@@ -163,7 +194,12 @@ public class DemoService {
         Demo demo = queued.demo();
         try {
             switch (queued.publish()) {
-                case IMPORT -> publishImport(demo.getId(), faceitMatchId, demoUrl);
+                case IMPORT -> {
+                    if (link != null) {
+                        pastedLinks.put(demo.getId(), link);
+                    }
+                    publishImport(demo.getId(), faceitMatchId, demoUrl);
+                }
                 case PARSE -> publishParseAgain(demo, faceitMatchId);
                 case NOTHING -> {
                     // The demo is reported as it is.
@@ -172,9 +208,37 @@ public class DemoService {
         } catch (RuntimeException e) {
             // Nothing was started: the message did not go out, and the demo is FAILED for the next request to queue.
             usage.release(place.get());
+            if (link != null) {
+                pastedLinks.take(demo.getId());
+            }
             throw e;
         }
         return toResponse(faceitMatchId, demo);
+    }
+
+    /**
+     * Refuses a pasted link before anything is stored: its shape, host and addresses ({@link LinkGuard}), then the name
+     * of its file. A refusal is logged with the code and the host at most, never the link.
+     */
+    private void checkLink(String faceitMatchId, URI link, Actor actor) {
+        try {
+            try {
+                linkGuard.check(link);
+            } catch (UnknownHostException e) {
+                throw DemoLinkRefusedException.unresolved(link.getHost());
+            }
+            if (!DemoFileName.matchIdOfLink(link).map(faceitMatchId::equalsIgnoreCase).orElse(false)) {
+                throw DemoLinkRefusedException.mismatch(faceitMatchId);
+            }
+        } catch (DemoLinkRefusedException e) {
+            log.info("Refused a demo link for match {} from {}: {} [{}]", faceitMatchId, describe(actor),
+                    e.getMessage(), e.getCode());
+            throw e;
+        }
+    }
+
+    private static String describe(Actor actor) {
+        return actor.userId() == null ? actor.kind().name() : "user " + actor.userId();
     }
 
     /**

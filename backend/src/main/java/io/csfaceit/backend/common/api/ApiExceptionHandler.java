@@ -58,7 +58,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(BadRequestException.class)
     ResponseEntity<ApiError> handleBadRequest(BadRequestException ex) {
-        return ResponseEntity.badRequest().body(new ApiError(VALIDATION_ERROR, ex.getMessage()));
+        return ResponseEntity.badRequest().body(new ApiError(ex.getCode(), ex.getMessage()));
     }
 
     @ExceptionHandler(ConflictException.class)

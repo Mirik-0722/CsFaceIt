@@ -7,10 +7,12 @@ import io.csfaceit.backend.demo.DemoPersistence.ImportClaim;
 import io.csfaceit.backend.demo.DemoPersistence.StoredDemo;
 import io.csfaceit.backend.demo.DemoStatus;
 import io.csfaceit.backend.demo.FaceitDownloadsApi;
+import io.csfaceit.backend.demo.PastedLinks;
 import io.csfaceit.backend.messaging.DemoMessages.DemoImportRequested;
 import io.csfaceit.backend.storage.StorageService;
 import io.micrometer.core.instrument.Timer;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -29,7 +31,9 @@ import org.springframework.stereotype.Component;
  * gives the file only through its Downloads API, so with a token ({@code FACEIT_DOWNLOADS_TOKEN}) the worker asks
  * {@link FaceitDownloadsApi} for a signed address and downloads from that. Without a token it downloads
  * {@code demo_url} itself, which works for a host that really serves the file (the fake FACEIT does) and otherwise ends
- * in the rejection {@code DOWNLOAD_NEEDS_ACCESS}. In both ways a refusal that asking again cannot change is a
+ * in the rejection {@code DOWNLOAD_NEEDS_ACCESS}. A link that a player pasted for the demo comes before both: it is
+ * not in the message but in {@link PastedLinks}, and is downloaded through {@link DemoDownloader#downloadLink}, which
+ * checks every address it leads to. In every way a refusal that asking again cannot change is a
  * {@link DemoDownloadRejectedException}: the demo is FAILED at once with its reason, and the message is not retried.
  *
  * <p>Delivery is at least once, so the same message can arrive twice; the first thing done is to claim the demo,
@@ -52,9 +56,12 @@ public class DemoImportWorker {
     private final StorageService storage;
     private final DemoStoredPublisher publisher;
     private final DemoMetrics metrics;
+    private final PastedLinks pastedLinks;
 
     public DemoImportWorker(DemoPersistence persistence, DemoDownloader downloader, FaceitDownloadsApi downloadsApi,
-                            StorageService storage, DemoStoredPublisher publisher, DemoMetrics metrics) {
+                            StorageService storage, DemoStoredPublisher publisher, DemoMetrics metrics,
+                            PastedLinks pastedLinks) {
+        this.pastedLinks = pastedLinks;
         this.persistence = persistence;
         this.downloader = downloader;
         this.downloadsApi = downloadsApi;
@@ -90,11 +97,17 @@ public class DemoImportWorker {
     private void importDemo(DemoImportRequested message, String faceitMatchId) {
         long demoId = message.demoId();
         String storageKey = storageKey(faceitMatchId);
-        log.info("Importing the demo {} of match {}", demoId, faceitMatchId);
+        Optional<URI> link = pastedLinks.take(demoId);
+        if (link.isPresent()) {
+            log.info("Importing the demo {} of match {} from a pasted link to {}", demoId, faceitMatchId,
+                    link.get().getHost());
+        } else {
+            log.info("Importing the demo {} of match {}", demoId, faceitMatchId);
+        }
 
         Path file = null;
         try {
-            file = fetch(message.demoUrl());
+            file = link.isPresent() ? downloader.downloadLink(link.get()) : fetch(message.demoUrl());
             // The download can take minutes, and a manual upload may have stored the demo meanwhile: its file is under
             // the same key and must stay. The check is not airtight: an upload that commits after it can still have
             // its object replaced by the put below (DemoPersistence#restore has the exact order), though never the
@@ -111,6 +124,10 @@ public class DemoImportWorker {
                 metrics.failed(DemoMetrics.STAGE_IMPORT);
             }
             throw new AmqpRejectAndDontRequeueException(e.getMessage(), e);
+        } catch (RuntimeException e) {
+            // The message is tried again, and the next attempt needs the link as much as this one did.
+            link.ifPresent(uri -> pastedLinks.put(demoId, uri));
+            throw e;
         } finally {
             deleteQuietly(file);
         }
@@ -129,6 +146,12 @@ public class DemoImportWorker {
      * (only its host is, by {@link FaceitDownloadsApi}), not stored and not part of any message.
      */
     private Path fetch(String demoUrl) {
+        if (demoUrl == null || demoUrl.isBlank()) {
+            // Queued for a link that is gone (the backend restarted, or the link waited too long) for a match FACEIT
+            // has no demo address for.
+            throw new DemoDownloadRejectedException("Demo download rejected: the pasted demo link is no longer known. "
+                    + "Paste it again, or upload the .dem manually.");
+        }
         if (downloadsApi.isConfigured()) {
             return downloader.download(downloadsApi.signedAddress(demoUrl));
         }

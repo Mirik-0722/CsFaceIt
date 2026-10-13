@@ -6,6 +6,7 @@ import static io.csfaceit.backend.match.MatchController.MATCH_ID_PATTERN;
 import io.csfaceit.backend.auth.Access;
 import io.csfaceit.backend.auth.Actor;
 import io.csfaceit.backend.common.api.BadRequestException;
+import io.csfaceit.backend.demo.dto.DemoImportRequest;
 import io.csfaceit.backend.demo.dto.DemoResponse;
 import io.csfaceit.backend.usage.UsageKind;
 import io.csfaceit.backend.usage.UsageService;
@@ -13,6 +14,7 @@ import io.csfaceit.backend.usage.UsageService.Reservation;
 import jakarta.validation.constraints.Pattern;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -22,6 +24,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -49,22 +52,33 @@ public class DemoController {
     private final DemoService service;
     private final Access access;
     private final UsageService usage;
+    private final LinkGuard linkGuard;
 
-    public DemoController(DemoService service, Access access, UsageService usage) {
+    public DemoController(DemoService service, Access access, UsageService usage, LinkGuard linkGuard) {
         this.service = service;
         this.access = access;
         this.usage = usage;
+        this.linkGuard = linkGuard;
     }
 
     /**
      * Needs the admin key or a session; a user has to be in the roster of the match (403 otherwise) and has so many
      * imports per day (429 {@code IMPORT_LIMIT_REACHED}, only for a request that would queue something).
+     *
+     * <p>Without a body the demo is fetched from FACEIT. With {@code {"url": "..."}} it is fetched from that link, which
+     * a player copies from their browser's download of the demo; the link is refused with 400
+     * {@code DEMO_LINK_INVALID}, {@code DEMO_LINK_HOST_NOT_ALLOWED} or {@code DEMO_LINK_MISMATCH} (see
+     * {@link DemoService#requestImport(String, URI, Actor)}). It comes in the body, not the query, so that no access log
+     * on the way keeps it.
      */
     @PostMapping("/{matchId}/demo/import")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public DemoResponse requestImport(
-            @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId) {
-        return service.requestImport(access.current(), matchId);
+            @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId,
+            @RequestBody(required = false) DemoImportRequest body) {
+        Actor actor = access.current();
+        URI link = body == null || body.url() == null ? null : linkGuard.parse(body.url());
+        return service.requestImport(matchId, link, actor);
     }
 
     /**

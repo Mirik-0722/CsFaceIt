@@ -108,6 +108,9 @@ services:
       DEMO_RETENTION_DAYS: ${DEMO_RETENTION_DAYS:-30}
       # When that clean-up runs: six fields (second minute hour day month weekday), server time. Normally left alone.
       DEMO_RETENTION_CRON: "${DEMO_RETENTION_CRON:-0 0 4 * * *}"
+      # Where a demo link that a player pastes may lead: scheme://host[:port], comma separated, the host exact or *. and a
+      # domain. The server fetches the link itself; every address of the host also has to be public (demo/LinkGuard).
+      DEMO_LINK_ALLOWED_ORIGINS: ${DEMO_LINK_ALLOWED_ORIGINS:-https://*.faceit-cdn.net,https://*.backblazeb2.com}
       # The secret a recorder sends in X-Worker-Token. Empty by default, and then every request of a recorder is refused.
       CLIP_WORKER_TOKEN: ${CLIP_WORKER_TOKEN:-}
       # A finished clip is deleted with its files after this many days; 0 keeps it forever.
