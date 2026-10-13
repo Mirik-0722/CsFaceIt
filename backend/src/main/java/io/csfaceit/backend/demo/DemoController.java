@@ -4,6 +4,7 @@ import static io.csfaceit.backend.match.MatchController.MATCH_ID_MESSAGE;
 import static io.csfaceit.backend.match.MatchController.MATCH_ID_PATTERN;
 
 import io.csfaceit.backend.auth.Access;
+import io.csfaceit.backend.auth.Actor;
 import io.csfaceit.backend.common.api.BadRequestException;
 import io.csfaceit.backend.demo.dto.DemoResponse;
 import jakarta.validation.constraints.Pattern;
@@ -18,10 +19,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.multipart.MultipartHttpServletRequest;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 /**
  * Bringing the demo of a match (import, upload), asking for its analysis, and reading where it is. The three
@@ -61,15 +63,30 @@ public class DemoController {
      * user has to be in the roster of the match (403 otherwise) and cannot replace a demo that has been parsed (409
      * {@code DEMO_ALREADY_PARSED}). The answer is 202 with the demo as it is once stored: STORED, and announced for
      * parsing.
+     *
+     * <p><b>Who may upload is decided before the file is received.</b> The body of a multipart request is read lazily
+     * ({@code spring.servlet.multipart.resolve-lazily}), so nothing of it is on the server's disk when this method
+     * starts, and the method takes the request, not the part: a parameter that is the part (or anything else that
+     * reads a parameter or a part of the request) would have the whole file received first, up to the upload limit,
+     * for a caller who is then refused. {@link DemoService#requireUploadAllowed} comes first, and only then is the
+     * part asked for, which is the moment the body is read. A request without the part is the 400 it always was.
      */
     @PostMapping(path = "/{matchId}/demo/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
     public DemoResponse upload(
             @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId,
-            @RequestPart(FILE_PART) MultipartFile file) throws IOException {
+            MultipartHttpServletRequest request) throws IOException, MissingServletRequestPartException {
+        Actor actor = access.current();
+        service.requireUploadAllowed(actor, matchId);
+
+        // The body is read here, and not before.
+        MultipartFile file = request.getFile(FILE_PART);
+        if (file == null) {
+            throw new MissingServletRequestPartException(FILE_PART);
+        }
         requireDemoFile(file);
         try (InputStream content = file.getInputStream()) {
-            return service.upload(access.current(), matchId, content);
+            return service.upload(actor, matchId, content);
         }
     }
 

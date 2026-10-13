@@ -7,8 +7,12 @@ spring:
     hibernate.ddl-auto: validate
     open-in-view: false
   # A manual demo upload is a multipart request; the one size below limits both the file and the whole request. Beyond
-  # it the API answers 413 with PAYLOAD_TOO_LARGE (see ApiExceptionHandler).
+  # it the API answers 413 with PAYLOAD_TOO_LARGE (see ApiExceptionHandler). The body is read lazily: nothing of it is
+  # received into a temporary file until the handler asks for the part, which DemoController does only after it has
+  # decided that the caller may upload. Read eagerly, every signed-in account could fill the disk with files that are
+  # then refused.
   servlet.multipart:
+    resolve-lazily: true
     max-file-size: ${demo.upload.max-size}
     max-request-size: ${demo.upload.max-size}
   # The scheduled jobs (the daily clean-ups of old demo files and old clips, the check for clips whose recorder has gone

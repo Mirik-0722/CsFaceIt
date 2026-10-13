@@ -720,6 +720,14 @@ What a `USER` may ask for without the key, and when:
 - **`mine`** in every clip the API returns says whether the clip was ordered by the session that is reading: `true` for
   that signed-in user, `false` for everybody else, for a visitor who is not signed in and for a request with the admin
   key.
+- **A `401 UNAUTHORIZED` on one of these writes** means that the request had no live session and no key: the visitor
+  is not signed in, or the session has ended (it ran out, or was signed out elsewhere). Its message still names the
+  `X-API-Key` header, as for every protected request; a page should offer to sign in again, not ask for a key.
+- **An upload is decided before the file is received.** The roster and the `DEMO_ALREADY_PARSED` rule are asked before
+  the backend reads the body of the request (`spring.servlet.multipart.resolve-lazily`), so a refused upload leaves
+  nothing on the server's disk, however large the file. The client may then see the connection closed while it is
+  still sending, after the `403` or `409`. The status is looked at once more when the file has been received, just
+  before it is stored.
 - A refusal is logged with the id of the user and the code (`Refused user 7: NOT_IN_MATCH`), never with a SteamID, a
   nickname or a token. A request from a session still has to come from the site itself
   ([Writes with the session cookie](#writes-with-the-session-cookie)): with `curl`, add `-H 'Origin: http://localhost:3000'`

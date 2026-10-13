@@ -140,10 +140,13 @@ public class DemoService {
      *
      * <p>That is what the admin key and an administrator do. A user has to be in the roster of the match, and cannot
      * replace a demo that is PARSED or ANALYZED: it holds the statistics and the highlights of all ten players. Both
-     * are asked before the file is read, so a refused upload stores nothing. The status is looked at without a lock,
-     * because the file goes to the storage under the key the parsed demo has and cannot be taken back: a demo that
-     * becomes PARSED between the look and the {@code put} is parsed again from the user's file, which the analysis
-     * then checks against the roster like any other.
+     * are asked before the file is read ({@link #requireUploadAllowed}, which the controller has called already, before
+     * it received the file, and which is called here again so that no caller can leave it out). Receiving and
+     * normalizing a large file takes a while, so the status is looked at once more just before the file goes to the
+     * storage: a demo that became PARSED in the meantime is not replaced. The looks take no lock, because the file
+     * goes under the key the parsed demo has and cannot be taken back; what is left is the moment between the last
+     * look and the {@code put}, in which a demo that becomes PARSED is parsed again from the user's file, which the
+     * analysis then checks against the roster like any other.
      *
      * @param actor who uploads
      * @param content the file, already known to be non-empty and to have a demo's file name; it is read once and not
@@ -155,20 +158,39 @@ public class DemoService {
      * @throws MaxUploadSizeExceededException the file, or what it expands to, is larger than the allowed size
      */
     public DemoResponse upload(Actor actor, String faceitMatchId, InputStream content) {
-        requireMember(actor, faceitMatchId);
-        access.requireDemoReplaceable(actor,
-                demos.findByMatchFaceitMatchId(faceitMatchId).map(Demo::getStatus).orElse(null));
+        requireUploadAllowed(actor, faceitMatchId);
         matchService.getMatch(faceitMatchId);
         long matchRowId = mapRosterSteamIds(faceitMatchId);
 
         String storageKey = DemoImportWorker.storageKey(faceitMatchId);
-        storeUpload(content, storageKey);
+        storeUpload(content, storageKey, () -> requireDemoReplaceable(actor, faceitMatchId));
 
         Demo demo = persistWithRetry("demo of match " + faceitMatchId,
                 () -> persistence.restore(matchRowId, storageKey));
         log.info("Stored the uploaded demo {} of match {} as {}", demo.getId(), faceitMatchId, storageKey);
         storedPublisher.publish(demo.getId(), faceitMatchId, storageKey);
         return toResponse(faceitMatchId, demo);
+    }
+
+    /**
+     * Whether the actor may upload a file as the demo of the match, asked before a byte of the file is received: a
+     * user has to be in the roster of the match and cannot replace a demo that has been parsed. Nothing is written.
+     * The controller calls it before it reads the request's body, so that a caller who is refused has sent the server
+     * nothing to keep.
+     *
+     * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_IN_MATCH}: the user did not play the match
+     * @throws ConflictException {@code DEMO_ALREADY_PARSED}: a user uploads over a demo that has been parsed
+     * @throws NotFoundException {@code MATCH_NOT_FOUND}: FACEIT does not know the match (asked for a user only; for
+     *         the key and an administrator {@link #upload} finds that out)
+     */
+    public void requireUploadAllowed(Actor actor, String faceitMatchId) {
+        requireMember(actor, faceitMatchId);
+        requireDemoReplaceable(actor, faceitMatchId);
+    }
+
+    private void requireDemoReplaceable(Actor actor, String faceitMatchId) {
+        access.requireDemoReplaceable(actor,
+                demos.findByMatchFaceitMatchId(faceitMatchId).map(Demo::getStatus).orElse(null));
     }
 
     /**
@@ -244,13 +266,18 @@ public class DemoService {
                 .getId();
     }
 
-    /** Copies the upload to a temporary file, normalizes it to zstd and puts it in storage. */
-    private void storeUpload(InputStream content, String storageKey) {
+    /**
+     * Copies the upload to a temporary file, normalizes it to zstd and puts it in storage. {@code beforePut} runs when
+     * the file is ready and nothing has been put yet, and stops the upload by throwing; the temporary files go either
+     * way.
+     */
+    private void storeUpload(InputStream content, String storageKey, Runnable beforePut) {
         Path received = null;
         Path normalized = null;
         try {
             received = DemoFiles.receive(content, uploadProperties.maxSize());
             normalized = DemoFiles.normalize(received, uploadProperties.maxSize());
+            beforePut.run();
             storage.put(storageKey, normalized);
         } catch (DemoDownloadRejectedException e) {
             throw new MaxUploadSizeExceededException(uploadProperties.maxSize().toBytes(), e);
