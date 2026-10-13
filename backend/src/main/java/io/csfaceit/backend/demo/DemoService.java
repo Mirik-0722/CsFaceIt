@@ -259,6 +259,7 @@ public class DemoService {
 
     /** Takes the FACEIT match id from the caller: the entity's match is lazy and not loaded here. */
     private static DemoResponse toResponse(String faceitMatchId, Demo demo) {
-        return new DemoResponse(demo.getId(), faceitMatchId, demo.getStatus(), demo.getError(), demo.getUpdatedAt());
+        return new DemoResponse(demo.getId(), faceitMatchId, demo.getStatus(), demo.getError(), demo.getErrorCode(),
+                demo.getUpdatedAt());
     }
 }

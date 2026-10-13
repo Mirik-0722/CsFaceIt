@@ -220,11 +220,20 @@ public class DemoPersistence {
      */
     @Transactional
     public boolean failIfStatus(long demoId, DemoStatus expected, String error) {
+        return failIfStatus(demoId, expected, error, null);
+    }
+
+    /**
+     * Like {@link #failIfStatus(long, DemoStatus, String)} for a reason that has a code a page can translate (see
+     * {@link DemoErrorCode}); a null code is a reason that has none.
+     */
+    @Transactional
+    public boolean failIfStatus(long demoId, DemoStatus expected, String error, DemoErrorCode errorCode) {
         Demo demo = demos.findByIdForUpdate(demoId).orElse(null);
         if (demo == null || demo.getStatus() != expected) {
             return false;
         }
-        demo.fail(error);
+        demo.fail(error, errorCode);
         demos.saveAndFlush(demo);
         return true;
     }

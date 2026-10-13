@@ -2,6 +2,7 @@ package io.csfaceit.backend.messaging;
 
 import io.csfaceit.backend.demo.DemoDownloadRejectedException;
 import io.csfaceit.backend.demo.DemoDownloader;
+import io.csfaceit.backend.demo.FaceitDownloadsApi;
 import io.csfaceit.backend.demo.DemoPersistence;
 import io.csfaceit.backend.demo.DemoPersistence.ImportClaim;
 import io.csfaceit.backend.demo.DemoPersistence.StoredDemo;
@@ -24,6 +25,13 @@ import org.springframework.stereotype.Component;
  * announces it on {@code demo.parse}. It holds no transaction while it downloads or stores: each status change is a
  * short transaction of {@link DemoPersistence}, and {@code demo.parse} is published only after the STORED commit.
  *
+ * <p>The file is had in one of two ways. The {@code demo_url} of a FACEIT match is a private cloud address, and FACEIT
+ * gives the file only through its Downloads API, so with a token ({@code FACEIT_DOWNLOADS_TOKEN}) the worker asks
+ * {@link FaceitDownloadsApi} for a signed address and downloads from that. Without a token it downloads
+ * {@code demo_url} itself, which works for a host that really serves the file (the fake FACEIT does) and otherwise ends
+ * in the rejection {@code DOWNLOAD_NEEDS_ACCESS}. In both ways a refusal that asking again cannot change is a
+ * {@link DemoDownloadRejectedException}: the demo is FAILED at once with its reason, and the message is not retried.
+ *
  * <p>Delivery is at least once, so the same message can arrive twice; the first thing done is to claim the demo,
  * and a demo that is not QUEUED (already stored, failed, or further along) is left alone, with one exception: the
  * process can die after the STORED commit and before {@code demo.parse} is published, and the broker then delivers
@@ -40,14 +48,16 @@ public class DemoImportWorker {
 
     private final DemoPersistence persistence;
     private final DemoDownloader downloader;
+    private final FaceitDownloadsApi downloadsApi;
     private final StorageService storage;
     private final DemoStoredPublisher publisher;
     private final DemoMetrics metrics;
 
-    public DemoImportWorker(DemoPersistence persistence, DemoDownloader downloader, StorageService storage,
-                            DemoStoredPublisher publisher, DemoMetrics metrics) {
+    public DemoImportWorker(DemoPersistence persistence, DemoDownloader downloader, FaceitDownloadsApi downloadsApi,
+                            StorageService storage, DemoStoredPublisher publisher, DemoMetrics metrics) {
         this.persistence = persistence;
         this.downloader = downloader;
+        this.downloadsApi = downloadsApi;
         this.storage = storage;
         this.publisher = publisher;
         this.metrics = metrics;
@@ -84,7 +94,7 @@ public class DemoImportWorker {
 
         Path file = null;
         try {
-            file = downloader.download(message.demoUrl());
+            file = fetch(message.demoUrl());
             // The download can take minutes, and a manual upload may have stored the demo meanwhile: its file is under
             // the same key and must stay. The check is not airtight: an upload that commits after it can still have
             // its object replaced by the put below (DemoPersistence#restore has the exact order), though never the
@@ -97,7 +107,7 @@ public class DemoImportWorker {
             storage.put(storageKey, file);
         } catch (DemoDownloadRejectedException e) {
             log.warn("The download of demo {} of match {} was rejected: {}", demoId, faceitMatchId, e.getMessage());
-            if (persistence.failIfStatus(demoId, DemoStatus.QUEUED, e.getMessage())) {
+            if (persistence.failIfStatus(demoId, DemoStatus.QUEUED, e.getMessage(), e.errorCode())) {
                 metrics.failed(DemoMetrics.STAGE_IMPORT);
             }
             throw new AmqpRejectAndDontRequeueException(e.getMessage(), e);
@@ -111,6 +121,18 @@ public class DemoImportWorker {
         }
         log.info("Stored demo {} of match {} as {}", demoId, faceitMatchId, storageKey);
         publishStored(demoId, faceitMatchId, storageKey);
+    }
+
+    /**
+     * Downloads the demo of the match, through FACEIT's Downloads API when the site has a token for it, otherwise from
+     * {@code demo_url} as it is. The signed address the API gives is used for this download only: it is not logged
+     * (only its host is, by {@link FaceitDownloadsApi}), not stored and not part of any message.
+     */
+    private Path fetch(String demoUrl) {
+        if (downloadsApi.isConfigured()) {
+            return downloader.download(downloadsApi.signedAddress(demoUrl));
+        }
+        return downloader.downloadFaceitAddress(demoUrl);
     }
 
     /**

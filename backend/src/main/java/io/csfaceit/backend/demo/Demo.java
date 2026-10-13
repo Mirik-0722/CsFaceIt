@@ -19,7 +19,8 @@ import java.time.temporal.ChronoUnit;
 
 /**
  * The demo of one match and its place in the pipeline. {@code error} says why the demo FAILED and is cleared when
- * the demo leaves that status. A PARSED demo whose analysis failed also has an {@code error} (see
+ * the demo leaves that status; {@code errorCode} is the reason in a form a page can translate, for the failures that
+ * have one (see {@link DemoErrorCode}), and goes with {@code error}. A PARSED demo whose analysis failed also has an {@code error} (see
  * {@link DemoRepository#noteError}, which leaves {@code updatedAt} alone); it stays PARSED, because the facts the
  * parser wrote are intact, and the error goes when the demo is analyzed or stored again.
  */
@@ -44,6 +45,10 @@ public class Demo {
 
     @Column(name = "error", columnDefinition = "TEXT")
     private String error;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "error_code", length = 32)
+    private DemoErrorCode errorCode;
 
     @Column(name = "tick_rate")
     private Integer tickRate;
@@ -101,26 +106,34 @@ public class Demo {
         this.status = next;
         if (next != DemoStatus.FAILED) {
             this.error = null;
+            this.errorCode = null;
         }
     }
 
     /**
      * Puts the demo in STORED with {@code storageKey}, from whatever status it has: a manual upload deliberately
      * stores the file again, also for a demo that is already PARSED or ANALYZED (it is then parsed again), and
-     * replaces whatever an earlier attempt left. The error is cleared and {@code updatedAt} is refreshed. This is
+     * replaces whatever an earlier attempt left. The error and its code are cleared and {@code updatedAt} is refreshed. This is
      * not a transition of the pipeline's status machine, which is why it is not part of {@link #transitionTo}.
      */
     public void restore(String storageKey) {
         this.status = DemoStatus.STORED;
         this.storageKey = storageKey;
         this.error = null;
+        this.errorCode = null;
         touch();
     }
 
-    /** Moves the demo to FAILED and records why. */
+    /** Moves the demo to FAILED and records why, with no code: a reason that a page shows as the sentence it is. */
     public void fail(String error) {
+        fail(error, null);
+    }
+
+    /** Moves the demo to FAILED and records why, with the code of the reason when it has one (null otherwise). */
+    public void fail(String error, DemoErrorCode errorCode) {
         transitionTo(DemoStatus.FAILED);
         this.error = error;
+        this.errorCode = errorCode;
     }
 
     private static boolean isAllowed(DemoStatus from, DemoStatus to) {
@@ -158,6 +171,10 @@ public class Demo {
 
     public String getError() {
         return error;
+    }
+
+    public DemoErrorCode getErrorCode() {
+        return errorCode;
     }
 
     public Integer getTickRate() {

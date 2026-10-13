@@ -43,6 +43,15 @@ faceit:
   # FACEIT's history endpoint answers only the last month unless a "from" timestamp is sent; this is how far back it reaches.
   history-lookback: ${FACEIT_HISTORY_LOOKBACK:365d}
   retry: { max-attempts: 3, initial-backoff: 200ms, multiplier: 2.0 }
+  # FACEIT's Downloads API, the only way to get a demo file: the demo_url of a match is a private cloud address that does not
+  # resolve outside FACEIT. Access is applied for at FACEIT (https://fce.gg/downloads-api-application) and comes as an
+  # access token of its own, which is not the Data API key above. With a token the import asks this endpoint for a signed
+  # address and downloads from that; without one it fetches demo_url as it is, which works for a host that really serves the
+  # file and otherwise fails the demo at once with the code DOWNLOAD_NEEDS_ACCESS. The stack without a FACEIT key points the
+  # url at its fake. Neither value is logged.
+  downloads:
+    token: ${FACEIT_DOWNLOADS_TOKEN:}
+    url: ${FACEIT_DOWNLOADS_URL:https://open.faceit.com/download/v2/demos/download}
   cache: { player-ttl: 5m, history-ttl: 2m, match-ttl: 24h, unfinished-match-ttl: 30s, stale-ttl: 7d }
 app:
   security.api-key: ${APP_API_KEY}

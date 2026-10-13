@@ -1,0 +1,32 @@
+{
+  "name": "POST /download/v2/demos/download for the sample demo",
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "urlPath": "/download/v2/demos/download",
+    "headers": {
+      "Authorization": {
+        "equalTo": "Bearer fake-downloads-token"
+      }
+    },
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": {
+          "expression": "$.resource_url",
+          "equalTo": "http://fake-faceit:8080/demos/sample.dem"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "payload": {
+        "download_url": "http://fake-faceit:8080/demos/sample.dem?signature=made-up-signature"
+      }
+    }
+  }
+}

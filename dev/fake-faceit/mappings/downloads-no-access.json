@@ -1,0 +1,22 @@
+{
+  "name": "POST /download/v2/demos/download without access",
+  "priority": 10,
+  "request": {
+    "method": "POST",
+    "urlPath": "/download/v2/demos/download"
+  },
+  "response": {
+    "status": 403,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "errors": [
+        {
+          "code": "err_f0",
+          "message": "no valid scope provided"
+        }
+      ]
+    }
+  }
+}

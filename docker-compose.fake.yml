@@ -27,6 +27,12 @@ services:
       FACEIT_BASE_URL: http://fake-faceit:8080
       # Any non-blank value: the backend refuses to start without one, the fake does not check it.
       FACEIT_API_KEY: fake
+      # The fake plays FACEIT's Downloads API too, so that the import goes the way it goes with real access: it asks the fake
+      # for a signed address and downloads from that. The token is a made-up one that the fake checks; it is written out here
+      # and not read from the environment, so that a real FACEIT_DOWNLOADS_TOKEN of your .env never reaches the fake. To try
+      # the import without access, override it with an empty value (FACEIT_DOWNLOADS_TOKEN: "" in a file of your own).
+      FACEIT_DOWNLOADS_URL: http://fake-faceit:8080/download/v2/demos/download
+      FACEIT_DOWNLOADS_TOKEN: fake-downloads-token
       # Admin key of the demo stack (the X-API-Key header); override it by setting APP_API_KEY.
       APP_API_KEY: ${APP_API_KEY:-dev-admin-key}
       # Worker token of the demo stack (the X-Worker-Token header of a recorder); override it by setting CLIP_WORKER_TOKEN.

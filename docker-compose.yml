@@ -122,6 +122,11 @@ services:
       # Overridable so that the stack can be pointed at a fake FACEIT.
       FACEIT_BASE_URL: ${FACEIT_BASE_URL:-https://open.faceit.com/data/v4}
       FACEIT_HISTORY_LOOKBACK: ${FACEIT_HISTORY_LOOKBACK:-365d}
+      # FACEIT's Downloads API, the only way to get a demo file: an access token with its scope (applied for at FACEIT; the
+      # Data API key does not do) and the endpoint. Without a token the import fetches the match's demo_url as it is, which
+      # FACEIT's private cloud refuses, and the demo then fails at once with the code DOWNLOAD_NEEDS_ACCESS. Never logged.
+      FACEIT_DOWNLOADS_TOKEN: ${FACEIT_DOWNLOADS_TOKEN:-}
+      FACEIT_DOWNLOADS_URL: ${FACEIT_DOWNLOADS_URL:-https://open.faceit.com/download/v2/demos/download}
       APP_API_KEY: ${APP_API_KEY:-}
       # The SteamID64s (17 digits, comma separated) of the people who get the role ADMIN when they sign in with Steam; every
       # other visitor is a USER. Empty by default. The role is shown by /api/v1/auth/me and does not yet let anyone act

@@ -6,6 +6,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -35,18 +36,34 @@ public class DemoDownloader {
     /**
      * Downloads the demo into a temporary file in the system temp directory and normalizes it to zstd. Only
      * {@code http} and {@code https} addresses are used, also when the server redirects. The caller owns the
-     * returned file and deletes it.
+     * returned file and deletes it. This is for an address that is meant to serve the file to anyone who has it, such
+     * as the signed one FACEIT's Downloads API gives.
      *
-     * @throws DemoDownloadRejectedException the download will never work: FACEIT refuses it (HTTP 401, 403, 404 or
-     *         410), the file is too large, or the address is not usable
+     * @throws DemoDownloadRejectedException the download will never work: the server refuses it (HTTP 401, 403, 404
+     *         or 410), the file is too large, or the address is not usable
      * @throws DemoDownloadException any other failure; trying again may work
      */
     public Path download(String url) {
+        return download(url, false);
+    }
+
+    /**
+     * Like {@link #download(String)}, for the {@code demo_url} of a match fetched as it is, with no access to FACEIT's
+     * Downloads API. That address is FACEIT's private cloud: it either does not resolve for anyone outside it, or
+     * refuses with HTTP 401 or 403. Neither can change by asking again, so both are the rejection
+     * {@link DemoDownloadRejectedException#needsAccess()} and not a failure to retry. Any other host that really serves
+     * the file is downloaded as usual.
+     */
+    public Path downloadFaceitAddress(String url) {
+        return download(url, true);
+    }
+
+    private Path download(String url, boolean faceitAddress) {
         URI uri = parse(url);
         Path downloaded = DemoFiles.createTempFile();
         boolean done = false;
         try {
-            fetch(uri, downloaded);
+            fetch(uri, downloaded, faceitAddress);
             Path normalized = DemoFiles.normalize(downloaded, properties.maxSize());
             done = true;
             return normalized;
@@ -58,7 +75,7 @@ public class DemoDownloader {
     }
 
     /** Follows the redirects itself so that each hop is checked to be an http or https address. */
-    private void fetch(URI start, Path target) {
+    private void fetch(URI start, Path target, boolean faceitAddress) {
         URI uri = start;
         for (int redirects = 0; ; redirects++) {
             requireHttp(uri);
@@ -75,7 +92,9 @@ public class DemoDownloader {
                     continue;
                 }
                 if (REJECTED_STATUSES.contains(status)) {
-                    throw DemoDownloadRejectedException.forStatus(status);
+                    throw faceitAddress && (status == 401 || status == 403)
+                            ? DemoDownloadRejectedException.needsAccess()
+                            : DemoDownloadRejectedException.forStatus(status);
                 }
                 if (status < 200 || status >= 300) {
                     throw new DemoDownloadException("The demo server answered HTTP " + status);
@@ -92,6 +111,9 @@ public class DemoDownloader {
                 }
                 return;
             } catch (IOException e) {
+                if (faceitAddress && e instanceof UnknownHostException) {
+                    throw DemoDownloadRejectedException.needsAccess();
+                }
                 throw new DemoDownloadException("The demo could not be downloaded: " + e, e);
             } finally {
                 if (connection != null) {
