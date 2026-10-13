@@ -3,7 +3,8 @@ package io.csfaceit.backend.auth.dto;
 import io.csfaceit.backend.auth.SignedInUser;
 
 /**
- * Who is signed in. {@code role} is {@code USER} or {@code ADMIN}. {@code playerId} is the id the site uses in
+ * Who is signed in. {@code role} is {@code USER} or {@code ADMIN}: the effective role, the one the settings give the
+ * user's SteamID now, which is what decides what the session may do. {@code playerId} is the id the site uses in
  * {@code /players/{playerId}}, the FACEIT player id, and is {@code null} while no FACEIT player is linked; the
  * {@code avatarUrl} and the {@code steamId} are {@code null} when the user has none.
  */

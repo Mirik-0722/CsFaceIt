@@ -25,7 +25,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Authenticates a request as {@code ROLE_USER} when its {@code csf_session} cookie holds the token of a session that is
- * there and has not ended; the principal is then the {@link SignedInUser}. A request with no cookie, or with a cookie
+ * there and has not ended, and as {@code ROLE_ADMIN} in addition when the session is an administrator's; the principal
+ * is then the {@link SignedInUser}. A request with no cookie, or with a cookie
  * that is unknown, expired or malformed, simply stays anonymous, so a stale cookie can never turn a public page into a
  * 401. The one thing this filter refuses is a write that does not come from the site itself (below). Not a Spring bean
  * on purpose, for the reason {@code ApiKeyAuthFilter} gives.
@@ -43,18 +44,18 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * (see {@code SecurityConfig}), unless that origin is in its list; what this rule adds is the request with no
  * {@code Origin} at all and the one whose {@code Origin} is the host it is sent to but not a known origin.
  *
- * <p><b>A session identifies a visitor and authorizes nothing that is protected.</b> Everything that needs the admin key
- * (uploading and analyzing a demo, ordering and deleting a clip) is decided by the last rule of {@code SecurityConfig},
- * which asks for the authority of that key, and {@code ROLE_USER} is not it. The role {@code ADMIN} a user may have
- * been given from {@code auth.admin-steam-ids} is data for now: this filter gives an administrator the same
- * {@code ROLE_USER} as everybody else, so that no session, whoever's, can do what only the key does. Letting an
- * administrator act without the key is a later step and needs a rule of its own.
+ * <p><b>What a session may do.</b> {@code ROLE_USER} opens the few writes that {@code SecurityConfig} lists for it
+ * (bringing and analyzing a demo, ordering, retrying and deleting a clip), and nothing else that is protected; whether
+ * this user may do it for this match, player or clip is then decided by {@link Access}. An administrator, a user whose
+ * SteamID is in {@code auth.admin-steam-ids} now ({@link SessionService#find} works the role out at every request),
+ * gets {@code ROLE_ADMIN} as well, the authority of the admin key, and so reaches everything the key reaches; the
+ * worker API stays the worker token's. That makes an administrator's cookie as strong as the key, which is why the
+ * rule above stands in front of it and why taking a SteamID off the list ends it at once.
  *
  * <p>It goes after the filters of the admin key and of the worker token and does not replace an identity that one of
- * them has given: a request that carries both a session cookie and the admin key is the admin's, and what it is allowed
- * to do is decided by that. The visitor the cookie belongs to is still known, as the request attribute
- * {@link #USER_ATTRIBUTE}, which is what {@code /api/v1/auth/me} answers from and what a later step that records who
- * did something can use: an administrator who orders a clip with the key is a signed-in visitor too. The filter looks
+ * them has given: a request that carries both a session cookie and the admin key is the key's, and what it is allowed
+ * to do, and whom it is recorded for (nobody), is decided by that. The visitor the cookie belongs to is still known,
+ * as the request attribute {@link #USER_ATTRIBUTE}, which is what {@code /api/v1/auth/me} answers from. The filter looks
  * at no request to the recorder's API ({@code /api/worker/**}), which takes the worker token and nothing else, so that
  * a cookie changes none of its answers.
  *
@@ -83,7 +84,16 @@ public class SessionAuthFilter extends OncePerRequestFilter {
     /** The methods that change nothing: the rule leaves them alone, and so does any other that is not in this set. */
     private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS");
 
+    /**
+     * The role an administrator's session gives in addition: the one the admin key gives, so that every rule that asks
+     * for the key is satisfied by an administrator too.
+     */
+    public static final String ADMIN_ROLE = "ADMIN";
+
     private static final List<GrantedAuthority> AUTHORITIES = List.of(new SimpleGrantedAuthority("ROLE_" + ROLE));
+
+    private static final List<GrantedAuthority> ADMIN_AUTHORITIES = List.of(
+            new SimpleGrantedAuthority("ROLE_" + ROLE), new SimpleGrantedAuthority("ROLE_" + ADMIN_ROLE));
 
     private static final Logger log = LoggerFactory.getLogger(SessionAuthFilter.class);
 
@@ -122,8 +132,8 @@ public class SessionAuthFilter extends OncePerRequestFilter {
                 request.setAttribute(USER_ATTRIBUTE, user);
                 if (contextHolder.getContext().getAuthentication() == null) {
                     SecurityContext context = contextHolder.createEmptyContext();
-                    context.setAuthentication(
-                            UsernamePasswordAuthenticationToken.authenticated(user, null, AUTHORITIES));
+                    context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(user, null,
+                            user.role() == UserRole.ADMIN ? ADMIN_AUTHORITIES : AUTHORITIES));
                     contextHolder.setContext(context);
                 }
             });

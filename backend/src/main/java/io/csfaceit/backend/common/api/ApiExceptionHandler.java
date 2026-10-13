@@ -1,5 +1,6 @@
 package io.csfaceit.backend.common.api;
 
+import io.csfaceit.backend.auth.ForbiddenException;
 import io.csfaceit.backend.faceit.FaceitNotFoundException;
 import io.csfaceit.backend.faceit.FaceitUnavailableException;
 import jakarta.validation.ConstraintViolation;
@@ -62,6 +63,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     ResponseEntity<ApiError> handleConflict(ConflictException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError(ex.getCode(), ex.getMessage()));
+    }
+
+    /** A rule of {@code Access} refused the actor; the code says which. Logged where it was refused. */
+    @ExceptionHandler(ForbiddenException.class)
+    ResponseEntity<ApiError> handleForbidden(ForbiddenException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiError(ex.getCode(), ex.getMessage()));
     }
 
     @ExceptionHandler(GoneException.class)

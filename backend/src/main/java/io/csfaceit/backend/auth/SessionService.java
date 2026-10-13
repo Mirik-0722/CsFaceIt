@@ -79,13 +79,25 @@ public class SessionService {
      * The user the token belongs to, or empty when it belongs to nobody: it is not a token, it is unknown, or its
      * session has ended. A token that is not worth a lookup (the wrong length or characters) does not reach the
      * database. The caller treats empty as "not signed in", never as an error.
+     *
+     * <p>The role of the user returned is the <b>effective</b> one: {@code ADMIN} when the SteamID is in
+     * {@code auth.admin-steam-ids} now, {@code USER} otherwise, whatever {@code users.role} holds from the last
+     * sign-in. A session lasts for weeks and an administrator's cookie does what the admin key does, so a SteamID that
+     * is taken off the list is a {@code USER} at the first request after the restart that applied the setting, with
+     * the same cookie; and one that is put on the list is an administrator without signing in again.
      */
     @Transactional(readOnly = true)
     public Optional<SignedInUser> find(String token) {
         if (token == null || !TOKEN_SHAPE.matcher(token).matches()) {
             return Optional.empty();
         }
-        return sessions.findSignedInUser(hash(token), clock.instant());
+        return sessions.findSignedInUser(hash(token), clock.instant()).map(this::withEffectiveRole);
+    }
+
+    private SignedInUser withEffectiveRole(SignedInUser user) {
+        UserRole role = user.steamId() != null && properties.adminSteamIds().contains(user.steamId())
+                ? UserRole.ADMIN : UserRole.USER;
+        return new SignedInUser(user.id(), user.nickname(), user.avatarUrl(), role, user.steamId(), user.playerId());
     }
 
     /** Ends the session of the token, if there is one: its row is deleted. */
