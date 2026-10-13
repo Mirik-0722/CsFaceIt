@@ -30,7 +30,8 @@ import org.hibernate.type.SqlTypes;
  * <p>A clip of a highlight keeps no reference to the highlight row, which an analysis replaces: it finds its highlight
  * again by {@code (match, player, highlightType, roundNumber, tickStart)}. {@code tickStart} and {@code tickEnd} are
  * the highlight's own window; the video is made of {@code segments}, which lie inside it. The three fields are
- * {@code null} in a compilation.
+ * {@code null} in a compilation and in a montage. A montage alone has {@code options} (its title, shape, intro and
+ * music), and its segments are in the order its player put them in, not in the order of the demo.
  *
  * <p>{@code requestedBy} is the id of the user whose session ordered the clip, and is what makes a clip somebody's own:
  * only that user (and the admin key and an administrator) may delete or retry it. It is {@code null} for a clip ordered
@@ -97,6 +98,11 @@ public class Clip {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "segments", nullable = false)
     private List<ClipSegment> segments;
+
+    /** What a montage is recorded with besides its segments; {@code null} for every other kind. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "options", updatable = false)
+    private MontageOptions options;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 16)
@@ -195,6 +201,19 @@ public class Clip {
     public static Clip compilation(Match match, Player player, ClipQuality quality, int fps,
                                    List<ClipSegment> segments, Long requestedBy) {
         return new Clip(match, player, ClipKind.COMPILATION, quality, fps, segments, requestedBy);
+    }
+
+    /**
+     * A new montage of {@code player} in {@code match}, waiting in the queue: the segments he picked, in his order, and
+     * the options he chose. Like a compilation it is made for no highlight and no window.
+     *
+     * @param requestedBy the id of the user who orders it, or {@code null} when it is ordered with the admin key
+     */
+    public static Clip montage(Match match, Player player, ClipQuality quality, int fps, List<ClipSegment> segments,
+                               MontageOptions options, Long requestedBy) {
+        Clip clip = new Clip(match, player, ClipKind.MONTAGE, quality, fps, segments, requestedBy);
+        clip.options = options;
+        return clip;
     }
 
     @PrePersist
@@ -404,6 +423,25 @@ public class Clip {
 
     public List<ClipSegment> getSegments() {
         return segments;
+    }
+
+    public MontageOptions getOptions() {
+        return options;
+    }
+
+    /** The shape of the picture: a montage's own, landscape for every other clip. */
+    public ClipAspect aspect() {
+        return options == null ? ClipAspect.LANDSCAPE : options.aspect();
+    }
+
+    /** The width of the picture a recorder is asked for: the quality's, on its side for a portrait montage. */
+    public int frameWidth() {
+        return aspect().width(quality);
+    }
+
+    /** The height of the picture a recorder is asked for: the quality's, on its side for a portrait montage. */
+    public int frameHeight() {
+        return aspect().height(quality);
     }
 
     public ClipStatus getStatus() {
