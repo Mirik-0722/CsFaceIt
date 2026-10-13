@@ -1,0 +1,44 @@
+# The bridge to the CS2 game coordinator: the small service that turns the match sharing code of a Valve matchmaking match
+# into the address of the match's replay file by asking the game coordinator through a Steam account of its own. It is
+# started on request and together with the main file, which gives it the stack's network:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.cs2.yml up -d --build gcbridge
+#
+# The backend reaches it at http://gcbridge:8090 and sends BRIDGE_TOKEN in the header X-Bridge-Token. gcbridge/README.md
+# goes through the account it needs, the sign-in helper that makes the refresh token, and the fake mode (BRIDGE_FAKE=1)
+# that needs no account at all.
+services:
+  gcbridge:
+    build: ./gcbridge
+    environment:
+      # Required: the secret that the backend sends in X-Bridge-Token. Without it the bridge would answer anyone on the
+      # network of the stack, so `up` stops with a message instead.
+      BRIDGE_TOKEN: "${BRIDGE_TOKEN:?Set BRIDGE_TOKEN in .env to a long random secret, for example the output of openssl rand -hex 32}"
+      # The Steam account of the bridge (an account of its own, not yours; see gcbridge/README.md). Set the refresh token
+      # that "docker compose -f docker-compose.cs2.yml run --rm gcbridge node src/login.js" prints (preferred), or all
+      # three of the account name, the password and the shared secret of its mobile authenticator. Empty by default. In
+      # .env a value with a $ in it goes between single quotes. None of these is ever logged.
+      STEAM_BOT_REFRESH_TOKEN: ${STEAM_BOT_REFRESH_TOKEN:-}
+      STEAM_BOT_USERNAME: ${STEAM_BOT_USERNAME:-}
+      STEAM_BOT_PASSWORD: ${STEAM_BOT_PASSWORD:-}
+      STEAM_BOT_SHARED_SECRET: ${STEAM_BOT_SHARED_SECRET:-}
+      # What the Steam library keeps between restarts goes to the volume below.
+      BRIDGE_DATA_DIR: /data
+      # BRIDGE_FAKE=1 starts the bridge without any connection to Steam: the last group of a sharing code then chooses the
+      # answer. BRIDGE_FAKE_REPLAY_URL is the address that the fake mode answers with (empty: a made-up one).
+      BRIDGE_FAKE: ${BRIDGE_FAKE:-0}
+      BRIDGE_FAKE_REPLAY_URL: ${BRIDGE_FAKE_REPLAY_URL:-}
+    volumes:
+      - gcbridge_data:/data
+    # No published port: only the other services of this stack can reach the bridge. `expose` only says which port it is.
+    expose:
+      - "8090"
+    # The bridge needs nothing from the host.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  gcbridge_data:
