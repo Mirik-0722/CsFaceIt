@@ -65,7 +65,8 @@ admin key (`X-API-Key`): import from FACEIT (not offered for a parsed or analyze
 ignores it; for a queued or stored one it revives a demo that has stood still for ten minutes), upload a file, and analyze (offered for a `PARSED` demo, as "Re-analyze" for an
 `ANALYZED` one). A demo that failed because FACEIT did not let the site download it (`errorCode` `DOWNLOAD_NEEDS_ACCESS`)
 is not shown with the English sentence but with an explanation in the visitor's language and a link to the match's room on
-FACEIT, from where the file is taken and uploaded under "Manage". The key is typed once and kept in the memory of the page only - never in `localStorage`,
+FACEIT, from where the file is taken and uploaded (with the admin key); the panel's controls are open from the start in that
+state, so the upload is at hand, and the visitor can still close them. The key is typed once and kept in the memory of the page only - never in `localStorage`,
 `sessionStorage` or a cookie - so reloading the page forgets it, and a key the backend rejects is forgotten at once.
 
 Every highlight card of the match page ends with a row about its clip. "Record clip" opens the order: the quality
@@ -705,15 +706,19 @@ token to an application that applies for it (<https://fce.gg/downloads-api-appli
   credential for the file: it is never logged (only its host is), never stored and never part of an `error`. The answers:
   - `401` or `403`: FACEIT does not let this token have the file. The demo is `FAILED` at once, with the code
     `DOWNLOAD_NEEDS_ACCESS`; the message is not retried.
+    The log line says why, with FACEIT's own error code and message (`err_f0`, "no valid scope provided": the token has no
+    Downloads scope; another code: the token is bad or revoked).
   - `404`, another `4xx`, or an answer without `payload.download_url`: the demo is `FAILED` at once with a plain
-    sentence in `error` (and no code).
+    sentence in `error` (and no code). So is a signed address that is itself refused (`401`, `403`, `404`, `410` from its
+    host: it has expired or was withdrawn); its sentence says so and the import can be requested again.
   - `5xx`, `429`, a timeout or a broken connection: the failure may go away, so the message is tried again, three
     times in all (see above), and then the demo is `FAILED` with "Importing the demo failed after 3 attempts".
 - **Without a token** the worker downloads `demo_url` as it is. That works for a host that really serves the file (the
   [fake FACEIT](dev/fake-faceit/README.md) does) and for no real FACEIT match: when the host does not resolve or answers
-  `401` or `403`, the demo is `FAILED` at once with `DOWNLOAD_NEEDS_ACCESS`. (A host that does not resolve is taken for
-  FACEIT's private cloud whatever the reason, so a DNS outage on the server fails the demo the same way; the import can be
-  requested again.)
+  `401` or `403`, the demo is `FAILED` at once with `DOWNLOAD_NEEDS_ACCESS`. A host that does not resolve is told from a
+  DNS outage by one control lookup, made only after that failure: if the host of `FACEIT_BASE_URL` resolves, the demo's host
+  is really unknown (FACEIT's private cloud) and the demo fails as above; if it does not resolve either, name resolution is
+  down and the import is tried again, like any failure that may go away.
 
 Either way the way out is the same: take the demo from the match's room on FACEIT and upload it (below). The token and the
 endpoint are never logged, and `faceit.downloads.*` prints them as `***` wherever the settings are printed.
