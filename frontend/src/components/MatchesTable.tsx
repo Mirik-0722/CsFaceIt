@@ -63,6 +63,19 @@ function offersUpload(match: PlayerMatchResponse, state: Bringing | undefined): 
   return (match.demoStatus === null || match.demoStatus === 'FAILED') && state?.phase !== 'sending' && state?.phase !== 'sent'
 }
 
+/** Whether the row draws anything of its own beside the link: the button, or the figure of a file that is going. */
+function hasRowAction(match: PlayerMatchResponse, state: Bringing | undefined): boolean {
+  return state?.phase === 'sending' || offersUpload(match, state)
+}
+
+// Where the action stands in the row's grid (the link takes the one column). From `md` up it is over the right-hand end
+// of the row, where the clips column is, held 36px inside the right edge of what is on screen. Under `md` the table
+// scrolls sideways, and anything over the figures would cover them: the action goes to a second grid row, under the
+// figures, held at the left edge of what is on screen, so that it covers nothing at any scroll position. The wrapper
+// lets the pointer through to the row's link everywhere but on the button itself.
+const ACTION_PLACE =
+  'pointer-events-none sticky z-10 col-start-1 max-md:row-start-2 max-md:self-end max-md:justify-self-start max-md:left-3.5 max-md:pb-2.5 md:row-start-1 md:right-9 md:self-center md:justify-self-end'
+
 /**
  * The strongest highlight of the match as a tag (only an ace is filled) and the others as a line of text. Without an
  * analyzed demo there is nothing to show: a match that has no demo, or whose demo failed, says that it has none, one
@@ -134,21 +147,18 @@ function ClipsCell({ clips, onItsWay }: { clips: ClipCounts; onItsWay: boolean }
  * The action of a player's own row that brings a demo, drawn over the right-hand end of the row, where the clips column
  * is (a match without a demo has no clips): "Upload a demo" while there is nothing to start from, the percent while a
  * file goes. It is the row's sibling, not inside the link: a button in a link is two interactive elements in one. It
- * sits at the row's right edge, past the arrow's column (16px of arrow, 16px of gap and the row's 4px). The wrapper is
- * sticky, so that on a phone, where the table scrolls sideways, the action stays at the edge of what is on screen; it
- * lets the pointer through to the row's link everywhere but on the button itself. A used-up day's limit turns the
- * button off and says when it frees up.
+ * sits at the row's right edge, past the arrow's column (16px of arrow, 16px of gap and the row's 4px), and on a phone
+ * under the figures (see `ACTION_PLACE`). A used-up day's limit turns the button off and says when it frees up.
  */
 function RowAction({ match, state, bringing }: { match: PlayerMatchResponse; state: Bringing | undefined; bringing: RowBringing }) {
   const t = useT()
   const locale = useLocale()
   const { limits } = useViewer()
   const label = `${mapLabel(match.mapName) ?? t.match.unknownMap}, ${formatMatchTime(match.startedAt, locale)}`
-  const wrapper = 'pointer-events-none sticky right-9 z-10 col-start-1 row-start-1 self-center justify-self-end'
   if (state?.phase === 'sending') {
     // Not pressable and not read twice (the feed above the rows is the live region): the row only shows the figure.
     return (
-      <span aria-hidden="true" className={cn(wrapper, 'flex w-36 flex-col items-end gap-1.5')}>
+      <span aria-hidden="true" className={cn(ACTION_PLACE, 'flex w-36 flex-col items-start gap-1.5 md:items-end')}>
         <span className="font-mono text-[11px] tracking-[0.06em] uppercase">
           {state.percent === null ? t.matches.bring.fetching : t.matches.bring.sending(state.percent)}
         </span>
@@ -168,7 +178,9 @@ function RowAction({ match, state, bringing }: { match: PlayerMatchResponse; sta
       ? t.limits.UPLOAD_LIMIT_REACHED(nextPossible(limits.demoUploads.resetsAt, t))
       : null
   return (
-    <span className={wrapper}>
+    <span className={ACTION_PLACE}>
+      {/* Focusable while it is off, so that the sentence is under the pointer and is read: a button that is `disabled`
+          lets the pointer through to the row's link, which a click on it would follow. */}
       <Button
         type="button"
         variant="outline"
@@ -176,8 +188,13 @@ function RowAction({ match, state, bringing }: { match: PlayerMatchResponse; sta
         aria-label={limitText ? `${t.matches.bring.rowFor(label)}. ${limitText}` : t.matches.bring.rowFor(label)}
         title={limitText ?? undefined}
         disabled={limitText !== null}
-        className="pointer-events-auto bg-background"
-        onClick={() => bringing.pick(match.matchId)}
+        focusableWhenDisabled
+        className="pointer-events-auto bg-background data-disabled:cursor-not-allowed data-disabled:opacity-50"
+        onClick={() => {
+          if (limitText === null) {
+            bringing.pick(match.matchId)
+          }
+        }}
       >
         <Upload aria-hidden="true" />
         {t.matches.bring.row}
@@ -203,6 +220,7 @@ function MatchRow({
   const t = useT()
   const locale = useLocale()
   const onItsWay = isDemoInProgress(match.demoStatus) && !stalled
+  const action = bringing !== undefined && hasRowAction(match, bringing.states[match.matchId])
   const resultClass = match.result === 'WIN' ? 'text-positive' : match.result === 'LOSS' ? 'text-negative' : undefined
   const resultWord =
     match.result === 'WIN' ? t.matchList.win : match.result === 'LOSS' ? t.matchList.loss : t.matchList.unknown
@@ -214,6 +232,8 @@ function MatchRow({
         className={cn(
           COLUMNS,
           'col-start-1 row-start-1 min-h-18 -outline-offset-2 group-hover:bg-secondary',
+          // Under `md` the link spans the action's row too, with room left under its figures for the action.
+          action && 'max-md:row-span-2 max-md:pb-14',
           RESULT_ROW[match.result],
         )}
       >

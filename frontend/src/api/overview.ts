@@ -64,11 +64,16 @@ export const PARSED_STALLED_MS = 30 * 60_000
 /** When this page first saw a row in a status, by `matchId:status`: only the PARSED ones are kept. */
 export type ParsedSeen = Map<string, number>
 
-/** Notes the PARSED rows that this page has not seen yet as seen at `now`. */
+/**
+ * Notes the PARSED rows that this page has not seen yet as seen at `now`, and forgets the row that is seen in any other
+ * status: a demo that is uploaded again and reaches PARSED once more gets its 30 minutes anew.
+ */
 export function noteParsedRows(seen: ParsedSeen, items: PlayerMatchResponse[], now: number): void {
   for (const match of items) {
-    const key = `${match.matchId}:${match.demoStatus}`
-    if (match.demoStatus === 'PARSED' && !seen.has(key)) {
+    const key = `${match.matchId}:PARSED`
+    if (match.demoStatus !== 'PARSED') {
+      seen.delete(key)
+    } else if (!seen.has(key)) {
       seen.set(key, now)
     }
   }

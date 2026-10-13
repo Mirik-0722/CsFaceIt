@@ -91,12 +91,15 @@ function PlayerMatches({ playerId }: { playerId: string }) {
     .filter((item, index, all) => all.findIndex((other) => other.matchId === item.matchId) === index)
   const shown = items?.filter((match) => isIn(filter, match))
   // The row that reaches its 30 minutes has no new answer to be drawn again by, so a timer renews the clock for it.
+  // It depends on the cached answer and not on `items`, which is a new array at every render.
+  const pages = matches.data?.pages
   useEffect(() => {
-    if (!items) {
+    if (!pages) {
       return
     }
-    noteParsedRows(parsedSeen, items, Date.now())
-    const due = items
+    const loaded = pages.flatMap((page) => page.items)
+    noteParsedRows(parsedSeen, loaded, Date.now())
+    const due = loaded
       .filter((match) => match.demoStatus === 'PARSED')
       .map((match) => (parsedSeen.get(`${match.matchId}:PARSED`) ?? 0) + PARSED_STALLED_MS)
       .filter((at) => at > Date.now())
@@ -105,7 +108,7 @@ function PlayerMatches({ playerId }: { playerId: string }) {
     }
     const timer = setTimeout(() => setNow(Date.now()), Math.min(...due) - Date.now() + 100)
     return () => clearTimeout(timer)
-  }, [items, now, parsedSeen])
+  }, [pages, now, parsedSeen])
   // The one list is complete when no page is left to load: a match that is not in it is not the visitor's.
   const bring = useDemoBringing(items, matches.data !== undefined && !matches.hasNextPage)
   function bringFiles(files: File[]) {

@@ -135,8 +135,14 @@ function ClipActions({ clip, label }: { clip: ClipResponse; label: string }) {
         size="sm"
         aria-label={t.clip.card.retryFor(label)}
         disabled={busy || limitText !== null}
-        className="relative ml-auto"
+        // Focusable while it is off: a `disabled` button lets the pointer through to the card's link, and a click on it
+        // would open the clip's page.
+        focusableWhenDisabled
+        className="relative ml-auto data-disabled:cursor-not-allowed data-disabled:opacity-50"
         onClick={() => {
+          if (busy || limitText !== null) {
+            return
+          }
           setFailure(null)
           retry.mutate({ clip }, { onError: failed })
         }}
@@ -160,7 +166,10 @@ function ClipActions({ clip, label }: { clip: ClipResponse; label: string }) {
     <>
       {buttons}
       {/* Under the state line, whatever the line holds: always in the page, so that its first message is announced. */}
-      <p aria-live="polite" className="basis-full text-xs leading-normal text-negative empty:hidden">
+      <p
+        aria-live="polite"
+        className={cn('basis-full text-xs leading-normal empty:hidden', failure ? 'text-negative' : 'text-muted-foreground')}
+      >
         {failure ? (failure.status === 401 ? t.auth.sessionEnded : errorMessage(failure, t)) : limitText}
       </p>
     </>
