@@ -1,5 +1,5 @@
 import { test, type Page } from '@playwright/test'
-import type { AuthProvidersResponse, MeResponse } from '../src/api/authTypes.ts'
+import type { AuthProvidersResponse, MeLimits, MeResponse } from '../src/api/authTypes.ts'
 import type { MatchBreakdownResponse } from '../src/api/breakdownTypes.ts'
 import type { PlayerMatchPageResponse, PlayerOverviewResponse } from '../src/api/overviewTypes.ts'
 import type {
@@ -138,6 +138,7 @@ const LANGUAGE_KEY = 'csfaceit.lang'
 // The clips of the default backend that have a page among PAGES.
 const READY_CLIP_ID = 1
 const RECORDING_CLIP_ID = 5
+const FAILED_CLIP_ID = 2
 
 // `tabs` is explained on ShotPage; the comment on each row names the element the `focus` scenario lands on.
 const PAGES = [
@@ -154,6 +155,7 @@ const PAGES = [
   { name: 'clips', path: '/clips', tabs: 7 }, // the first clip card
   { name: 'clip', path: `/clips/${READY_CLIP_ID}`, tabs: 7 }, // the play button of the frame over the video
   { name: 'clip-recording', path: `/clips/${RECORDING_CLIP_ID}`, tabs: 7 }, // the link to the match
+  { name: 'clip-failed', path: `/clips/${FAILED_CLIP_ID}`, tabs: 7 }, // the link to the match
   { name: 'notfound', path: '/there-is-no-such-page', tabs: 7 }, // the link back to the search
   // The sign-in: the dialog that "Sign in" of the top bar opens over the home page. Its focus picture is of what one
   // Tab reaches from where the dialog put the focus (the close button): the Steam button.
@@ -185,7 +187,7 @@ const DEFAULT_CLIPS: ClipResponse[] = [
   clipFixture(RECORDING_CLIP_ID, highlight(3), 'RECORDING', { progress: 45 }),
   clipFixture(4, highlight(7), 'ENCODING', { progress: 80 }),
   clipFixture(3, highlight(1), 'QUEUED'),
-  clipFixture(2, highlight(6), 'FAILED', { error: 'The recorder stopped responding', errorCode: 'RECORDER_STOPPED' }),
+  clipFixture(FAILED_CLIP_ID, highlight(6), 'FAILED', { error: 'The recorder stopped responding', errorCode: 'RECORDER_STOPPED' }),
   clipFixture(READY_CLIP_ID, highlight(5), 'DONE'),
 ]
 
@@ -259,6 +261,29 @@ const UNLINKED_USER: MeResponse = {
   nickname: 'Steam 000001',
   steamId: '76561198000000002',
   playerId: null,
+}
+
+/** What is left of a day's limits: every demo request, and `clipOrders` of the five clip orders. */
+function limitsWith(clipOrders: number): MeLimits {
+  return {
+    demoUploads: { limit: 10, remaining: 10, resetsAt: null },
+    demoImports: { limit: 20, remaining: 20, resetsAt: null },
+    // A fixed moment, never "today" when the pictures are taken: the sentence then names the day as well as the hour.
+    clipOrders: { limit: 5, remaining: clipOrders, resetsAt: clipOrders < 5 ? '2023-11-15T06:30:00Z' : null },
+  }
+}
+
+/** A signed-in player of the default match (its first roster has the player), with three clip orders left today. */
+const MEMBER: MeResponse = { ...LINKED_USER, limits: limitsWith(3) }
+
+/** A signed-in visitor whose FACEIT player is in neither roster of the default match. */
+const OUTSIDER: MeResponse = {
+  ...LINKED_USER,
+  id: 2,
+  nickname: 'outsider_01',
+  steamId: '76561198000000003',
+  playerId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  limits: limitsWith(5),
 }
 
 /** A player without a stored match: every figure is a dash. */
@@ -533,6 +558,74 @@ const SCENARIOS: Scenario[] = [
       },
     },
   },
+  // Who may write what (plan 6b). A visitor who is not signed in: the demo panel opened, with the admin key field, and
+  // the order dialog with the field and the line that says how to do without it.
+  { name: 'session-visitor', pages: ['match', 'order'], languages: ['uz', 'en'], before: openDemoControlsOnMatch },
+  // A signed-in player of the match whose demo is on its way: the line of stages under the status, and the controls
+  // without a key field (with the quiet switch to it).
+  {
+    name: 'session-member',
+    pages: ['match'],
+    languages: ['uz', 'en'],
+    backend: {
+      me: MEMBER,
+      demo: { ...demoFixture, status: 'STORED' },
+      breakdown: emptyBreakdownFixture,
+      highlights: [],
+      clips: [],
+    },
+    before: openDemoControlsOnMatch,
+  },
+  // The same player on a match without a demo: the controls are open by themselves (nothing is pressed here).
+  {
+    name: 'session-member-nodemo',
+    pages: ['match'],
+    backend: { me: MEMBER, demo: null, breakdown: emptyBreakdownFixture, highlights: [], clips: [] },
+  },
+  // The same player ordering the clip of an own highlight (no clip exists, so the first card is the player's): no key
+  // field, and three of five orders left.
+  { name: 'session-member', pages: ['order'], languages: ['uz', 'en'], backend: { me: MEMBER, clips: [] } },
+  // A signed-in visitor who did not play in the match: the reason in the opened demo panel and in the order dialog
+  // (the first highlight without a clip is another player's), each with the switch to the key field.
+  {
+    name: 'session-outsider',
+    pages: ['match', 'order'],
+    languages: ['uz', 'en'],
+    backend: { me: OUTSIDER },
+    before: openDemoControlsOnMatch,
+  },
+  // Signed in, but FACEIT has no player for the Steam account: the demo panel says so, and what to do about it.
+  {
+    name: 'session-unlinked',
+    pages: ['match'],
+    languages: ['uz', 'en'],
+    backend: { me: UNLINKED_USER },
+    before: openDemoControlsOnMatch,
+  },
+  // A player who has used up the day's clip orders: the button is off, and the dialog says when the next is possible.
+  {
+    name: 'session-nolimit',
+    pages: ['order'],
+    languages: ['uz', 'en'],
+    backend: { me: { ...MEMBER, limits: limitsWith(0) }, clips: [] },
+  },
+  // The page of a failed clip as whoever ordered it sees it: "Try again" and "Delete" without the admin key.
+  {
+    name: 'session-owner',
+    pages: ['clip-failed'],
+    languages: ['uz', 'en'],
+    backend: {
+      me: MEMBER,
+      clips: [
+        clipFixture(FAILED_CLIP_ID, highlight(8), 'FAILED', {
+          error: 'The recorder stopped responding',
+          errorCode: 'RECORDER_STOPPED',
+          mine: true,
+        }),
+        clipFixture(READY_CLIP_ID, highlight(5), 'DONE', { mine: true }),
+      ],
+    },
+  },
   // The first scoreboard scrolled to its right end, on a phone: the player column and the team header stay in place.
   // The default scoreboard fits in 390px and has nothing to scroll; the one with the 32-character nickname overflows.
   { name: 'scrolled-long', pages: ['match'], viewports: [PHONE], backend: LONG_BACKEND, before: scrollScoreboard },
@@ -699,6 +792,13 @@ async function openLastTab(page: Page) {
 async function openDemoControls(page: Page) {
   // Not the whole page: the avatar of a signed-in visitor, in the top bar, says it as well.
   await page.locator('main button[aria-expanded="false"]').first().click()
+}
+
+/** {@link openDemoControls} on the match page itself; the scenario's other pages (the order dialog) are left as they are. */
+async function openDemoControlsOnMatch(page: Page, shotPage: ShotPage) {
+  if (shotPage.name === 'match') {
+    await openDemoControls(page)
+  }
 }
 
 /** Presses "Nuke" in the landing page's strip of maps and waits until the backdrop shows that map's scenery. */

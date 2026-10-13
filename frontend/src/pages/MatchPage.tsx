@@ -588,7 +588,7 @@ function MatchDetails({ matchId, viewerPlayerId }: { matchId: string; viewerPlay
         </div>
       </div>
       {/* The demo and what was found in it belong to a match that exists: they wait for the header. */}
-      {match.data && <DemoPanel matchId={matchId} />}
+      {match.data && <DemoPanel matchId={matchId} match={match.data} />}
       {match.data && <SectionTabs matchId={matchId} />}
       {match.data && (
         <MatchHighlights matchId={matchId} viewerPlayerId={viewerPlayerId} onOrder={setOrder}>

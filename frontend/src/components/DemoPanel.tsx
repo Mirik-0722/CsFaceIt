@@ -1,14 +1,16 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useRef, useState } from 'react'
 import { invalidateDemoResults, useAnalyzeDemo, useDemo, useImportDemo, useUploadDemo } from '@/api/queries'
+import DemoStages from '@/components/DemoStages'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useT, type Messages } from '@/i18n'
 import { setAdminKey, useAdminKey } from '@/lib/adminKey'
-import { errorMessage, reasonText } from '@/lib/errorMessage'
+import { denialText, errorMessage, reasonText } from '@/lib/errorMessage'
+import { useViewer } from '@/lib/viewer'
 import type { ApiError } from '@/api/client'
-import type { DemoStatus } from '@/api/types'
+import type { DemoStatus, MatchResponse } from '@/api/types'
 
 const STATUS_VARIANT: Record<DemoStatus, 'outline' | 'positive' | 'negative'> = {
   QUEUED: 'outline',
@@ -40,14 +42,27 @@ function failureText(action: Action, error: ApiError, t: Messages): string {
   return errorMessage(error, t)
 }
 
+interface DemoPanelProps {
+  matchId: string
+  /** The match itself: its rosters say whether the signed-in visitor is one of its players. */
+  match: MatchResponse
+}
+
 /**
- * The demo of a match: its status and the reason of a failure, for everyone; behind "Manage", the requests that need
- * the admin key — import from FACEIT (offered only where it starts something: the match has no demo, or its import
- * failed), upload a file, analyze (again). The key is asked for once and kept in memory until the page is reloaded; a
- * key the backend rejects is forgotten. The panel belongs to one match: render it with the match id as its `key`, so
- * that nothing it remembers follows the visitor to another match.
+ * The demo of a match: its status, the stages it goes through and the reason of a failure, for everyone; behind
+ * "Manage", the requests that change it — import from FACEIT (offered only where it starts something: the match has no
+ * demo, or its import failed), upload a file, analyze (again).
+ *
+ * Who may make them: a signed-in player of the match and an administrator, by the session alone, with no key field in
+ * sight (and, for a match without a demo, with the controls already open); anybody with the admin key. A visitor who
+ * is not signed in is shown the key field, as before. A signed-in visitor who may not act reads why, and what to do
+ * about it; the key field is behind a quiet switch for an operator. A typed key is asked for once and kept in memory
+ * until the page is reloaded; a key the backend rejects is forgotten.
+ *
+ * The panel belongs to one match: render it with the match id as its `key`, so that nothing it remembers follows the
+ * visitor to another match.
  */
-export default function DemoPanel({ matchId }: { matchId: string }) {
+export default function DemoPanel({ matchId, match }: DemoPanelProps) {
   const t = useT()
   const queryClient = useQueryClient()
   const titleId = useId()
@@ -63,12 +78,30 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
   const [watchUntil, setWatchUntil] = useState<number | null>(null)
   const watching = watchUntil !== null
   const [keyRejected, setKeyRejected] = useState(false)
+  // The backend refused a request made by the session alone as nobody's: the session has ended since the page asked.
+  const [sessionEnded, setSessionEnded] = useState(false)
+  // A signed-in visitor opened the key field (an operator's way in where the session is not enough).
+  const [keyOpen, setKeyOpen] = useState(false)
   const [failure, setFailure] = useState<{ action: Action; error: ApiError } | null>(null)
   const [accepted, setAccepted] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
+  const viewer = useViewer()
+  const permission = viewer.canManageDemo(match)
   const storedKey = useAdminKey()
-  const apiKey = storedKey ?? typedKey.trim()
+  // The field is the way in of a visitor who is not signed in, and of a signed-in one who asked for it.
+  const keyField = storedKey === null && (!viewer.signedIn || keyOpen)
+  // The key that goes with a request: the one the page holds, else what stands in the field while it is shown. With
+  // none the request is the signed-in visitor's own.
+  const apiKey = storedKey ?? (keyField ? typedKey.trim() : '')
+  const withKey = apiKey.length > 0
+  // Why the signed-in visitor may not act by the session; null when the visitor may, and for one who is not signed in.
+  const denial = denialText(permission.reason, t)
+  // The requests are offered to whoever has a way to make them, or a field to type one into.
+  const offered = permission.allowed || keyField || storedKey !== null
+  // A player of the match, acting by the session: the backend lets a player bring the first demo and have it analyzed
+  // once, and leaves replacing a demo that is read, and repeating an analysis, to an administrator.
+  const asPlayer = permission.allowed && !viewer.admin && !withKey
   const demo = useDemo(matchId, watching)
   // A demo that FACEIT did not let the site download, or that could not be imported, is fixed by the controls: the
   // explanation sends the visitor to the upload and to the admin key. So the first time the demo is seen in that state
@@ -82,18 +115,34 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
     setOpenedForAccess(true)
     setOpen(true)
   }
+  // A match without a demo is where a visitor who may act starts: the controls are open from the first time that is
+  // known (the same way, and for the same reason, as above).
+  const [openedForStart, setOpenedForStart] = useState(false)
+  if (permission.allowed && demo.data === null && !openedForStart) {
+    setOpenedForStart(true)
+    setOpen(true)
+  }
   const importDemo = useImportDemo(matchId)
   const uploadDemo = useUploadDemo(matchId)
   const analyzeDemo = useAnalyzeDemo(matchId)
   const requests = { import: importDemo, upload: uploadDemo, analyze: analyzeDemo }
   const busy = importDemo.isPending || uploadDemo.isPending || analyzeDemo.isPending
-  const disabled = busy || apiKey.length === 0
+  const disabled = busy || !(permission.allowed || withKey)
   const status = demo.data?.status
+  // The line of stages is for a demo that is on its way or has failed. One that is analyzed keeps it only when this
+  // panel watched it get there, so that the last step is seen to be reached; a match whose demo was ready all along
+  // has the tag and nothing more.
+  const [sawUnfinished, setSawUnfinished] = useState(false)
+  if (status !== undefined && status !== 'ANALYZED' && !sawUnfinished) {
+    setSawUnfinished(true)
+  }
+  const stagesShown = demo.data && (status !== 'ANALYZED' || sawUnfinished)
   // The backend ignores an import request for a parsed or analyzed demo, so the button is not offered there. For a
   // queued or stored demo the request does something once the demo has stood still for ten minutes (it is queued or
   // announced again): the way to revive a demo whose message was lost, so the button stays for those two.
   const canImport = demo.data === null || status === 'FAILED' || status === 'QUEUED' || status === 'STORED'
-  const canAnalyze = status === 'PARSED' || status === 'ANALYZED'
+  const canAnalyze = status === 'PARSED' || (status === 'ANALYZED' && !asPlayer)
+  const canUpload = !(asPlayer && (status === 'PARSED' || status === 'ANALYZED'))
 
   // What is computed from the demo is asked for again when the demo changes: its status, or the time it was written.
   const stamp = demo.data ? `${demo.data.status} ${demo.data.updatedAt}` : demo.data === null ? 'none' : undefined
@@ -126,14 +175,20 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
 
   /** What every action does around its own request. */
   function callbacks(action: Action) {
+    // The key this request goes out with, if any: what its answer says is about that key, whatever the field holds
+    // by then.
+    const sentKey = withKey ? apiKey : null
     setKeyRejected(false)
+    setSessionEnded(false)
     setFailure(null)
     setAccepted(false)
     return {
       onSuccess: () => {
-        // The backend took the key, so it is the right one: keep it for the next action.
-        setAdminKey(apiKey)
-        setTypedKey('')
+        if (sentKey !== null) {
+          // The backend took the key, so it is the right one: keep it for the next action.
+          setAdminKey(sentKey)
+          setTypedKey('')
+        }
         setAccepted(true)
         if (action === 'analyze') {
           setWatchUntil(Date.now() + WATCH_MS)
@@ -146,7 +201,11 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
         }
       },
       onError: (error: ApiError) => {
-        if (error.status === 401) {
+        if (error.status === 401 && sentKey === null) {
+          // No key went out, so it is not a key that was refused: the session has ended (signed out in another tab,
+          // or run out). The page asks again who is signed in (every write does) and then draws itself for a visitor.
+          setSessionEnded(true)
+        } else if (error.status === 401) {
           // A rejected key is forgotten everywhere: the stored one, the one still in the field and the one the
           // rejected request keeps in its variables.
           setAdminKey(null)
@@ -189,13 +248,20 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
           {t.demo.manage}
         </Button>
       </div>
+      {stagesShown && demo.data && (
+        // As wide as the panel on a phone; on a wide screen it keeps to the left, where the status it explains is.
+        <div className="px-4 pb-3.5">
+          <DemoStages demo={demo.data} className="max-w-140" />
+        </div>
+      )}
       {/* A failure the backend gives a code to is explained in the visitor's language (with the way out, where there
           is one); any other is the backend's own words about what went wrong, as they are: a technical message. */}
       <div aria-live="polite">
         {demo.data?.error &&
           (needsAccess ? (
             <div className="flex flex-col items-start gap-0.5 border-t border-border px-4 py-3 text-sm">
-              <p className="text-negative">{t.demo.needsAccess}</p>
+              {/* Whoever may upload by the session is not sent to the admin key. */}
+              <p className="text-negative">{permission.allowed ? t.demo.needsAccessMember : t.demo.needsAccess}</p>
               <a
                 href={`https://www.faceit.com/en/cs2/room/${encodeURIComponent(matchId)}`}
                 target="_blank"
@@ -215,7 +281,9 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
       </div>
       {open && (
         <div id={controlsId} className="flex flex-col gap-4 border-t border-border p-4">
-          {storedKey === null && (
+          {/* Why not, before anything else: a signed-in visitor is never left with a bare key field. */}
+          {denial !== null && <p className="max-w-190 text-sm leading-normal text-muted-foreground">{denial}</p>}
+          {keyField && (
             <div className="flex max-w-sm flex-col gap-1.5">
               <label htmlFor={keyId} className="label-mono">
                 {t.demo.adminKey}
@@ -231,37 +299,45 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
               />
             </div>
           )}
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <label htmlFor={fileId} className="label-mono">
-                {t.demo.fileLabel}
-              </label>
-              <Input
-                ref={fileInput}
-                id={fileId}
-                type="file"
-                accept=".dem,.gz,.zst"
-                className="max-w-sm py-2"
-                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-              />
+          {offered && canUpload && (
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <label htmlFor={fileId} className="label-mono">
+                  {t.demo.fileLabel}
+                </label>
+                <Input
+                  ref={fileInput}
+                  id={fileId}
+                  type="file"
+                  accept=".dem,.gz,.zst"
+                  className="max-w-sm py-2"
+                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={disabled || file === null}
+                onClick={() =>
+                  file && uploadDemo.mutate({ apiKey: withKey ? apiKey : undefined, file }, callbacks('upload'))
+                }
+              >
+                {t.demo.upload}
+              </Button>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={disabled || file === null}
-              onClick={() => file && uploadDemo.mutate({ apiKey, file }, callbacks('upload'))}
-            >
-              {t.demo.upload}
-            </Button>
-          </div>
-          {(canImport || canAnalyze) && (
+          )}
+          {/* In place of the upload, for a player of a match whose demo is read: what the backend would answer. */}
+          {offered && !canUpload && (
+            <p className="max-w-190 text-sm leading-normal text-muted-foreground">{t.demo.alreadyParsed}</p>
+          )}
+          {offered && (canImport || canAnalyze) && (
             <div className="flex flex-wrap gap-3">
               {canImport && (
                 <Button
                   type="button"
                   variant="outline"
                   disabled={disabled}
-                  onClick={() => importDemo.mutate({ apiKey }, callbacks('import'))}
+                  onClick={() => importDemo.mutate({ apiKey: withKey ? apiKey : undefined }, callbacks('import'))}
                 >
                   {t.demo.importFromFaceit}
                 </Button>
@@ -271,7 +347,7 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
                   type="button"
                   variant="outline"
                   disabled={disabled}
-                  onClick={() => analyzeDemo.mutate({ apiKey }, callbacks('analyze'))}
+                  onClick={() => analyzeDemo.mutate({ apiKey: withKey ? apiKey : undefined }, callbacks('analyze'))}
                 >
                   {status === 'ANALYZED' ? t.demo.reanalyze : t.demo.analyze}
                 </Button>
@@ -284,9 +360,24 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
               <p className="text-muted-foreground">{uploadDemo.isPending ? t.demo.uploading : t.demo.sending}</p>
             )}
             {keyRejected && <p className="text-destructive">{t.demo.wrongKey}</p>}
+            {sessionEnded && <p className="text-destructive">{t.auth.sessionEnded}</p>}
             {failure && <p className="text-destructive">{failureText(failure.action, failure.error, t)}</p>}
             {accepted && <p className="text-muted-foreground">{t.demo.accepted}</p>}
           </div>
+          {/* The operator's way in for a signed-in visitor: the key field, which the session makes unnecessary for
+              the players of the match and for an administrator. Gone once the page holds a key. */}
+          {viewer.signedIn && !viewer.admin && storedKey === null && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-expanded={keyOpen}
+              className="-ml-3.5 self-start font-normal text-muted-foreground"
+              onClick={() => setKeyOpen(!keyOpen)}
+            >
+              {t.access.useAdminKey}
+            </Button>
+          )}
         </div>
       )}
     </section>
