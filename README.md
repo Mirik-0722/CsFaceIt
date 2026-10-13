@@ -894,7 +894,8 @@ relaxed binding lets an environment variable of the backend container override.
 On the fake FACEIT a real demo fits no fake match, so it ends in `FAILED` with `WRONG_MATCH` there; the
 [fake FACEIT's README](dev/fake-faceit/README.md#a-local-match-that-fits-a-real-demo) has a script that makes a match
 whose roster it does fit. The SteamIDs of a real demo are real players' personal data: the backend writes none to an
-`error`, and in a log line it shows only the last four digits (`...0001`, or `steam:...0001` for a placeholder player).
+`error`, and the log lines of the demo's import and analysis show only the last four digits (`…0001`, or `steam:…0001`
+for a placeholder player). The lines about FACEIT's cache at sign-in still name the SteamID that was looked up.
 
 Have a parsed demo analyzed again (see [Analysis](#analysis)). The answer is `202` with the demo as it is now, before the
 analysis has run: it needs no demo file, only the parsed facts, so it also works after the retention job has removed the
