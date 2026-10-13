@@ -63,10 +63,11 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
 The demo panel shows the status of the match's demo to everyone. Behind "Manage" it has the requests that need the
 admin key (`X-API-Key`): import from FACEIT (not offered for a parsed or analyzed demo, for which the backend
 ignores it; for a queued or stored one it revives a demo that has stood still for ten minutes), upload a file, and analyze (offered for a `PARSED` demo, as "Re-analyze" for an
-`ANALYZED` one). A demo that failed because FACEIT did not let the site download it (`errorCode` `DOWNLOAD_NEEDS_ACCESS`)
-is not shown with the English sentence but with an explanation in the visitor's language and a link to the match's room on
-FACEIT, from where the file is taken and uploaded (with the admin key); the panel's controls are open from the start in that
-state, so the upload is at hand, and the visitor can still close them. The key is typed once and kept in the memory of the page only - never in `localStorage`,
+`ANALYZED` one). A demo whose failure has a code (`errorCode`, see [Why a demo failed](#why-a-demo-failed)) is not shown
+with the English sentence but with an explanation in the visitor's language. For a demo that FACEIT did not let the site
+download (`DOWNLOAD_NEEDS_ACCESS`) it comes with a link to the match's room on FACEIT, from where the file is taken and
+uploaded (with the admin key); the panel's controls are open from the start in that state and for `IMPORT_FAILED`, so the
+upload is at hand, and the visitor can still close them. The key is typed once and kept in the memory of the page only - never in `localStorage`,
 `sessionStorage` or a cookie - so reloading the page forgets it, and a key the backend rejects is forgotten at once.
 
 Every highlight card of the match page ends with a row about its clip. "Record clip" opens the order: the quality
@@ -496,7 +497,6 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | --- | --- | --- |
 | 400 | `VALIDATION_ERROR` | A nickname, id, highlight `type` or paging parameter is malformed; for the upload also a bad file name, an empty or corrupt file, or a multipart body that is malformed or was cut off. |
 | 401 | `UNAUTHORIZED` | A protected request is missing a valid `X-API-Key` header; a request to the recorder's API (`/api/worker/**`) a valid `X-Worker-Token` header. |
-| 401 | `UNAUTHENTICATED` | `GET /api/v1/auth/me` without a session; see [Signing in](#signing-in). |
 | 403 | `FORBIDDEN` | The request has a valid credential that its path does not accept: the admin key on the recorder's API, a session on a request that needs the admin key. |
 | 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND`, `DEMO_NOT_FOUND` | FACEIT does not know the player or match, or the match has no demo record yet. The request for the compilation of a player's kills does not ask FACEIT: there the first two say that the database has no such match or player; see [Video clips](#video-clips). |
 | 404 | `AUTH_PROVIDER_DISABLED` | The sign-in with FACEIT was asked for; it is not written yet (see [Signing in](#signing-in)). |
@@ -532,7 +532,7 @@ the cookies. Signing in with FACEIT itself (OAuth) is a later step.
 | `GET /api/v1/auth/steam/start?returnTo=/clips` | `302` to Steam's login page, and the cookie `csf_login`. `returnTo` is the path of the site to come back to. |
 | `GET /api/v1/auth/steam/callback?state=...&openid....` | Where Steam sends the visitor back; nothing calls it by hand. On success `302` to the `returnTo` of the start, with the cookie `csf_session`. On any failure `302` to `/?login=failed` and no session. `csf_login` is spent either way. |
 | `GET /api/v1/auth/faceit/start`, `GET /api/v1/auth/faceit/callback` | `404` `AUTH_PROVIDER_DISABLED`: the sign-in with FACEIT is not written yet. |
-| `GET /api/v1/auth/me` | `200` with who is signed in, `401` `UNAUTHENTICATED` without a session. |
+| `GET /api/v1/auth/me` | `200` with who is signed in, `204` with no body without a session. A visitor who is not signed in is the common case and no error: every page asks this once, and a `401` would make the browser print a failed request in the console of every visitor. |
 | `POST /api/v1/auth/logout` | `204`. The session is deleted from the database and its cookie cleared; the old cookie signs nobody in any more. `204` also when there was no session, and no admin key is needed. |
 
 ```json
@@ -599,8 +599,8 @@ The migration `V5__users.sql` adds two tables.
   in, so no job is needed.
 
 A session cookie that is unknown, expired or malformed is simply ignored: the request is anonymous, and a public page never
-answers `401` because of a stale cookie. A request that carries both a session cookie and the admin key is the admin's for
-every rule, and `GET /api/v1/auth/me` still answers for the cookie. Signing in again ends the session the browser had.
+answers `401` because of a stale cookie (`GET /api/v1/auth/me` answers it `204`). A request that carries both a session
+cookie and the admin key is the admin's for every rule, and `GET /api/v1/auth/me` still answers for the cookie. Signing in again ends the session the browser had.
 
 ### The FACEIT player
 
@@ -639,8 +639,10 @@ CALLBACK=$(curl -sS -o /dev/null -w '%{redirect_url}' "$LOGIN")
 curl -sS -b jar.txt -c jar.txt -o /dev/null -w '%{http_code} %{redirect_url}\n' "$CALLBACK"
 # 4. Who is signed in:
 curl -sS -b jar.txt http://localhost:3000/api/v1/auth/me
-# 5. Sign out (no admin key needed); the cookie then gets 401 UNAUTHENTICATED from /me:
+# 5. Sign out (no admin key needed):
 curl -sS -b jar.txt -c jar.txt -X POST -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/v1/auth/logout
+# 6. The cookie is no session any more: /me answers 204, with no body (so does a request with no cookie at all):
+curl -sS -b jar.txt -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/v1/auth/me
 ```
 
 ## Demo pipeline
@@ -712,7 +714,8 @@ token to an application that applies for it (<https://fce.gg/downloads-api-appli
     sentence in `error` (and no code). So is a signed address that is itself refused (`401`, `403`, `404`, `410` from its
     host: it has expired or was withdrawn); its sentence says so and the import can be requested again.
   - `5xx`, `429`, a timeout or a broken connection: the failure may go away, so the message is tried again, three
-    times in all (see above), and then the demo is `FAILED` with "Importing the demo failed after 3 attempts".
+    times in all (see above), and then the demo is `FAILED` with "Importing the demo failed after 3 attempts" and the code
+    `IMPORT_FAILED`.
 - **Without a token** the worker downloads `demo_url` as it is. That works for a host that really serves the file (the
   [fake FACEIT](dev/fake-faceit/README.md) does) and for no real FACEIT match: when the host does not resolve or answers
   `401` or `403`, the demo is `FAILED` at once with `DOWNLOAD_NEEDS_ACCESS`. A host that does not resolve is told from a
@@ -727,12 +730,16 @@ endpoint are never logged, and `faceit.downloads.*` prints them as `***` whereve
 
 `error` is an English sentence for the logs and for a client that has nothing better. `errorCode` (the column
 `demos.error_code`, `null` when there is none) is the same reason as a code that a page can translate. It is set together
-with `error` and cleared with it, by a new import or an upload; every failure that is not listed here has `errorCode`
-`null`.
+with `error` and cleared with it, by a new import or an upload (and, for `ANALYSIS_FAILED`, also by an analysis that
+succeeds); every failure that is not listed here has `errorCode` `null`. A client that meets a code it does not know shows
+`error`.
 
 | `errorCode` | Meaning |
 | --- | --- |
 | `DOWNLOAD_NEEDS_ACCESS` | FACEIT did not let this site download the demo: its Downloads API refused the token (`401` or `403`), or the site has no token and the `demo_url` is FACEIT's private cloud (it does not resolve, or answers `401` or `403`). Asking again changes nothing. The site tells the visitor to take the demo from the match's room on FACEIT and upload it. |
+| `IMPORT_FAILED` | The import failed on every attempt: the message of the import was dead-lettered after three tries, each of which failed in a way that may go away (a FACEIT error, a timeout, a broken connection), and `error` is `Importing the demo failed after 3 attempts`. The site tells the visitor that the demo can be uploaded as a file. |
+| `PARSE_FAILED` | The parsing failed on every attempt: the message of the parse was dead-lettered after three tries, and `error` is `Parsing the demo failed after 3 attempts`. The site says that the file may be damaged. A parse that the parser itself gives up on records its own sentence and has no code. |
+| `ANALYSIS_FAILED` | The analysis of a parsed demo failed on every attempt: the demo stays `PARSED` (not `FAILED`) with `error` `Analyzing the demo failed after 3 attempts. The parsed data is kept; start the analysis again.` and this code. Starting the analysis again, or uploading the file, clears both. |
 
 ### Endpoints
 
@@ -950,9 +957,9 @@ itself, say, from facts it cannot handle; every failed attempt is logged at `ERR
 trace) and then gives up. The demo is not marked `FAILED`, because the facts the parser wrote are intact and parsing
 the file again would be wasted work (an upload always works, also after the retention job has removed the file: it
 restores the demo, see [Retention](#retention)). A `PARSED` demo stays `PARSED` and its
-`error` becomes `Analyzing the demo failed after 3 attempts. The parsed data is kept; start the analysis again.`. Start
-the analysis again with `POST .../demo/analyze`: a successful analysis moves the demo to `ANALYZED` and clears the error,
-and uploading the file again clears it too. An `ANALYZED` demo whose repeated analysis fails is not changed at all: it
+`error` becomes `Analyzing the demo failed after 3 attempts. The parsed data is kept; start the analysis again.` and its
+`errorCode` `ANALYSIS_FAILED`. Start the analysis again with `POST .../demo/analyze`: a successful analysis moves the demo
+to `ANALYZED` and clears the error and its code, and uploading the file again clears them too. An `ANALYZED` demo whose repeated analysis fails is not changed at all: it
 keeps the statistics and the highlights of the earlier analysis, and the failure shows only in the backend log. In both
 cases `demo_pipeline_failed_total{stage="analyze"}` counts the failed analysis.
 
@@ -1147,15 +1154,15 @@ Browser: GET /api/v1/clips/{clipId}, GET .../video (Range), GET .../thumbnail
 | `ENCODING` | The recorder makes the thumbnail and reads the length and size of the video. | A progress report that names this stage. |
 | `UPLOADING` | The recorder sends the video and the thumbnail. It reports this stage before the first byte goes out, so the video is in the storage only once the upload of the video has ended (`sizeBytes` is set then); the clip stays here until `complete`. | A progress report that names this stage, or the upload of the video. |
 | `DONE` | The video is ready and is served. Final. | `POST .../complete`, which needs the video of this attempt to be uploaded. |
-| `FAILED` | Given up; `error` says why. Final: a new request for the same clip queues a new one. | `fail` without `retryable`, or with the attempts used up; a recorder that went silent with the attempts used up; a `claim` that finds the demo file gone or the player's SteamID unknown (not retried). |
+| `FAILED` | Given up; `error` says why, and `errorCode` names the reason when the backend found it itself (see [Why a clip failed](#why-a-clip-failed)). Final: a new request for the same clip queues a new one. | `fail` without `retryable`, or with the attempts used up; a recorder that went silent with the attempts used up; a `claim` that finds the demo file gone or the player's SteamID unknown (not retried). |
 
 `RECORDING`, `ENCODING` and `UPLOADING` are the active statuses, the ones in which a recorder holds the clip. A recorder
 may report any active stage at any time, also an earlier one. A status changes only under the lock of the clip's row, so
 of a recorder's report and the check that takes a silent clip back, whichever comes first wins and the other finds the
 clip as it was left: it is answered with `409 CLIP_NOT_CLAIMED` and changes nothing. The `attempts` column of the `clips`
 table counts the claims. A clip that goes back to the queue keeps its count, forgets the claim, the progress and the
-files of the attempt, and shows the reason in `error` until it is claimed again; at `clip.max-attempts` it is `FAILED`
-instead.
+files of the attempt, and shows the reason in `error` (and `errorCode`) until it is claimed again; at `clip.max-attempts`
+it is `FAILED` instead.
 
 ### Requests and reads
 
@@ -1196,7 +1203,7 @@ A clip, here a queued one of a `K3` (ids shortened):
 {"id": 1, "kind": "HIGHLIGHT", "status": "QUEUED", "progress": 0, "matchId": "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
  "mapName": "de_mirage", "playerId": "steam:...", "nickname": "garnet", "highlightType": "K3", "roundNumber": 5,
  "tickStart": 33246, "quality": "720p", "fps": 60, "durationMs": null, "sizeBytes": null, "error": null,
- "queuePosition": 1, "videoUrl": null, "thumbnailUrl": null, "createdAt": "...", "finishedAt": null,
+ "errorCode": null, "queuePosition": 1, "videoUrl": null, "thumbnailUrl": null, "createdAt": "...", "finishedAt": null,
  "expiresAt": null, "kills": []}
 ```
 
@@ -1208,7 +1215,8 @@ A clip, here a queued one of a `K3` (ids shortened):
 | `highlightType`, `roundNumber`, `tickStart` | The highlight the clip was made for (see [Analysis](#analysis)): its type, its round, and the first tick of its window. |
 | `quality`, `fps` | The size of the picture (`"720p"` is 1280x720, `"1080p"` is 1920x1080) and the frames per second (`clip.fps`, as it was when the clip was requested). |
 | `queuePosition` | While the clip is `QUEUED`: its place in the queue, 1 for the clip a recorder takes next. `null` in every other status. |
-| `error` | Why the clip failed, or why its last attempt did while it waits to be recorded again. |
+| `error` | Why the clip failed, or why its last attempt did while it waits to be recorded again: an English sentence for the logs and for a client that has nothing better. |
+| `errorCode` | The same reason as a code a page can translate, when the backend found it itself (see [Why a clip failed](#why-a-clip-failed)); `null` for a reason the recorder reports, which is free text, and while there is no `error`. It is set with `error` and cleared with it, when the clip is claimed again and when it is completed. A client that meets a code it does not know shows `error`. |
 | `durationMs`, `sizeBytes` | The length of the finished video, and the size of its file (known from the upload on). |
 | `videoUrl`, `thumbnailUrl` | Where the video and its thumbnail are served from (`/api/v1/clips/{id}/video`, `/api/v1/clips/{id}/thumbnail`); `null` until the clip is `DONE`, and `thumbnailUrl` also when the recorder uploaded no thumbnail. |
 | `createdAt`, `finishedAt`, `expiresAt` | When the clip was requested, when it became `DONE` or `FAILED`, and when the clean-up of old clips removes it (`finishedAt` plus `clip.retention-days`; `null` for a clip that is not `DONE`, or when the setting is 0). |
@@ -1285,6 +1293,19 @@ whether a key exists, and if that fails the whole run is skipped with one warnin
 them (every expired clip would otherwise lose its row and keep its files for good, since nothing sweeps `clips/`). `0`
 days switches the job off, and then `expiresAt` is `null`.
 
+### Why a clip failed
+
+The sentences the backend itself writes into a clip's `error` have a code in `errorCode` (the column `clips.error_code`,
+added by `V7__clip_error_code.sql`). The recorder's own words, sent with `POST .../fail`, are free text: they are shown as
+they are and have no code.
+
+| `errorCode` | `error` | Meaning |
+| --- | --- | --- |
+| `RECORDER_STOPPED` | `The recorder stopped responding` | A recorder held the clip and sent no report for `clip.stale-after`; the job that takes silent clips back put it in the queue again or, with the attempts used up, failed it. |
+| `NO_REASON` | `The recorder gave no reason` | A recorder gave the clip up with `POST .../fail` and sent no `error` text. |
+| `DEMO_GONE` | `The demo file is no longer stored` | The demo file of the match is gone from the storage (the retention job removed it), found when a recorder claims the clip. Failed at once, not retried. |
+| `STEAM_ID_UNKNOWN` | `The player's Steam ID is not known` | The player of the clip has no SteamID, which a recorder follows a player by, found when a recorder claims the clip. Failed at once, not retried. |
+
 ### Checks and errors
 
 Besides `200`, `201` and `204`, the requests above are answered with:
@@ -1341,7 +1362,7 @@ gives the clip up with `POST .../fail`. All through, it reports with `POST .../p
 seconds in every stage, while downloading the demo, recording, encoding and uploading too (an upload is one long
 request, so the reports go out on a timer of their own). A clip that has had no report for `clip.stale-after` (3 minutes)
 is taken back by a job that runs every 30 seconds: it goes back to the queue with the error "The recorder stopped
-responding", or is `FAILED` with it when it has had `clip.max-attempts` attempts. An attempt is counted when the clip is
+responding" (the `errorCode` `RECORDER_STOPPED`), or is `FAILED` with it when it has had `clip.max-attempts` attempts. An attempt is counted when the clip is
 claimed. **A `409 CLIP_NOT_CLAIMED` to any request about a clip means: stop working on it, and abort an upload that is in
 flight.** The clip is not held by that `worker` (it was taken back, finished, failed or deleted, or there is no such
 clip), or not in the attempt that the request began in (an upload of an earlier attempt, after the recorder has claimed
@@ -1359,7 +1380,7 @@ the file that the clip's row names.
 | `PUT /clips/{clipId}/video?worker=pc-1` | The MP4 file as the raw body, `Content-Type: video/mp4`; not empty, and not larger than `CLIP_UPLOAD_MAX_SIZE` (a `Content-Length` above it is refused before the body is read). | `204`. The video is stored as `clips/{clipId}-{attempt}.mp4`, `attempt` being the number of the attempt the clip is in (its `attempts`, counted from 1), and the clip becomes `UPLOADING` with `sizeBytes`. A video that is sent again in the same attempt replaces the first. | `400 VALIDATION_ERROR` (empty body, or cut off), `409 CLIP_NOT_CLAIMED` (also when the clip was taken back while the file was on its way, or the recorder has claimed it again meanwhile: nothing is recorded then), `413 PAYLOAD_TOO_LARGE`, `415 UNSUPPORTED_MEDIA_TYPE`, `503 STORAGE_UNAVAILABLE` |
 | `PUT /clips/{clipId}/thumbnail?worker=pc-1` | The JPEG file as the raw body, `Content-Type: image/jpeg`; the same limits. | `204`. Stored as `clips/{clipId}-{attempt}.jpg`; the status of the clip stays. | As for the video |
 | `POST /clips/{clipId}/complete` | JSON `{"worker": "pc-1", "durationMs": 14500, "width": 1280, "height": 720}`; all three numbers are positive. | `204`. The clip is `DONE`, `progress` 100, with `durationMs`, and `videoUrl` is set. | `400 VALIDATION_ERROR`, `409 CLIP_NOT_CLAIMED`, `409 CLIP_VIDEO_MISSING` (no video was uploaded in this attempt) |
-| `POST /clips/{clipId}/fail` | JSON `{"worker": "pc-1", "error": "The game crashed", "retryable": true}`. `error` is kept on the clip (cut to 2000 characters), and `GET /api/v1/clips/{clipId}` shows it to everyone: it must hold no local path and no stack trace. | `204`. With `retryable` true and fewer than `clip.max-attempts` attempts so far the clip goes back to the queue (`QUEUED`, the claim, the progress and the uploaded files forgotten, the `error` kept until it is claimed again); otherwise it is `FAILED` with the `error`. | `400 VALIDATION_ERROR`, `409 CLIP_NOT_CLAIMED` |
+| `POST /clips/{clipId}/fail` | JSON `{"worker": "pc-1", "error": "The game crashed", "retryable": true}`. `error` is kept on the clip (cut to 2000 characters), and `GET /api/v1/clips/{clipId}` shows it to everyone: it must hold no local path and no stack trace. It is free text and gets no `errorCode`; a missing or blank `error` is stored as "The recorder gave no reason" with the `errorCode` `NO_REASON`. | `204`. With `retryable` true and fewer than `clip.max-attempts` attempts so far the clip goes back to the queue (`QUEUED`, the claim, the progress and the uploaded files forgotten, the `error` kept until it is claimed again); otherwise it is `FAILED` with the `error`. | `400 VALIDATION_ERROR`, `409 CLIP_NOT_CLAIMED` |
 | `POST /heartbeat` | JSON `{"worker": "pc-1", "version": "1.0", "mode": "game", "state": "IDLE", "clipId": null}`. `state` is `IDLE` or `WORKING`; `clipId` is the clip it works on, if any. | `204`. The recorder counts as seen (`GET /api/v1/recorder/status`). It does not keep a clip alive; progress reports do. | `400 VALIDATION_ERROR` |
 
 `claim` and `progress` count as a sighting of the recorder too, so a recorder that asks for work every few seconds
