@@ -129,8 +129,8 @@ services:
       FACEIT_DOWNLOADS_URL: ${FACEIT_DOWNLOADS_URL:-https://open.faceit.com/download/v2/demos/download}
       APP_API_KEY: ${APP_API_KEY:-}
       # The SteamID64s (17 digits, comma separated) of the people who get the role ADMIN when they sign in with Steam; every
-      # other visitor is a USER. Empty by default. The role is shown by /api/v1/auth/me and does not yet let anyone act
-      # without the admin key.
+      # other visitor is a USER. Empty by default. An administrator's session does what the admin key does; the list is
+      # read at every request, so a SteamID taken off it is a USER again after the restart, with the same cookie.
       AUTH_ADMIN_STEAM_IDS: ${AUTH_ADMIN_STEAM_IDS:-}
       # The FACEIT OAuth application, for signing in with FACEIT. Empty by default, and then only Steam is offered. The
       # sign-in with FACEIT itself is not written yet, so they are read and nothing more; the secret is never logged.

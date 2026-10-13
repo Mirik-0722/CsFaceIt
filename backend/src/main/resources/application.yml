@@ -64,8 +64,9 @@ app:
 # Signing in (auth/AuthProperties). A visitor signs in with Steam (OpenID 2.0: no key, no registration) and the site then
 # looks for their FACEIT player by the SteamID. The session lives in a cookie for session-lifetime and use does not extend
 # it; the address Steam sends the visitor back to is the one the browser used, provided that it is one of the known origins
-# of app.* above, so nothing in this block names the site. A session only identifies the visitor: what needs the admin key
-# (APP_API_KEY) still needs it, whoever is signed in.
+# of app.* above, so nothing in this block names the site. A signed-in player may, without the admin key (APP_API_KEY),
+# bring the demo of a match they played and order, retry and delete their own clips (auth/Access has the rules); an
+# administrator's session does what the key does.
 auth:
   steam:
     # Where the browser is sent to sign in, and where the backend posts the answer back to have Steam confirm it. Both are
@@ -75,7 +76,8 @@ auth:
     login-url: ${AUTH_STEAM_LOGIN_URL:https://steamcommunity.com/openid/login}
     verify-url: ${AUTH_STEAM_VERIFY_URL:https://steamcommunity.com/openid/login}
   # The SteamID64s (17 digits, comma separated) of the people who get the role ADMIN when they sign in; every other
-  # visitor is a USER. The role is stored and shown by /api/v1/auth/me; it does not yet let anyone act without the admin key.
+  # visitor is a USER. The list is read at every request (the effective role, which /api/v1/auth/me shows), not only at
+  # the sign-in: a SteamID taken off it is a USER again after the restart, with the cookie it has.
   admin-steam-ids: ${AUTH_ADMIN_STEAM_IDS:}
   # The FACEIT OAuth application. The sign-in with FACEIT is meant to be on only while a client id is set, but its flow is
   # not written yet: /api/v1/auth/providers answers `faceit: false` whatever is set here (AuthController says why), and the

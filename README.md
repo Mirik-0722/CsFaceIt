@@ -102,9 +102,9 @@ Then edit `.env`:
 | Variable | Meaning | Default in `.env.example` |
 | --- | --- | --- |
 | `FACEIT_API_KEY` | **Required.** Your FACEIT Data API key. The backend refuses to start when it is empty. | empty |
-| `APP_API_KEY` | **Required.** Secret that clients send in the `X-API-Key` header. Everything except `GET`/`HEAD` on `/api/v1/**`, `/actuator/health` and `/actuator/prometheus` requires it (signing out, `POST /api/v1/auth/logout`, is the one exception, see [Signing in](#signing-in)), and `/api/worker/**`, which takes the worker token instead (`CLIP_WORKER_TOKEN`). Being signed in does not replace it. Choose a long random value, for example `openssl rand -hex 32`. While it is empty the backend logs a warning and rejects every protected request. | empty |
+| `APP_API_KEY` | **Required.** Secret that clients send in the `X-API-Key` header. Everything except `GET`/`HEAD` on `/api/v1/**`, `/actuator/health` and `/actuator/prometheus` requires it (signing out, `POST /api/v1/auth/logout`, is the one exception, see [Signing in](#signing-in)), and `/api/worker/**`, which takes the worker token instead (`CLIP_WORKER_TOKEN`). A signed-in player reaches a few of the writes without it, for their own matches and clips, and an administrator's session all of them (see [What a signed-in player can do](#what-a-signed-in-player-can-do)). Choose a long random value, for example `openssl rand -hex 32`. While it is empty the backend logs a warning and rejects every protected request. | empty |
 | `CLIP_WORKER_TOKEN` | The secret the recorder sends in the `X-Worker-Token` header (see [Worker API](#worker-api-the-recorder)). It opens `/api/worker/**` and nothing else, and the admin key does not open that. Choose a long random value, for example `openssl rand -hex 32`, and give the same one to the recorder. While it is empty the backend logs a warning and rejects every request of a recorder. The fake-FACEIT mode sets `dev-worker-token`. | empty |
-| `AUTH_ADMIN_STEAM_IDS` | The SteamID64s (17 digits, comma separated) of the people who get the role `ADMIN` when they sign in with Steam (see [Signing in](#signing-in)). The role is in the answer of `GET /api/v1/auth/me` (the site does not show it) and does not yet let anyone act without `APP_API_KEY`. | empty |
+| `AUTH_ADMIN_STEAM_IDS` | The SteamID64s (17 digits, comma separated) of the people who get the role `ADMIN` when they sign in with Steam (see [Signing in](#signing-in)). An administrator's session does what `APP_API_KEY` does, so list only people you would give the key to. The list is read at every request: after a restart with a SteamID removed, that person is a `USER` again with the cookie they have. The role is in the answer of `GET /api/v1/auth/me`. | empty |
 | `FACEIT_OAUTH_CLIENT_ID`, `FACEIT_OAUTH_CLIENT_SECRET` | The FACEIT OAuth application, for signing in with FACEIT. The sign-in with FACEIT itself is not written yet, so the two are read and nothing more: `GET /api/v1/auth/providers` answers `faceit: false` whatever they hold, and only Steam is offered. The secret is never logged. | empty |
 | `FACEIT_DOWNLOADS_TOKEN` | The access token for FACEIT's Downloads API (`faceit.downloads.token`), the only way to get a demo file; it is not the Data API key, which that API refuses. Applied for at FACEIT (see [How the import gets the file](#how-the-import-gets-the-file)). Empty means no access: the import then fails at once with `DOWNLOAD_NEEDS_ACCESS`, and the demo is uploaded by hand. Never logged. | empty |
 | `FACEIT_DOWNLOADS_URL` | The address of the Downloads API (`faceit.downloads.url`); override it only to point the backend at a fake FACEIT. Commented out in `.env.example`. | `https://open.faceit.com/download/v2/demos/download` |
@@ -472,7 +472,8 @@ cd frontend && SHOTS=1 npx playwright test e2e/shots.spec.ts
 Base URL: <http://localhost:3000> with Docker Compose, <http://localhost:8080> in dev mode. Everything returns JSON,
 and errors have the shape `{"code": "...", "message": "..."}`. The player and match endpoints below are `GET` and open;
 the four [demo endpoints](#demo-pipeline) and the [clip endpoints](#video-clips) are described in their own sections,
-and the requests that change something (`POST`, `DELETE`) need the `X-API-Key` header, signing out excepted (which has to come
+and the requests that change something (`POST`, `DELETE`) need the `X-API-Key` header or, for the ones listed under
+[What a signed-in player can do](#what-a-signed-in-player-can-do), a session; signing out needs neither (it has to come
 from the site itself, see [Signing in](#signing-in)). The requests about who is signed in are
 [their own section](#signing-in).
 
@@ -509,13 +510,15 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | Status | `code` | When |
 | --- | --- | --- |
 | 400 | `VALIDATION_ERROR` | A nickname, id, highlight `type` or paging parameter is malformed; for the upload also a bad file name, an empty or corrupt file, or a multipart body that is malformed or was cut off. |
-| 401 | `UNAUTHORIZED` | A protected request is missing a valid `X-API-Key` header; a request to the recorder's API (`/api/worker/**`) a valid `X-Worker-Token` header. |
-| 403 | `FORBIDDEN` | The request has a valid credential that its path does not accept: the admin key on the recorder's API, a session on a request that needs the admin key. |
+| 401 | `UNAUTHORIZED` | A protected request has neither a valid `X-API-Key` header nor (where a session is enough) a live session; a request to the recorder's API (`/api/worker/**`) is missing a valid `X-Worker-Token` header. |
+| 403 | `FORBIDDEN` | The request has a valid credential that its path does not accept: the admin key on the recorder's API, the session of a `USER` on a request that needs the admin key or an administrator. |
+| 403 | `FACEIT_NOT_LINKED`, `NOT_IN_MATCH`, `NOT_YOUR_PLAYER`, `NOT_YOUR_CLIP` | A signed-in `USER` asked for something that is not theirs: no FACEIT player is linked to them; they are not in the roster of the match; the clip was asked for another player; the clip was ordered by someone else (see [What a signed-in player can do](#what-a-signed-in-player-can-do)). |
 | 403 | `CROSS_SITE_REQUEST` | A write (not `GET`, `HEAD` or `OPTIONS`) carries the session cookie and not the admin key, and its `Origin` header is missing or is not one of the known origins of the site, signing out included (an `Origin` of another host is answered `403` `Invalid CORS request` by the CORS filter first; see [Writes with the session cookie](#writes-with-the-session-cookie)). |
 | 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND`, `DEMO_NOT_FOUND` | FACEIT does not know the player or match, or the match has no demo record yet. The request for the compilation of a player's kills does not ask FACEIT: there the first two say that the database has no such match or player; see [Video clips](#video-clips). |
 | 404 | `AUTH_PROVIDER_DISABLED` | The sign-in with FACEIT was asked for; it is not written yet (see [Signing in](#signing-in)). |
 | 404 | `HIGHLIGHT_NOT_FOUND`, `CLIP_NOT_FOUND` | There is no such highlight (or its demo is not `ANALYZED`) or clip; see [Video clips](#video-clips). |
 | 409 | `DEMO_URL_UNAVAILABLE`, `DEMO_NOT_PARSED` | A demo import was requested but FACEIT has no demo for the match (yet); or an analysis was requested but the demo is not `PARSED` or `ANALYZED`. |
+| 409 | `DEMO_ALREADY_PARSED`, `DEMO_ALREADY_ANALYZED` | A signed-in player uploaded a file over a demo that is `PARSED` or `ANALYZED`, or asked for the analysis of a demo that is `ANALYZED`; both are the admin key's and an administrator's to do. |
 | 409 | `DEMO_NOT_AVAILABLE`, `PLAYER_STEAM_ID_UNKNOWN`, `NO_KILLS`, `CLIP_TOO_LONG` | A new clip was requested but the demo file is not stored, the player's SteamID is unknown, the player made no kill of an enemy in the match (a compilation), or the clip would be longer than allowed; see [Video clips](#video-clips). |
 | 409 | `CLIP_IN_PROGRESS` | A clip was to be deleted while a recorder works on it; see [Video clips](#video-clips). |
 | 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip file expands beyond it), or a recorder's video or thumbnail is larger than `CLIP_UPLOAD_MAX_SIZE`. |
@@ -535,10 +538,11 @@ network (see [Metrics and dashboards](#metrics-and-dashboards)).
 
 A visitor can sign in with Steam: [OpenID 2.0](https://openid.net/specs/openid-authentication-2_0.html), which needs no
 API key and no registration. The site then looks for the visitor's FACEIT player by their SteamID, and says who is signed in.
-Nothing has to be signed in to read: every read of the API stays open. A session **identifies** the visitor and nothing
-more. Uploading and analyzing a demo and ordering and deleting a clip still take the admin key (`X-API-Key`), whoever is
-signed in, and so does everything else that is not a read; the recorder's API still takes the worker token and ignores
-the cookies. A write that rides on the session cookie must come from the site itself (see [Writes with the session
+Nothing has to be signed in to read: every read of the API stays open. A session identifies the visitor, and lets them
+do, without the admin key, what concerns their own matches: bring the demo of a match they played and order, retry and
+delete their own clips (see [What a signed-in player can do](#what-a-signed-in-player-can-do)). Everything else that is
+not a read still takes the admin key (`X-API-Key`) or the session of an administrator; the recorder's API still takes
+the worker token and ignores the cookies. A write that rides on the session cookie must come from the site itself (see [Writes with the session
 cookie](#writes-with-the-session-cookie)), and the sign-in is served at the [known origins](#where-the-address-comes-from)
 only. Signing in with FACEIT itself (OAuth) is a later step.
 
@@ -548,7 +552,7 @@ only. Signing in with FACEIT itself (OAuth) is a later step.
 | `GET /api/v1/auth/steam/start?returnTo=/clips` | `302` to Steam's login page, and the cookie `csf_login`. `returnTo` is the path of the site to come back to. At an origin that is not a known one: `302` to `/?login=failed`, no cookie, and a `WARN` that names the origin. |
 | `GET /api/v1/auth/steam/callback?state=...&openid....` | Where Steam sends the visitor back; nothing calls it by hand. On success `302` to the `returnTo` of the start, with the cookie `csf_session`. On any failure `302` to `/?login=failed` and no session. `csf_login` is spent either way. |
 | `GET /api/v1/auth/faceit/start`, `GET /api/v1/auth/faceit/callback` | `404` `AUTH_PROVIDER_DISABLED`: the sign-in with FACEIT is not written yet. |
-| `GET /api/v1/auth/me` | `200` with who is signed in, `204` with no body without a session. A visitor who is not signed in is the common case and no error: every page asks this once, and a `401` would make the browser print a failed request in the console of every visitor. |
+| `GET /api/v1/auth/me` | `200` with who is signed in, `204` with no body without a session. `role` is the **effective** role, `ADMIN` or `USER`: what the settings say of the user's SteamID now (see [What a signed-in player can do](#what-a-signed-in-player-can-do)). A visitor who is not signed in is the common case and no error: every page asks this once, and a `401` would make the browser print a failed request in the console of every visitor. |
 | `POST /api/v1/auth/logout` | `204`. The session is deleted from the database and its cookie cleared; the old cookie signs nobody in any more. `204` also when there was no session, and no admin key is needed. With a session cookie it needs an `Origin` header that is a known origin, like any write: `403` `CROSS_SITE_REQUEST` without one (a browser always sends it). |
 
 ```json
@@ -670,7 +674,65 @@ that are to come) and `users.last_seen_at` and `users.faceit_synced_at`; nothing
 A session cookie that is unknown, expired or malformed is simply ignored: the request is anonymous, and a public page never
 answers `401` because of a stale cookie (`GET /api/v1/auth/me` answers it `204`); only a write from outside the site is
 refused for carrying one (see "Writes with the session cookie"). A request that carries both a session
-cookie and the admin key is the admin's for every rule, and `GET /api/v1/auth/me` still answers for the cookie. Signing in again ends the session the browser had.
+cookie and the admin key is the key's for every rule (a clip it orders is recorded for nobody), and `GET /api/v1/auth/me` still answers for the cookie. Signing in again ends the session the browser had.
+
+### What a signed-in player can do
+
+Three kinds of caller change something, and the rules for them are in one place (`auth/Access`):
+
+| Who | How | May |
+| --- | --- | --- |
+| The admin key | the `X-API-Key` header; it wins when a session cookie comes with it | everything, as before |
+| An administrator (`ADMIN`) | a session whose SteamID is in `AUTH_ADMIN_STEAM_IDS` **now** | everything the key may (not the recorder's API) |
+| A player (`USER`) | any other session | the requests of the table below, for their own matches, player and clips |
+
+The role is the **effective** one: it is worked out at every request from `AUTH_ADMIN_STEAM_IDS`, not taken from what was
+stored at the sign-in (`users.role` keeps that, and nothing reads it for a decision). A SteamID taken off the list is a
+`USER` at its first request after the restart that applied the setting, with the cookie it already has, and one put on
+the list is an administrator without signing in again. `GET /api/v1/auth/me` shows it. An administrator's cookie is
+worth what the admin key is worth, for as long as the session lasts (`auth.session-lifetime`, 30 days): signing out ends it, and
+so does taking the SteamID off the list.
+
+What a `USER` may ask for without the key, and when:
+
+| Request | Rule | Refused with |
+| --- | --- | --- |
+| `POST /api/v1/matches/{id}/demo/import` | they are in the roster of the match | `403 FACEIT_NOT_LINKED`, `403 NOT_IN_MATCH` |
+| `POST /api/v1/matches/{id}/demo/upload` | they are in the roster; the demo has not been parsed yet (the key and an administrator may upload over a `PARSED` or `ANALYZED` demo) | the same two; `409 DEMO_ALREADY_PARSED` |
+| `POST /api/v1/matches/{id}/demo/analyze` | they are in the roster; the demo is `PARSED`, that is, its analysis is missing (the key and an administrator may have an `ANALYZED` demo analyzed again) | the same two; `409 DEMO_ALREADY_ANALYZED` (and `409 DEMO_NOT_PARSED` as for anyone) |
+| `POST /api/v1/highlights/{id}/clips`, `POST /api/v1/matches/{id}/clips` | the highlight's player, or the `playerId` of the compilation, is their own FACEIT player | `403 FACEIT_NOT_LINKED`, `403 NOT_YOUR_PLAYER` |
+| `DELETE /api/v1/clips/{id}` | they ordered the clip | `403 NOT_YOUR_CLIP` |
+| `POST /api/v1/clips/{id}/retry` | they ordered the clip, and it is `FAILED` | `403 NOT_YOUR_CLIP`; `409 CLIP_NOT_FAILED` |
+
+- **The roster** is FACEIT's answer for the match (the cached one when there is one): the user's FACEIT player has to be
+  in one of the two teams. When FACEIT cannot be asked and has no cached answer, the request is refused with
+  `502 FACEIT_UNAVAILABLE`: a roster that cannot be read lets nobody in. The roster is checked before anything is stored,
+  so a refused upload leaves no file and a refused import no match. The key and an administrator are not checked, and
+  cost no call for it.
+- **Their own player** is the FACEIT player linked to the user at the sign-in (`playerId` of `/api/v1/auth/me`). A user
+  with none (`403 FACEIT_NOT_LINKED`) can bring no demo and order no clip; a player known from a demo only
+  (`steam:<SteamID>`) is nobody's own. Deleting and retrying their own clips needs no link.
+- **Their own clip** is one their session ordered: the clip records the user (`clips.requested_by`). A clip ordered with
+  the admin key records nobody, also when a session cookie came with the key, and so do the clips made before this was
+  recorded; only the key and an administrator delete or retry those. Asking again for a clip that exists answers with it
+  and does not change whose it is. The owner is checked under the lock of the clip's row. The clean-up of old clips
+  ([Retention](#retention)) removes every clip alike.
+- **`mine`** in every clip the API returns says whether the clip was ordered by the session that is reading: `true` for
+  that signed-in user, `false` for everybody else, for a visitor who is not signed in and for a request with the admin
+  key.
+- A refusal is logged with the id of the user and the code (`Refused user 7: NOT_IN_MATCH`), never with a SteamID, a
+  nickname or a token. A request from a session still has to come from the site itself
+  ([Writes with the session cookie](#writes-with-the-session-cookie)): with `curl`, add `-H 'Origin: http://localhost:3000'`
+  to the cookie. Nothing changes for a request with the key.
+
+```bash
+# Signed in as in "Trying it without Steam" below (jar.txt holds the session cookie): no key, but the site's Origin.
+curl -b jar.txt -X POST -H 'Origin: http://localhost:3000' \
+  http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/demo/import
+curl -b jar.txt -X POST -H 'Origin: http://localhost:3000' http://localhost:3000/api/v1/highlights/<highlightId>/clips
+curl -b jar.txt -X POST -H 'Origin: http://localhost:3000' http://localhost:3000/api/v1/clips/<clipId>/retry
+curl -b jar.txt -X DELETE -H 'Origin: http://localhost:3000' http://localhost:3000/api/v1/clips/<clipId>
+```
 
 ### The FACEIT player
 
@@ -697,7 +759,7 @@ No call to Steam or FACEIT is made inside a database transaction.
 
 | Setting | Variable | Default | Meaning |
 | --- | --- | --- | --- |
-| `auth.admin-steam-ids` | `AUTH_ADMIN_STEAM_IDS` | empty | SteamID64s (17 digits, comma separated) that get the role `ADMIN` at every sign-in; everyone else is a `USER`. The role is stored and given by `/auth/me`, and gives a session no authority yet. |
+| `auth.admin-steam-ids` | `AUTH_ADMIN_STEAM_IDS` | empty | SteamID64s (17 digits, comma separated) whose sessions are administrators' (`ADMIN`); everyone else is a `USER`. Read at every request, so a change takes effect at the restart, for the sessions that exist too (see [What a signed-in player can do](#what-a-signed-in-player-can-do)). |
 | `auth.steam.login-url` | `AUTH_STEAM_LOGIN_URL` | `https://steamcommunity.com/openid/login` | Where the browser is sent to sign in; the answer must name it as its `openid.op_endpoint`. |
 | `auth.steam.verify-url` | `AUTH_STEAM_VERIFY_URL` | the same | Where the backend posts the answer back to have it confirmed. |
 | `auth.faceit.client-id`, `auth.faceit.client-secret` | `FACEIT_OAUTH_CLIENT_ID`, `FACEIT_OAUTH_CLIENT_SECRET` | empty | The FACEIT OAuth application. Neither is logged. Read, but not used until the sign-in with FACEIT is written (`/auth/providers` answers `faceit: false`). |
@@ -833,8 +895,10 @@ succeeds); every failure that is not listed here has `errorCode` `null`. A clien
 
 All four are under `/api/v1/matches/{matchId}`, where `matchId` is the FACEIT match id (letters, digits and `-`, at
 most 64 characters). The three `POST` endpoints need the admin key in the `X-API-Key` header (`APP_API_KEY`; in the
-[fake-FACEIT mode](#running-without-a-faceit-key) it is `dev-admin-key`). The examples use the Compose address and the
-fake main match.
+[fake-FACEIT mode](#running-without-a-faceit-key) it is `dev-admin-key`) or a session: an administrator's does what the
+key does, and a signed-in player's works for a match they played (`403 FACEIT_NOT_LINKED` or `403 NOT_IN_MATCH`
+otherwise, see [What a signed-in player can do](#what-a-signed-in-player-can-do)). The examples use the Compose address
+and the fake main match.
 
 Request the import of the demo FACEIT has for the match. The answer is `202` with the demo as it is now; repeating the
 request is safe and queues nothing new while the demo is `QUEUED`, `STORED`, `PARSED` or `ANALYZED`:
@@ -855,7 +919,9 @@ curl http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
 Upload the demo yourself when FACEIT's cannot be downloaded (no demo URL, no access to the Downloads API, a `404`). The multipart part is
 named `file` and the file name must end in `.dem`, `.dem.gz` or `.dem.zst`; it is stored as zstd whatever it came as.
 The demo becomes `STORED` at once, from any status, and is announced to the parser. Uploading for a `PARSED` demo
-deliberately parses it again, and the rows of the earlier parse are replaced:
+deliberately parses it again, and the rows of the earlier parse are replaced; that is the admin key's and an
+administrator's to do, and a signed-in player who uploads over a `PARSED` or `ANALYZED` demo is answered
+`409 DEMO_ALREADY_PARSED`, before the file is stored:
 
 ```bash
 curl -X POST -H 'X-API-Key: dev-admin-key' -F 'file=@match.dem' \
@@ -902,7 +968,8 @@ analysis has run: it needs no demo file, only the parsed facts, so it also works
 file; for a `PARSED` demo it asks FACEIT for the roster of the match (see
 [A demo of another match](#a-demo-of-another-match); nearly always a cached answer), for an `ANALYZED` one it asks
 nothing. `404 DEMO_NOT_FOUND` when the match has no demo, `409 DEMO_NOT_PARSED` when the demo is not
-`PARSED` or `ANALYZED`. The answer is `202` also for a demo that was parsed without round rosters: nothing is analyzed
+`PARSED` or `ANALYZED`. A signed-in player can ask only for an analysis that is missing: for an `ANALYZED` demo they are
+answered `409 DEMO_ALREADY_ANALYZED`, and analyzing again is the admin key's and an administrator's. The answer is `202` also for a demo that was parsed without round rosters: nothing is analyzed
 then, and the demo's `error` says to upload the file again (see [Analysis](#analysis)). Repeating the request is safe:
 
 ```bash
@@ -1251,7 +1318,9 @@ recorder that plays the demo in CS2 on a Windows machine is not written yet; the
 pattern with ffmpeg in its place, runs the whole chain (see [The fake recorder](#the-fake-recorder) and
 [Limits](#limits)).
 
-The two requests and the `DELETE` need the admin key in the `X-API-Key` header, the reads are open and answer from the
+The requests (ordering, retrying) and the `DELETE` need the admin key in the `X-API-Key` header or a session: a
+signed-in player orders clips of their own player and retries and deletes the clips they ordered (see
+[What a signed-in player can do](#what-a-signed-in-player-can-do)). The reads are open and answer from the
 database only (nothing is asked of FACEIT), except the video and the thumbnail, which come from the storage. The
 examples use the Compose address; `<highlightId>` is the `id` of an item of `GET /api/v1/matches/{matchId}/highlights`.
 
@@ -1294,6 +1363,7 @@ it is `FAILED` instead.
 | --- | --- |
 | `POST /api/v1/highlights/{highlightId}/clips` | Queues the clip of the highlight. The body is `{"quality": "720p"}` or `{"quality": "1080p"}`; no body, or `{}`, is 720p. `201` and the clip when this request queued it, `200` and the clip that already stands for the highlight at that quality when there is one. |
 | `POST /api/v1/matches/{matchId}/clips` | Queues the compilation of a player's kills in the match: one video of every kill of an enemy he made, round by round (see **A compilation** below). The body is `{"playerId": "...", "quality": "720p"}`; `playerId` is required, `quality` is as above. `201` and the clip (its `kind` is `COMPILATION`) when this request queued it, `200` and the one that already stands for the player at that quality when there is one. |
+| `POST /api/v1/clips/{clipId}/retry` | Orders a `FAILED` clip again: the same highlight (or compilation) at the same quality, as a new clip with a new id, and the failed one is deleted with its files. No body. `201` and the new clip (`200` and the clip that stands, when the same clip was ordered again before this request). The new clip belongs to whoever ordered the failed one. It is checked like an order (the demo file, the queue, ...), and when a check refuses, the failed clip stays. `404 CLIP_NOT_FOUND`; `409 CLIP_NOT_FAILED` for a clip that waits, is being made or is done; `403 NOT_YOUR_CLIP`. |
 | `GET /api/v1/clips/{clipId}` | One clip, with the `kills` its video shows. `404 CLIP_NOT_FOUND`. |
 | `GET /api/v1/matches/{matchId}/clips` | An array of the clips of the match, whatever their status, the newest first. Empty for a match the database does not know. |
 | `GET /api/v1/players/{playerId}/clips?offset=0&limit=20` | `{"items": [...], "offset": 0, "limit": 20}`: a page of the clips of the player over all his matches, whatever their status, the newest first. `offset` 0-10000, `limit` 1-100. Empty for a player the database does not know. |
@@ -1318,6 +1388,7 @@ curl -I http://localhost:3000/api/v1/clips/<clipId>/video
 curl -H 'Range: bytes=0-99' -o first-100-bytes.mp4 http://localhost:3000/api/v1/clips/<clipId>/video
 curl -OJ "http://localhost:3000/api/v1/clips/<clipId>/video?download=1"
 curl -o thumbnail.jpg http://localhost:3000/api/v1/clips/<clipId>/thumbnail
+curl -X POST -H 'X-API-Key: dev-admin-key' http://localhost:3000/api/v1/clips/<clipId>/retry
 curl -X DELETE -H 'X-API-Key: dev-admin-key' http://localhost:3000/api/v1/clips/<clipId>
 ```
 
@@ -1328,7 +1399,7 @@ A clip, here a queued one of a `K3` (ids shortened):
  "mapName": "de_mirage", "playerId": "steam:...", "nickname": "garnet", "highlightType": "K3", "roundNumber": 5,
  "tickStart": 33246, "quality": "720p", "fps": 60, "durationMs": null, "sizeBytes": null, "error": null,
  "errorCode": null, "queuePosition": 1, "videoUrl": null, "thumbnailUrl": null, "createdAt": "...", "finishedAt": null,
- "expiresAt": null, "kills": []}
+ "expiresAt": null, "kills": [], "mine": false}
 ```
 
 | Field | Meaning |
@@ -1437,7 +1508,9 @@ Besides `200`, `201` and `204`, the requests above are answered with:
 | Status | `code` | When |
 | --- | --- | --- |
 | 400 | `VALIDATION_ERROR` | The `quality` is not `"720p"` or `"1080p"`, the body cannot be read, the `playerId` of a compilation is missing or is neither a FACEIT player id nor `steam:<SteamID>`, or an id or paging parameter is malformed. A player known only from a demo has the id `steam:<SteamID>`, whose colon the id rule does not allow, so `GET /api/v1/players/{playerId}/clips` cannot name him (as for his highlights); his clips are in the list of the match. |
-| 401 | `UNAUTHORIZED` | The `POST` or the `DELETE` is missing a valid `X-API-Key` header. |
+| 401 | `UNAUTHORIZED` | The `POST` or the `DELETE` has neither a valid `X-API-Key` header nor a live session. |
+| 403 | `FACEIT_NOT_LINKED`, `NOT_YOUR_PLAYER` | A signed-in player ordered a clip while no FACEIT player is linked to them, or for a player who is not their own. |
+| 403 | `NOT_YOUR_CLIP` | A signed-in player asked to delete or retry a clip they did not order (a clip ordered with the admin key is nobody's). |
 | 404 | `HIGHLIGHT_NOT_FOUND` | There is no highlight with that id, or the demo of its match is not `ANALYZED` (a highlight is served only then, see [Highlights and statistics](#highlights-and-statistics)). |
 | 404 | `MATCH_NOT_FOUND`, `PLAYER_NOT_FOUND` | A compilation was requested for a match or a player the database does not know. |
 | 404 | `CLIP_NOT_FOUND` | There is no clip with that id; for the video and the thumbnail also: the clip is not `DONE`, it has no thumbnail, or its file is missing from the storage. |
@@ -1446,15 +1519,18 @@ Besides `200`, `201` and `204`, the requests above are answered with:
 | 409 | `NO_KILLS` | A compilation was requested for a player who made no kill of an enemy in the match (he did not play in it, or got none). |
 | 409 | `CLIP_TOO_LONG` | The segments add up to more than `clip.max-duration-seconds`. |
 | 409 | `CLIP_IN_PROGRESS` | The clip to delete is being recorded, encoded or uploaded. Delete it when it is `DONE` or `FAILED`, or while it still waits. |
+| 409 | `CLIP_NOT_FAILED` | The clip to retry is not `FAILED`. |
 | 416 | `RANGE_NOT_SATISFIABLE` | The `Range` of a request for the video starts at or beyond its end; `Content-Range: bytes */size` says how long it is. |
 | 429 | `CLIP_QUEUE_FULL` | `clip.max-queued` clips are waiting already. Ask again later. The limit is soft: two requests at the same moment may both get in. |
 | 503 | `STORAGE_UNAVAILABLE` | The video or the thumbnail was asked for while the storage could not be asked for the file (it cannot be reached, or it fails for another reason than the file being gone). Ask again later. |
 
-The `POST` for a highlight checks in this order, and the first that fails ends the request: the highlight; the clip that is there
+The `POST` for a highlight checks in this order, and the first that fails ends the request: the highlight; that its
+player is the caller's own (a signed-in player only); the clip that is there
 already (answered with `200`, whatever became of the demo file and however long the queue is); the demo file; the SteamID
 of the player; the queue; and last the length of the segments.
 
-A compilation is checked in this order, and the first check that fails ends the request: the match and then the player,
+A compilation is checked in this order, and the first check that fails ends the request: that the player is the
+caller's own (a signed-in player only); the match and then the player,
 in the database only (`404 MATCH_NOT_FOUND`, `404 PLAYER_NOT_FOUND`; FACEIT is not asked); the compilation that is there
 already (answered with `200`, whatever became of the demo file and however long the queue is); the demo file; the SteamID
 of the player; that he made a kill of an enemy in the match (`409 NO_KILLS`); the queue; and last the length of the
