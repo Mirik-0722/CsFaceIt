@@ -22,10 +22,21 @@ import org.springframework.web.client.RestClientException;
  * are the short transactions of {@link UserPersistence} (and of {@link PlayerService#upsert}, which makes sure the
  * site has a row for the player).
  *
- * <p>FACEIT never decides whether someone can sign in. A SteamID that FACEIT does not know, a FACEIT that cannot be
- * reached, and a FACEIT player that another user is linked to already all leave the visitor signed in without a link:
- * the user keeps the nickname {@code Steam } and the last six digits of the SteamID, and the lookup is made again at
- * the next sign-in. A link that was made earlier is never taken away by a failed or empty lookup.
+ * <p>FACEIT never decides whether someone can sign in. The visitor is signed in whatever FACEIT says, and FACEIT only
+ * decides what the user is linked to. Its answers are told apart:
+ *
+ * <ul>
+ *   <li>a player is found: the user is linked to it, and when another user held the player (the FACEIT account moved to
+ *       another Steam account) that user is unlinked first, so the latest proof wins
+ *   <li>FACEIT says for certain that there is none (a 404 for the SteamID): a link the user had is taken away, because
+ *       it is no longer true
+ *   <li>FACEIT cannot say (it is down, gave an unusable answer or one with no id or nickname): nothing changes, a link
+ *       that exists stays and one that does not is looked for again at the next sign-in
+ *   <li>two sign-ins link the same player at the same moment and one of the writes fails on the unique index: the step
+ *       is repeated once, and if it fails again the user stays as they were
+ * </ul>
+ *
+ * A user without a link keeps the nickname {@code Steam } and the last six digits of the SteamID.
  */
 @Service
 public class SignInService {
@@ -56,11 +67,7 @@ public class SignInService {
         UserRole role = properties.adminSteamIds().contains(steamId) ? UserRole.ADMIN : UserRole.USER;
         User user = recordSignIn(steamId, role, clock.instant());
 
-        FaceitPlayer profile = findFaceitPlayer(user, steamId);
-        if (profile != null) {
-            Player player = players.upsert(profile);
-            user = persistence.linkFaceit(user.getId(), profile, player.getId());
-        }
+        user = updateFaceitLink(user, steamId);
         log.info("User {} signed in with Steam ({})", user.getId(),
                 user.getFaceitId() == null ? "no FACEIT player linked" : "FACEIT player linked");
         return user;
@@ -76,24 +83,50 @@ public class SignInService {
         }
     }
 
-    /** The FACEIT player of the SteamID, or {@code null} when there is none to link or FACEIT cannot say. */
-    private FaceitPlayer findFaceitPlayer(User user, String steamId) {
+    /**
+     * Brings the user's link to a FACEIT player in line with what FACEIT says of the SteamID, and returns the user as
+     * they are afterwards. Only a definite "there is no such player" takes a link away.
+     */
+    private User updateFaceitLink(User user, String steamId) {
+        FaceitPlayer found;
         try {
-            FaceitPlayer found = faceit.findPlayerBySteamId(steamId);
-            if (isBlank(found.playerId()) || isBlank(found.nickname())) {
-                log.warn("FACEIT answered without an id or a nickname for the player of user {}", user.getId());
-                return null;
-            }
-            return found;
+            found = faceit.findPlayerBySteamId(steamId);
         } catch (FaceitNotFoundException e) {
             log.info("FACEIT has no CS2 player for the Steam account of user {}", user.getId());
-            return null;
+            return persistence.unlinkFaceit(user.getId());
         } catch (FaceitUnavailableException e) {
             log.warn("FACEIT could not be asked about user {}: {}", user.getId(), e.getMessage());
-            return null;
+            return user;
         } catch (RestClientException e) {
             log.warn("FACEIT gave an unusable answer about user {} ({})", user.getId(), e.getClass().getSimpleName());
-            return null;
+            return user;
+        }
+        if (isBlank(found.playerId()) || isBlank(found.nickname())) {
+            // An answer that names no player says nothing about whether there is one, so it changes nothing.
+            log.warn("FACEIT answered without an id or a nickname for the player of user {}", user.getId());
+            return user;
+        }
+        return link(user, found);
+    }
+
+    /**
+     * Links the user to the player, repeating the step once if it loses a race to link that player (two sign-ins that
+     * take it at the same moment: the unique index fails one of the writes). If the repeat fails as well the user stays
+     * as they were, signed in and not linked, and the next sign-in tries again.
+     */
+    private User link(User user, FaceitPlayer profile) {
+        Player player = players.upsert(profile);
+        try {
+            return persistence.linkFaceit(user.getId(), profile, player.getId());
+        } catch (DataIntegrityViolationException e) {
+            log.info("Lost a race to link the FACEIT player of user {}, retrying once", user.getId());
+        }
+        try {
+            return persistence.linkFaceit(user.getId(), profile, player.getId());
+        } catch (DataIntegrityViolationException e) {
+            log.warn("The FACEIT player could not be linked to user {} twice in a row; the user stays as they were",
+                    user.getId());
+            return user;
         }
     }
 

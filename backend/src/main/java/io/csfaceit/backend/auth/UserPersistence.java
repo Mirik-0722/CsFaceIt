@@ -17,7 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>When two first sign-ins of the same Steam account run at once, both find no row and both insert; PostgreSQL fails
  * the second insert with a unique violation, which aborts that transaction and surfaces as a
  * {@link org.springframework.dao.DataIntegrityViolationException}. Nothing is recovered in here: the caller repeats the
- * step, and finds the other request's row.
+ * step, and finds the other request's row. The link to a FACEIT player is the same: two sign-ins that take the same
+ * player at once fail one write on the unique index of {@code users.faceit_id}, and the caller repeats that step too.
  */
 @Component
 public class UserPersistence {
@@ -49,21 +50,46 @@ public class UserPersistence {
     /**
      * Links the user to the FACEIT player found for their SteamID: the id, the nickname and the avatar of the player
      * become the user's, and the user points at the row of the player ({@code playerRowId}, which the caller has just
-     * made sure exists). A FACEIT player is linked to one user at most, so when another user holds this one the user
-     * stays as they were and this is logged: that happens when a FACEIT account has moved to another Steam account.
+     * made sure exists). A FACEIT player is linked to one user at most, and the latest proof wins: FACEIT has just said
+     * that this player belongs to the Steam account that signed in, so when another user holds it (the FACEIT account
+     * moved to another Steam account) that user is unlinked first, in the same transaction and flushed before the new
+     * link is written, because the unique index on {@code faceit_id} would refuse the two rows holding one id for as
+     * long as it takes to write the second.
+     *
+     * <p>Two sign-ins that link the same player at the same moment can still both pass the check above; the index
+     * fails the second write, which surfaces as a {@link org.springframework.dao.DataIntegrityViolationException} for
+     * the caller to repeat (the write is flushed here for that reason, so that the failure is not left to the commit).
      */
     @Transactional
     public User linkFaceit(long userId, FaceitPlayer profile, long playerRowId) {
         User user = users.findById(userId).orElseThrow(() -> new IllegalStateException("User " + userId + " is gone"));
         Optional<User> holder = users.findByFaceitId(profile.playerId());
         if (holder.isPresent() && !holder.get().getId().equals(userId)) {
-            log.warn("The FACEIT player found for user {} is linked to user {} already; user {} stays unlinked", userId,
-                    holder.get().getId(), userId);
-            return user;
+            User previous = holder.get();
+            if (previous.unlinkFaceit()) {
+                log.warn("FACEIT says the player of user {} belongs to the Steam account of user {}: user {} is "
+                        + "unlinked and user {} is linked", previous.getId(), userId, previous.getId(), userId);
+                users.saveAndFlush(previous);
+            }
         }
         user.linkFaceit(profile.playerId(), profile.nickname(), blankToNull(profile.avatar()),
                 players.getReferenceById(playerRowId));
-        return users.save(user);
+        return users.saveAndFlush(user);
+    }
+
+    /**
+     * Takes the FACEIT player away from the user, when they have one: FACEIT has said for certain that their Steam
+     * account has no player, so what the site remembers of an earlier answer is no longer true. The user is the one a
+     * Steam sign-in makes (see {@link User#unlinkFaceit}). A user with no link is left alone.
+     */
+    @Transactional
+    public User unlinkFaceit(long userId) {
+        User user = users.findById(userId).orElseThrow(() -> new IllegalStateException("User " + userId + " is gone"));
+        if (!user.unlinkFaceit()) {
+            return user;
+        }
+        log.info("FACEIT has no player for the Steam account of user {} any more: the user is unlinked", userId);
+        return users.saveAndFlush(user);
     }
 
     private static String blankToNull(String value) {

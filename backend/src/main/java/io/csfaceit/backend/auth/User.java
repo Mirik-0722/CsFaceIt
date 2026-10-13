@@ -92,6 +92,24 @@ public class User {
         this.player = player;
     }
 
+    /**
+     * Takes the FACEIT player away from the user: the user is the one a Steam sign-in makes again, with the placeholder
+     * nickname and no avatar, because both were the player's. A user with no SteamID has nothing but the FACEIT player to
+     * be known by (the table requires one of the two), so this does nothing to them.
+     *
+     * @return whether anything changed
+     */
+    public boolean unlinkFaceit() {
+        if (steamId == null || (faceitId == null && player == null)) {
+            return false;
+        }
+        this.faceitId = null;
+        this.player = null;
+        this.nickname = placeholderNickname(steamId);
+        this.avatarUrl = null;
+        return true;
+    }
+
     public Long getId() {
         return id;
     }
