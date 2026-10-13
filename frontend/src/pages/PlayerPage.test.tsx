@@ -75,7 +75,7 @@ describe('PlayerPage', () => {
     renderPlayerPage()
 
     expect(await screen.findByText('s1mple')).toBeInTheDocument()
-    expect(screen.getByText('ELO 3500')).toBeInTheDocument()
+    expect(screen.getByText('ELO 3,500')).toBeInTheDocument()
     expect(await screen.findByRole('link', { name: /13 : 2$/ })).toHaveAttribute('href', '/matches/m2')
     // The three matches, and the link to the page of matches over them.
     expect(screen.getAllByRole('link')).toHaveLength(4)
@@ -263,7 +263,7 @@ describe('PlayerPage', () => {
     renderPlayerPage('/players/a%20b')
     const region = (await screen.findByText('s1mple')).closest('[aria-live="polite"]')
     expect(region).not.toBeNull()
-    expect(within(region as HTMLElement).getByText('ELO 3500')).toBeInTheDocument()
+    expect(within(region as HTMLElement).getByText('ELO 3,500')).toBeInTheDocument()
     await screen.findByText('No matches yet')
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/players/a%20b', expect.anything())
   })

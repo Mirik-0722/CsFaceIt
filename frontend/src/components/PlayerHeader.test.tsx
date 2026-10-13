@@ -16,7 +16,7 @@ describe('PlayerHeader', () => {
     render(<PlayerHeader player={player} />)
     expect(screen.getByText('s1mple')).toBeInTheDocument()
     expect(screen.getByText('UA')).toBeInTheDocument()
-    expect(screen.getByText('ELO 3500')).toBeInTheDocument()
+    expect(screen.getByText('ELO 3,500')).toBeInTheDocument()
     expect(screen.getByText('Level 10')).toBeInTheDocument()
     expect(screen.queryByText('No CS2 data')).not.toBeInTheDocument()
   })
@@ -51,7 +51,7 @@ describe('PlayerHeader', () => {
 
   it('shows only the value that is present when just one of ELO and level is null', () => {
     render(<PlayerHeader player={{ ...player, level: null }} />)
-    expect(screen.getByText('ELO 3500')).toBeInTheDocument()
+    expect(screen.getByText('ELO 3,500')).toBeInTheDocument()
     expect(screen.queryByText(/Level/)).not.toBeInTheDocument()
     expect(screen.queryByText('No CS2 data')).not.toBeInTheDocument()
   })

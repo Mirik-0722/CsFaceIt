@@ -98,7 +98,7 @@ test('search -> profile -> match stats', async ({ page, api }) => {
 
   await test.step('open the profile and see the match history', async () => {
     await expect(page).toHaveURL(`/players/${PLAYER_ID}`)
-    await expect(page.getByText('ELO 3500')).toBeVisible()
+    await expect(page.getByText('ELO 3,500')).toBeVisible()
     await expect(page.getByText('Level 10')).toBeVisible()
 
     const matches = page.getByRole('link', { name: /\d+ : \d+/ })
@@ -147,7 +147,7 @@ test('search -> profile -> match stats', async ({ page, api }) => {
   await test.step('go back to the profile', async () => {
     await page.goBack()
     await expect(page).toHaveURL(`/players/${PLAYER_ID}`)
-    await expect(page.getByText('ELO 3500')).toBeVisible()
+    await expect(page.getByText('ELO 3,500')).toBeVisible()
     await expect(page.getByRole('link', { name: /13 : 9/ })).toBeVisible()
     await expect(page.getByRole('link', { name: /14 : 16/ })).toBeVisible()
   })

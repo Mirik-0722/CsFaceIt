@@ -52,7 +52,7 @@ describe('SearchPage', () => {
     renderWithProviders(<SearchPage />)
     await search('s1mple')
     expect(await screen.findByText('s1mple')).toBeInTheDocument()
-    expect(screen.getByText(/ELO 3500/)).toBeInTheDocument()
+    expect(screen.getByText(/ELO 3,500/)).toBeInTheDocument()
   })
 
   it('wraps the result card in one link to the player profile', async () => {
@@ -73,7 +73,7 @@ describe('SearchPage', () => {
     const fetchMock = mockFetchOnce(s1mple)
     renderWithProviders(<SearchPage />)
     await userEvent.type(screen.getByLabelText('nickname'), 's1mple{Enter}')
-    expect(await screen.findByText(/ELO 3500/)).toBeInTheDocument()
+    expect(await screen.findByText(/ELO 3,500/)).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/players?nickname=s1mple', expect.anything())
   })
 

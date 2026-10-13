@@ -1,7 +1,7 @@
 // API responses for the E2E flow, typed with the frontend's own interfaces. The values mirror the backend test fixtures
 // (backend/src/test/resources/faceit): s1mple, ELO 3500, level 10; match 1-aaaa... won 13 : 9 on de_mirage.
 // The values are chosen for Playwright's strict locators: `25` is in exactly one stats cell (no figure of the breakdown
-// reads `25` either), and `ELO 3500` appears once on its page.
+// reads `25` either), and `ELO 3,500` (grouped, as the pages write it) appears once on its page.
 import type { BreakdownRound, MatchBreakdownResponse, RoundSide } from '../src/api/breakdownTypes.ts'
 import type {
   PlayerMatchPageResponse,

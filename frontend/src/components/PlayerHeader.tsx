@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { useLocale, useT } from '@/i18n'
 import { countryName } from '@/lib/countryName'
+import { formatInteger } from '@/lib/formatNumber'
 import { cn } from '@/lib/utils'
 import type { PlayerResponse } from '@/api/types'
 
@@ -16,6 +17,7 @@ type Size = Exclude<AvatarSize, 'sm'>
  */
 function PlayerCard({ player }: { player: PlayerResponse }) {
   const t = useT()
+  const locale = useLocale()
   const hasCs2Data = player.elo !== null || player.level !== null
   return (
     <Card>
@@ -30,7 +32,7 @@ function PlayerCard({ player }: { player: PlayerResponse }) {
               <div className="flex flex-wrap gap-x-3 font-mono text-xs text-muted-foreground">
                 {/* FACEIT sends the country code in lower case; it is shown as a code. */}
                 {player.country && <span className="uppercase">{player.country}</span>}
-                {player.elo !== null && <span>{t.player.elo(player.elo)}</span>}
+                {player.elo !== null && <span>{t.player.elo(formatInteger(player.elo, locale))}</span>}
               </div>
             )}
           </div>
@@ -123,7 +125,7 @@ function ProfileHeader({ player, aside, scenery }: { player: PlayerResponse; asi
                 {t.player.faceitLevel(player.level)}
               </span>
             )}
-            {player.elo !== null && <span>{t.player.elo(player.elo)}</span>}
+            {player.elo !== null && <span>{t.player.elo(formatInteger(player.elo, locale))}</span>}
             {!hasCs2Data && <span>{t.player.noCs2Data}</span>}
           </div>
         </div>
