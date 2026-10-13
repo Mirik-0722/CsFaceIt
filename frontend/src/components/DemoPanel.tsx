@@ -26,6 +26,9 @@ const WATCH_MS = 30_000
 
 type Action = 'import' | 'upload' | 'analyze'
 
+/** The code of a demo that FACEIT did not let the site download (see `DemoResponse.errorCode`). */
+const DOWNLOAD_NEEDS_ACCESS = 'DOWNLOAD_NEEDS_ACCESS'
+
 /** What a failed action says. A rejected upload is about the file: the backend checks nothing else of the request. */
 function failureText(action: Action, error: ApiError, t: Messages): string {
   if (action === 'upload' && error.code === 'VALIDATION_ERROR') {
@@ -171,13 +174,27 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
           {t.demo.manage}
         </Button>
       </div>
-      {/* The backend's own words about what went wrong, as they are: it is a technical message. */}
+      {/* A failure the backend gives a code to is explained in the visitor's language, with the way out; any other is
+          the backend's own words about what went wrong, as they are: a technical message. */}
       <div aria-live="polite">
-        {demo.data?.error && (
-          <p className="border-t border-border px-4 py-3 font-mono text-xs break-words text-negative">
-            {demo.data.error}
-          </p>
-        )}
+        {demo.data?.error &&
+          (demo.data.errorCode === DOWNLOAD_NEEDS_ACCESS ? (
+            <div className="flex flex-col items-start gap-0.5 border-t border-border px-4 py-3 text-sm">
+              <p className="text-negative">{t.demo.needsAccess}</p>
+              <a
+                href={`https://www.faceit.com/en/cs2/room/${encodeURIComponent(matchId)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-11 max-w-full items-center text-foreground underline underline-offset-4 hover:text-muted-foreground"
+              >
+                {t.demo.needsAccessLink}
+              </a>
+            </div>
+          ) : (
+            <p className="border-t border-border px-4 py-3 font-mono text-xs break-words text-negative">
+              {demo.data.error}
+            </p>
+          ))}
       </div>
       {open && (
         <div id={controlsId} className="flex flex-col gap-4 border-t border-border p-4">

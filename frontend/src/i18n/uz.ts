@@ -287,6 +287,10 @@ export const uz: Messages = {
     accepted: "So'rov qabul qilindi. Sahifa o'zi yangilanadi.",
     invalidFile: "Fayl demo bo'lishi kerak: .dem, .dem.gz yoki .dem.zst, bo'sh emas.",
     urlUnavailable: "FACEIT'da bu matchning demo fayli yo'q.",
+    // A demo that failed with the code DOWNLOAD_NEEDS_ACCESS: the site is not given the file, so the visitor fetches it.
+    needsAccess:
+      "FACEIT bu demoni avtomatik yuklashga ruxsat bermadi. Demoni FACEIT'dagi match xonasidan yuklab oling va pastda fayl sifatida yuklang.",
+    needsAccessLink: "FACEIT'dagi match xonasi",
     notParsed: "Demo hali o'qilmagan.",
     tooLarge: 'Fayl juda katta.',
   },

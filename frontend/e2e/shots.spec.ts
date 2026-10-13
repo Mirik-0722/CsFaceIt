@@ -499,6 +499,23 @@ const SCENARIOS: Scenario[] = [
   },
   // The demo panel opened: the admin key field and the three requests it guards.
   { name: 'manage', pages: ['match'], before: openDemoControls },
+  // A demo that FACEIT did not let the site download: the explanation in the language of the page and the link to the
+  // match's room on FACEIT, in place of the backend's English sentence. Opened, so that the upload "below" is in the picture.
+  {
+    name: 'noaccess',
+    pages: ['match'],
+    languages: ['uz', 'en'],
+    backend: {
+      demo: {
+        ...demoFixture,
+        status: 'FAILED',
+        error:
+          "Demo download rejected: FACEIT did not let this site download the demo. Download it from the match's room on FACEIT and upload the .dem file manually.",
+        errorCode: 'DOWNLOAD_NEEDS_ACCESS',
+      },
+    },
+    before: openDemoControls,
+  },
   // The first scoreboard scrolled to its right end, on a phone: the player column and the team header stay in place.
   // The default scoreboard fits in 390px and has nothing to scroll; the one with the 32-character nickname overflows.
   { name: 'scrolled-long', pages: ['match'], viewports: [PHONE], backend: LONG_BACKEND, before: scrollScoreboard },

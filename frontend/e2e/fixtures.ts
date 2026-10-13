@@ -325,6 +325,7 @@ export const demoFixture: DemoResponse = {
   matchId: WON_MATCH_ID,
   status: 'ANALYZED',
   error: null,
+  errorCode: null,
   updatedAt: '2023-11-14T23:10:00Z',
 }
 
