@@ -2,14 +2,16 @@ import MapEmblem from '@/components/MapEmblem'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useT } from '@/i18n'
 import { mapLabel } from '@/lib/mapTint'
+import { cn } from '@/lib/utils'
+import { winShareFill } from '@/lib/winShare'
 import type { MapOverview } from '@/api/overview'
 
 /**
- * The player's stored matches by map (spec 3, the maps table): the map with its emblem, how many matches, the share won as
- * a bar with its percentage, K/D and ADR. The rows come in the order given, most played first. A map without a stored ADR
- * shows a dash. The columns are 12px apart and the box has 16px at its sides: each number column is as wide as its
- * figures plus the 12px before it. The table is as wide as that needs and scrolls in its box on a phone, as a scoreboard
- * does.
+ * The player's stored matches by map (spec 3, the maps table): the map with its emblem, how many matches, the share won
+ * as a bar (green from 50%, red below) with its percentage, K/D and ADR. The rows come in the order given, most played
+ * first. A map without a stored ADR shows a dash. The columns are 12px apart and the box has 16px at its sides: each
+ * number column is as wide as its figures plus the 12px before it. The table is as wide as that needs and scrolls in
+ * its box on a phone, as a scoreboard does.
  */
 export default function MapsTable({ maps, labelledBy }: { maps: MapOverview[]; labelledBy: string }) {
   const t = useT()
@@ -41,7 +43,7 @@ export default function MapsTable({ maps, labelledBy }: { maps: MapOverview[]; l
                 <TableCell className="py-0 pr-0 pl-3">
                   <span className="flex items-center gap-3">
                     <span aria-hidden="true" className="block h-[3px] flex-1 bg-line-strong">
-                      <span className="block h-full bg-foreground" style={{ width: `${wonShare}%` }} />
+                      <span className={cn('block h-full', winShareFill(wonShare))} style={{ width: `${wonShare}%` }} />
                     </span>
                     <span className="w-9 text-right">{wonShare}%</span>
                   </span>

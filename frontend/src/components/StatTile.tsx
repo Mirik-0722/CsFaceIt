@@ -9,6 +9,8 @@ interface StatTileProps {
   percent?: number | null
   /** The line of small text under the figure: what it is made of, or why there is none. */
   note?: string
+  /** The class that colours the bar's fill; the light one unless the tile says otherwise (a share of wins). */
+  barClass?: string
 }
 
 /**
@@ -16,7 +18,7 @@ interface StatTileProps {
  * percentage and a line of small text. A tile without a percentage keeps the bar's place empty, so that the lines of
  * the tiles of a row stand on one level. It is a term and its description, to be placed in a `<dl>`.
  */
-export default function StatTile({ label, value, percent, note }: StatTileProps) {
+export default function StatTile({ label, value, percent, note, barClass = 'bg-foreground' }: StatTileProps) {
   const t = useT()
   return (
     <div className="flex min-w-0 flex-col gap-2 border border-border bg-card p-4">
@@ -38,7 +40,7 @@ export default function StatTile({ label, value, percent, note }: StatTileProps)
         {percent !== undefined ? (
           <span aria-hidden="true" className="block h-[3px] bg-line-strong">
             <span
-              className="block h-full bg-foreground"
+              className={cn('block h-full', barClass)}
               style={{ width: `${Math.min(100, Math.max(0, percent ?? 0))}%` }}
             />
           </span>

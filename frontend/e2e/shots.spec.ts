@@ -212,6 +212,15 @@ function tenMatches(): MatchHistoryResponse {
   return { items, offset: 0, limit: 20 }
 }
 
+/**
+ * The E2E fixture's maps with one share of wins under 50%, so that the maps table shows a red bar as well as the green
+ * ones (Mirage 60%, Inferno 33%, Ancient 50%, Nuke 100%, Dust2 0%: no fill).
+ */
+const DEFAULT_OVERVIEW: PlayerOverviewResponse = {
+  ...playerOverviewFixture,
+  maps: playerOverviewFixture.maps.map((map) => (map.mapName === 'de_inferno' ? { ...map, wins: 1 } : map)),
+}
+
 const DEFAULT_BACKEND: Backend = {
   nickname: 's1mple',
   player: playerFixture,
@@ -220,7 +229,7 @@ const DEFAULT_BACKEND: Backend = {
   stats: statsFixture,
   breakdown: breakdownFixture,
   playerStats: playerStatsFixture,
-  overview: playerOverviewFixture,
+  overview: DEFAULT_OVERVIEW,
   playerMatches: playerMatchesFixture,
   highlights: matchHighlightsFixture,
   demo: demoFixture,

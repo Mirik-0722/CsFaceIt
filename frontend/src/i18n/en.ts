@@ -396,6 +396,7 @@ export const en = {
       noKills: 'No kills in this clip',
       seek: (time: string) => `Jump to ${time}`,
       about: 'About the clip',
+      map: 'Map',
       quality: 'Quality',
       fps: (fps: number) => `${fps} FPS`,
       duration: 'Duration',

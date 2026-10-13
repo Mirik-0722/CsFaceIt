@@ -1,3 +1,4 @@
+import MapEmblem from '@/components/MapEmblem'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useT } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -30,7 +31,10 @@ export default function SampleScoreboard() {
       <Table className="caption-top">
         <TableCaption className="mt-0 p-0 text-left">
           <div className="label-mono flex items-center justify-between gap-3 px-4 py-3.5">
-            <span>MIRAGE · 13 : 11</span>
+            <span className="flex items-center gap-2">
+              <MapEmblem mapName="de_mirage" size={16} fallback="none" />
+              MIRAGE · 13 : 11
+            </span>
             <span>{t.home.sample}</span>
           </div>
         </TableCaption>

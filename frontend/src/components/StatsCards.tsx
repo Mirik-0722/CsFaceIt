@@ -1,5 +1,6 @@
 import StatTile from '@/components/StatTile'
 import { useT } from '@/i18n'
+import { winShareFill } from '@/lib/winShare'
 import type { PlayerAggregateStatsResponse } from '@/api/types'
 
 function percent(value: number | null): string | null {
@@ -77,6 +78,7 @@ export default function StatsCards({ stats }: { stats: PlayerAggregateStatsRespo
           label={t.statsCards.winRate}
           value={percent(stats.winRate)}
           percent={stats.winRate}
+          barClass={stats.winRate === null ? undefined : winShareFill(stats.winRate)}
           note={line(stats.winRate, t.statsCards.overMatches(matches))}
         />
       </dl>

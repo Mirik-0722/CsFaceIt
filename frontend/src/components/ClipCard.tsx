@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import MapEmblem from '@/components/MapEmblem'
 import StatusChip from '@/components/StatusChip'
 import ViewfinderFrame from '@/components/ViewfinderFrame'
 import { useLocale, useT } from '@/i18n'
@@ -89,6 +90,14 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
             {clipLabel(clip, t)} · {clip.nickname}
           </h3>
           <p className="truncate text-[13px] text-muted-foreground">
+            {/* In the line of text, 16px, as a letter would be: the emblem is the first thing of the line, so it is
+                cut with the rest when the line is too long. */}
+            <MapEmblem
+              mapName={clip.mapName}
+              size={16}
+              fallback="none"
+              className="mr-1.5 inline-block align-[-3px]"
+            />
             {mapLabel(clip.mapName) ?? t.match.unknownMap}
             {clip.roundNumber !== null && `, ${t.highlight.round(clip.roundNumber)}`}
             {' · '}

@@ -361,6 +361,7 @@ export const uz: Messages = {
       noKills: "Bu klipda kill yo'q",
       seek: (time) => `${time} ga o'tish`,
       about: 'Klip haqida',
+      map: 'Xarita',
       quality: 'Sifat',
       fps: (fps) => `${fps} FPS`,
       duration: 'Davomiyligi',

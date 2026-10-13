@@ -2,6 +2,7 @@ import { ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import KillTimeline from '@/components/KillTimeline'
+import MapEmblem from '@/components/MapEmblem'
 import { Badge } from '@/components/ui/badge'
 import { useLocale, useT } from '@/i18n'
 import { formatDate } from '@/lib/formatDate'
@@ -95,7 +96,11 @@ export default function HighlightCard({ highlight, showMatch, action }: Highligh
             !action && 'mt-auto',
           )}
         >
-          <span className="min-w-0 truncate">{mapLabel(highlight.mapName) ?? t.match.unknownMap}</span>
+          {/* The map's emblem, 20px, before its name; a map without one is the name alone. */}
+          <span className="flex min-w-0 items-center gap-2">
+            <MapEmblem mapName={highlight.mapName} size={20} fallback="none" />
+            <span className="min-w-0 truncate">{mapLabel(highlight.mapName) ?? t.match.unknownMap}</span>
+          </span>
           {highlight.startedAt && (
             <time dateTime={highlight.startedAt} className="shrink-0 font-mono text-xs text-subtle">
               {formatDate(highlight.startedAt, locale)}

@@ -1,9 +1,10 @@
 import { Download, Link2 } from 'lucide-react'
-import { type RefObject, useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useClip, useDeleteClip, useMatchClips, useMatchStats, usePlayer } from '@/api/queries'
 import KillTimeline from '@/components/KillTimeline'
 import LevelRing from '@/components/LevelRing'
+import MapEmblem from '@/components/MapEmblem'
 import PlayerAvatar from '@/components/PlayerAvatar'
 import RecorderBanner from '@/components/RecorderBanner'
 import StatusChip from '@/components/StatusChip'
@@ -230,11 +231,25 @@ function KillList({ kills, onSeek }: { kills: ClipKill[]; onSeek: ((offsetMs: nu
   )
 }
 
-/** The facts of the clip as a two-column list; a fact the clip does not have yet is left out. */
+/**
+ * The facts of the clip as a two-column list, the map first, with its emblem; a fact the clip does not have yet is left
+ * out (a clip of no known map has no row for it).
+ */
 function ClipFacts({ clip }: { clip: ClipResponse }) {
   const t = useT()
   const locale = useLocale()
-  const facts: [string, string][] = [[t.clip.page.quality, `${clip.quality} · ${t.clip.page.fps(clip.fps)}`]]
+  const map = mapLabel(clip.mapName)
+  const facts: [string, ReactNode][] = []
+  if (map !== null) {
+    facts.push([
+      t.clip.page.map,
+      <span key="map" className="inline-flex items-center justify-end gap-2">
+        <MapEmblem mapName={clip.mapName} size={20} fallback="none" />
+        {map}
+      </span>,
+    ])
+  }
+  facts.push([t.clip.page.quality, `${clip.quality} · ${t.clip.page.fps(clip.fps)}`])
   if (clip.durationMs !== null) {
     facts.push([t.clip.page.duration, formatDuration(clip.durationMs / 1000)])
   }
