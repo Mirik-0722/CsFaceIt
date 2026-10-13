@@ -13,13 +13,29 @@ import { log } from './log.js'
 /** The stages of a clip that a recorder reports; the others of `ClipStatus` (waiting, finished) are the backend's. */
 export type Stage = 'RECORDING' | 'ENCODING' | 'UPLOADING'
 
-/** A stretch of the demo, in ticks, both ends included (`ClipSegment`). */
+/**
+ * A stretch of the demo, in ticks, both ends included (`ClipSegment`). `slowMo` (only ever set in a montage) plays it
+ * at half speed, so that it lasts `SLOW_MO_FACTOR` times as long in the video; a backend that does not send it means
+ * `false`.
+ */
 export interface Segment {
   startTick: number
   endTick: number
+  slowMo: boolean
 }
 
-/** The clip a recorder has taken (`WorkerJob`); the field names are the backend's. */
+/** How many times longer a slow-motion segment lasts in the video than in the demo. */
+export const SLOW_MO_FACTOR = 2
+/** How long the intro card of a montage lasts, before the first segment. */
+export const INTRO_SECONDS = 2
+
+/**
+ * The clip a recorder has taken (`WorkerJob`); the field names are the backend's. The last four are a montage's
+ * options and `null`/`false` for any other kind, and for a backend that does not send them: `title` is written over
+ * the video, `intro` opens it with a card of `INTRO_SECONDS` showing the title, `musicTrack` is the id of a track of
+ * the backend's `clip.music-tracks` (only a name, no audio comes with it), and `aspect` is `16:9` or `9:16`, which
+ * `width` and `height` already are.
+ */
 export interface WorkerJob {
   clipId: number
   kind: string
@@ -37,11 +53,25 @@ export interface WorkerJob {
   demoSizeBytes: number
   /** Names this version of the demo file: epoch milliseconds as a string, so a demo kept under it is still the one. */
   demoVersion: string
+  title: string | null
+  intro: boolean
+  musicTrack: string | null
+  aspect: string | null
 }
 
-/** Σ(endTick − startTick) / tickRate: how long the video of the job is, in seconds. */
+/** How long one segment lasts in the video, in seconds: twice its length in the demo when it is slowed down. */
+export function segmentSeconds(segment: Segment, tickRate: number): number {
+  return ((segment.endTick - segment.startTick) * (segment.slowMo ? SLOW_MO_FACTOR : 1)) / tickRate
+}
+
+/** How long the intro card of the job lasts, in seconds: none without one. */
+export function introSeconds(job: WorkerJob): number {
+  return job.intro ? INTRO_SECONDS : 0
+}
+
+/** The intro and Σ of the segments' lengths in the video: how long the video of the job is, in seconds. */
 export function videoSeconds(job: WorkerJob): number {
-  return job.segments.reduce((sum, segment) => sum + (segment.endTick - segment.startTick), 0) / job.tickRate
+  return job.segments.reduce((sum, segment) => sum + segmentSeconds(segment, job.tickRate), introSeconds(job))
 }
 
 /** The backend holds the clip for no one but this recorder: the one signal that says to stop working on the clip. */
@@ -540,7 +570,8 @@ export function parseJob(value: unknown): WorkerJob {
     throw bad('segments', 'a list with at least one segment')
   }
   const segments = rawSegments.map((raw: unknown, index): Segment => {
-    const { startTick, endTick } = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+    const segment = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+    const { startTick, endTick, slowMo } = segment
     if (
       typeof startTick !== 'number' ||
       typeof endTick !== 'number' ||
@@ -551,8 +582,26 @@ export function parseJob(value: unknown): WorkerJob {
     ) {
       throw bad(`segments[${index}]`, 'a pair of ticks with startTick not after endTick')
     }
-    return { startTick, endTick }
+    if (slowMo !== undefined && slowMo !== null && typeof slowMo !== 'boolean') {
+      throw bad(`segments[${index}].slowMo`, 'true or false')
+    }
+    return { startTick, endTick, slowMo: slowMo === true }
   })
+  // The options of a montage: absent (an older backend) and null both mean none.
+  const optionalText = (field: string): string | null => {
+    const string = fields[field]
+    if (string === undefined || string === null || string === '') {
+      return null
+    }
+    if (typeof string === 'string') {
+      return string
+    }
+    throw bad(field, 'a text or null')
+  }
+  const intro = fields.intro
+  if (intro !== undefined && intro !== null && typeof intro !== 'boolean') {
+    throw bad('intro', 'true or false')
+  }
 
   const mapName = fields.mapName
   return {
@@ -568,5 +617,9 @@ export function parseJob(value: unknown): WorkerJob {
     fps: whole('fps', 1),
     demoSizeBytes: whole('demoSizeBytes', 0),
     demoVersion: text('demoVersion'),
+    title: optionalText('title'),
+    intro: intro === true,
+    musicTrack: optionalText('musicTrack'),
+    aspect: optionalText('aspect'),
   }
 }
