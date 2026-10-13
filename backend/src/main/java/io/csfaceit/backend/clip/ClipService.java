@@ -278,8 +278,10 @@ public class ClipService {
      * <p>The clip is read under its lock, where {@link Access} is asked whether the actor may (a user retries only a
      * clip they ordered) and the status is looked at. Then it is ordered like any clip, with the same checks (the demo
      * file is still stored, the queue has room, ...): if one of them refuses, the failed clip stays as it was, to be
-     * tried again later. The failed row goes only once its successor stands. Two retries of the same clip at once leave
-     * one new clip: the second finds the first one's and answers with it.
+     * tried again later. The failed row goes only once its successor stands, and if it cannot be removed then (the
+     * database fails at that moment) the retry has still succeeded: the answer is the new clip, a warning is logged and
+     * the failed row stays until it is deleted or cleaned up. Two retries of the same clip at once leave one new clip:
+     * the second finds the first one's and answers with it.
      *
      * <p>A clip of a highlight is ordered by the key the failed clip holds, not through the highlight row, so it can be
      * tried again after an analysis that no longer finds the highlight; the kills are read from the facts as always.
@@ -312,6 +314,11 @@ public class ClipService {
             remove(clipId, ANY_OWNER);
         } catch (NotFoundException e) {
             log.debug("Clip {} was removed by a concurrent retry or delete", clipId);
+        } catch (RuntimeException e) {
+            // The order stands, and that is what was asked for: the answer is the new clip. The failed row is left
+            // behind for the clean-up of old clips, or for a delete.
+            log.warn("Clip {} was tried again as clip {}, but the failed clip could not be removed and stays: {}",
+                    clipId, creation.clip().id(), e.toString());
         }
         log.info("Clip {} was tried again as clip {}", clipId, creation.clip().id());
         return creation;
