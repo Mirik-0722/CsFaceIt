@@ -20,6 +20,11 @@ const badgeVariants = cva(
         destructive: NEGATIVE,
         // Where a match is from, in FACEIT's own orange (the one place the colour is used).
         faceit: "border-faceit text-faceit",
+        // The tags of highlight types, in the colour of their family (see HighlightTag): an ace is filled.
+        hlAce: "border-hl-multi bg-hl-multi text-primary-foreground",
+        hlMulti: "border-hl-multi text-hl-multi",
+        hlClutch: "border-hl-clutch text-hl-clutch",
+        hlSpecial: "border-hl-special text-hl-special",
       },
     },
     defaultVariants: {

@@ -1,5 +1,5 @@
 import { useT } from '@/i18n'
-import { highlightGroup, highlightKindName } from '@/lib/highlightLabels'
+import { highlightGroup, highlightKindName, type HighlightGroup } from '@/lib/highlightLabels'
 import { cn } from '@/lib/utils'
 import type { HighlightCount } from '@/api/overview'
 
@@ -7,13 +7,20 @@ interface Row {
   key: string
   label: string
   count: number
-  /** ACE is the one kind drawn in the REC colour, as its tag is the one filled tag. */
-  ace: boolean
+  /** The family of the kind, which colours its bar as it colours the kind's tag. */
+  group: HighlightGroup
+}
+
+// The fill of a bar in the colour of its family (spec 2.1): multi-kills, clutches, the special kinds.
+const FILL: Record<HighlightGroup, string> = {
+  multi: 'bg-hl-multi',
+  clutch: 'bg-hl-clutch',
+  special: 'bg-hl-special',
 }
 
 /**
  * The highlights of a player by kind (spec 3): a row per kind with its label, a bar as long as its share of the most
- * frequent kind, and the count. The five sizes of clutch are added up into one row, since a single `1v5` says little.
+ * frequent kind (in the colour of the kind's family), and the count. The five sizes of clutch are added up into one row, since a single `1v5` says little.
  * The rows are in order of count, most first; kinds with the same count keep the order they came in.
  */
 export default function HighlightBreakdown({
@@ -26,7 +33,8 @@ export default function HighlightBreakdown({
   const t = useT()
   const counts = new Map<string, Row>()
   for (const { type, count } of highlights) {
-    const clutch = highlightGroup(type) === 'clutch'
+    const group = highlightGroup(type)
+    const clutch = group === 'clutch'
     const key = clutch ? 'CLUTCH' : type
     const row = counts.get(key)
     if (row) {
@@ -36,7 +44,7 @@ export default function HighlightBreakdown({
         key,
         label: clutch ? t.highlight.groupClutch : highlightKindName(type, t),
         count,
-        ace: type === 'ACE',
+        group,
       })
     }
   }
@@ -52,7 +60,7 @@ export default function HighlightBreakdown({
           <span className="min-w-0">{row.label}</span>
           <span aria-hidden="true" className="block h-2 bg-secondary">
             <span
-              className={cn('block h-full', row.ace ? 'bg-rec' : 'bg-foreground')}
+              className={cn('block h-full', FILL[row.group])}
               style={{ width: `${most > 0 ? Math.round((row.count / most) * 1000) / 10 : 0}%` }}
             />
           </span>

@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
+import HighlightTag from '@/components/HighlightTag'
 import KillTimeline from '@/components/KillTimeline'
-import { Badge } from '@/components/ui/badge'
 import { useT } from '@/i18n'
-import { HIGHLIGHT_TYPES, highlightLabel } from '@/lib/highlightLabels'
+import { HIGHLIGHT_TYPES } from '@/lib/highlightLabels'
 import CompilationLine from './CompilationLine'
 import SectionTitle from './SectionTitle'
 
@@ -50,9 +50,7 @@ export default function ClipKindsSection() {
             <ul role="list" className="flex flex-wrap gap-2">
               {HIGHLIGHT_TYPES.map((type) => (
                 <li key={type}>
-                  <Badge variant={type === 'ACE' ? 'default' : 'outline'} className="normal-case">
-                    {highlightLabel(type, t)}
-                  </Badge>
+                  <HighlightTag type={type} />
                 </li>
               ))}
             </ul>
