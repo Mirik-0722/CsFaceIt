@@ -3,6 +3,7 @@ import { type RefObject, useEffect, useId, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useClip, useDeleteClip, useMatchClips, useMatchStats, usePlayer } from '@/api/queries'
 import KillTimeline from '@/components/KillTimeline'
+import LevelRing from '@/components/LevelRing'
 import PlayerAvatar from '@/components/PlayerAvatar'
 import RecorderBanner from '@/components/RecorderBanner'
 import StatusChip from '@/components/StatusChip'
@@ -431,7 +432,13 @@ function ClipByline({ clip }: { clip: ClipResponse }) {
         ) : (
           <span className="inline-flex min-h-11 items-center gap-2.5 font-semibold text-foreground">{who}</span>
         )}
-        {facts && <span className="font-mono text-xs">{facts}</span>}
+        {facts && (
+          // The ring is 20px: inside the 44px line, so it makes the line no taller.
+          <span className="inline-flex items-center gap-2 font-mono text-xs">
+            <LevelRing level={player?.level ?? null} size={20} />
+            {facts}
+          </span>
+        )}
       </div>
       <Link
         to={`/matches/${encodeURIComponent(clip.matchId)}`}

@@ -17,6 +17,11 @@ const SQUARE: Record<MatchResult, string> = {
  * The newest ten matches as ten squares, the newest first (spec 3): how the player has been doing lately, in the header
  * of the profile. It is a picture, so it has one name that says the same in words (and the squares are hidden from
  * assistive technology). Nothing is drawn for a player without a match; with fewer than ten, the label counts them.
+ *
+ * Over the scenery of the header (the header marks that with `data-scenery="shown"`) the strip stands on a dark plate of
+ * its own, so that its label and squares keep their contrast on any map. The plate's 12px of padding are there with or
+ * without the scenery, so the strip does not move when the picture comes; the negative margins above and below give
+ * that room back to the header's height.
  */
 export default function FormStrip({ matches }: { matches: MatchSummary[] }) {
   const t = useT()
@@ -27,7 +32,7 @@ export default function FormStrip({ matches }: { matches: MatchSummary[] }) {
   const wins = newest.filter((match) => match.result === 'WIN').length
   const losses = newest.filter((match) => match.result === 'LOSS').length
   return (
-    <div className="flex flex-col gap-2">
+    <div className="-my-3 flex flex-col gap-2 p-3 transition-colors duration-700 group-data-[scenery=shown]/head:bg-card/92 group-data-[scenery=shown]/head:shadow-[inset_0_0_0_1px_var(--border)] motion-reduce:transition-none">
       {/* The name below starts with the same words. */}
       <span aria-hidden="true" className="label-mono">
         {t.matches.form.label(newest.length)}

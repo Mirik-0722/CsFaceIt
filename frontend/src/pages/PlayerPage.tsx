@@ -14,6 +14,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
+import { mostPlayedScenery } from '@/lib/mostPlayedScenery'
 import { cn } from '@/lib/utils'
 
 /**
@@ -183,6 +184,10 @@ function PlayerProfile({ playerId }: { playerId: string }) {
   const t = useT()
   const player = usePlayer(playerId)
   const history = usePlayerHistory(playerId)
+  // The overview is asked for by the maps table below as well: one request, shared. Its most played map is the header's
+  // scenery once the answer is there; until then, and for a player without one, the header is plain.
+  const overview = usePlayerOverview(playerId)
+  const scenery = overview.data ? mostPlayedScenery(overview.data.maps) : null
   // Offset paging can return the same match on two pages (each page is cached on its own), so keep the first.
   const matches = history.data?.pages
     .flatMap((page) => page.items)
@@ -203,7 +208,14 @@ function PlayerProfile({ playerId }: { playerId: string }) {
           </>
         )}
         {playerFailed && <p className="text-sm text-destructive">{errorMessage(player.error, t)}</p>}
-        {player.data && <PlayerHeader player={player.data} size="lg" aside={<FormStrip matches={matches ?? []} />} />}
+        {player.data && (
+          <PlayerHeader
+            player={player.data}
+            size="lg"
+            aside={<FormStrip matches={matches ?? []} />}
+            scenery={scenery}
+          />
+        )}
       </div>
       {!playerFailed && <PlayerStats playerId={playerId} />}
       {!playerFailed && <PlayerOverview playerId={playerId} />}

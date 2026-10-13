@@ -34,6 +34,11 @@
     --color-positive: var(--positive);
     --color-negative: var(--negative);
     --color-faceit: var(--faceit);
+    --color-level-1: var(--level-1);
+    --color-level-2: var(--level-2);
+    --color-level-4: var(--level-4);
+    --color-level-8: var(--level-8);
+    --color-level-10: var(--level-10);
     --color-side-ct: var(--side-ct);
     --color-side-t: var(--side-t);
     --radius-sm: calc(var(--radius) * 0.6);
@@ -73,6 +78,13 @@
     --destructive: #FF7468;
     /* FACEIT's own orange: only the tag that says where a match is from. */
     --faceit: #FF5500;
+    /* FACEIT's own colours of its skill levels, named after the lowest level of each range: 1, 2-3, 4-7, 8-9, 10. They
+       colour the ring of `LevelRing` and nothing else. */
+    --level-1: #EEEEEE;
+    --level-2: #1CE400;
+    --level-4: #FFC800;
+    --level-8: #FF6309;
+    --level-10: #FE1F00;
     --side-ct: #7CAEFF;
     --side-t: #F1B550;
     /* Not in the spec table: text on those surfaces reads as --foreground. */
@@ -221,6 +233,8 @@
 /* Behind a text that stands on a scenery: a scrim in the panel's colour that is as large as the text's block and a
    little more, and fades out around it, so that the picture stays around the block. On a plain panel it cannot be
    seen. What a place may set:
+   `--scrim-color`     the colour it is made of: the panel's (`--card`) unless the place stands on the page's ground
+                       (`--background`);
    `--scrim-strength`  how dark the scrim is where it is full;
    `--scrim-fade-y`    how far it reaches above and below the block, fading all the way;
    `--scrim-bleed-x`   how far it reaches beyond the block's left and right ends;
@@ -234,7 +248,7 @@
         inset: calc(-1 * var(--scrim-fade-y, 0.75rem)) calc(-1 * var(--scrim-bleed-x, 1.5rem));
         z-index: -1;
         pointer-events: none;
-        background-color: color-mix(in srgb, var(--card) var(--scrim-strength, 84%), transparent);
+        background-color: color-mix(in srgb, var(--scrim-color, var(--card)) var(--scrim-strength, 84%), transparent);
         mask-image:
             linear-gradient(
                 90deg,
@@ -294,6 +308,34 @@
                 color-mix(in srgb, var(--card) 50%, transparent) 100%
             );
     }
+}
+
+/* Over the scenery behind the player page's header, in the page's colour (the header has no panel): from the left, where
+   the name stands, as the match panel's veil is, so that the picture shows on the right half. The picture itself goes
+   over into the ground at its bottom (`scenery-fade-head`), so there is no veil from below. On a phone the picture is
+   a band behind the first lines, and the veil is across it: heavy at the left, where the avatar and the name are. */
+@utility scenery-veil-head {
+    background-image: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--background) 96%, transparent) 0%,
+        color-mix(in srgb, var(--background) 82%, transparent) 50%,
+        color-mix(in srgb, var(--background) 62%, transparent) 100%
+    );
+    @media (width >= 40rem) {
+        background-image: linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--background) 96%, transparent) 0%,
+            color-mix(in srgb, var(--background) 88%, transparent) 40%,
+            color-mix(in srgb, var(--background) 74%, transparent) 68%,
+            color-mix(in srgb, var(--background) 50%, transparent) 100%
+        );
+    }
+}
+
+/* The picture behind the player page's header goes over into the page's ground along its lower 45%, picture and veil
+   together, so whatever the ground is shows there. */
+@utility scenery-fade-head {
+    mask-image: linear-gradient(180deg, #000 0, #000 55%, transparent 100%);
 }
 
 /* The blinking REC dot, applied as `animate-rec`. */
