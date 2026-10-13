@@ -227,7 +227,10 @@ export const uz: Messages = {
     needsDemo: 'Demo tahlili kerak',
     noClutch: "Clutch urinishi yo'q",
     noData: "Ma'lumot yo'q",
-    clutchRecord: (wins, attempts) => `${attempts} tadan ${wins} tasi yutilgan`,
+    // The line under a figure: how many matches it is made of.
+    overMatches: (matches) => `${matches} match bo'yicha`,
+    averageOfMatches: (matches) => `${matches} match o'rtachasi`,
+    clutchRecord: (wins, attempts) => `${attempts} urinishdan ${wins} tasi`,
     basedOn: (matches, analyzed) => `Saqlangan ${matches} ta match asosida (${analyzed} tasida demo tahlili bor)`,
   },
   highlight: {
@@ -240,6 +243,8 @@ export const uz: Messages = {
     duration: 'Davomiyligi:',
     knifeKill: 'PICHOQ',
     smokeKill: 'TUTUN ORQALI',
+    // The same kind in the list of a player's highlights by kind, which is written in sentence case.
+    smokeName: 'Smoke orqali',
     knife: 'Pichoq',
     headshots: (count) => `${count} headshot`,
     bombDefused: 'Raqib tirik paytida bomba zararsizlantirildi',
@@ -362,6 +367,10 @@ export const uz: Messages = {
       until: (date) => `${date} gacha`,
       fromMatch: 'Shu matchdan',
       match: 'Match',
+      play: 'Klipni ijro etish',
+      // The mono facts about the player under the title: `FACEIT 8 · 1 742 ELO`; either part is left out without data.
+      faceitFacts: (level, elo) =>
+        [level !== null && `FACEIT ${level}`, elo !== null && `${elo} ELO`].filter(Boolean).join(' · '),
     },
     errors: {
       highlightGone: "Bu highlight endi yo'q. Sahifani yangilang.",

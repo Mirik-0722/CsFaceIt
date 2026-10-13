@@ -251,7 +251,11 @@ export const en = {
     needsDemo: 'Needs a demo analysis',
     noClutch: 'No clutch attempt',
     noData: 'No data',
-    clutchRecord: (wins: number, attempts: number) => `${wins} of ${attempts} won`,
+    // The line under a figure: how many matches it is made of.
+    overMatches: (matches: number) => `over ${matches} ${matches === 1 ? 'match' : 'matches'}`,
+    averageOfMatches: (matches: number) => `average of ${matches} ${matches === 1 ? 'match' : 'matches'}`,
+    clutchRecord: (wins: number, attempts: number) =>
+      `${wins} of ${attempts} ${attempts === 1 ? 'attempt' : 'attempts'}`,
     basedOn: (matches: number, analyzed: number) =>
       `Based on ${matches} stored ${matches === 1 ? 'match' : 'matches'} (${analyzed} with demo analysis)`,
   },
@@ -266,6 +270,8 @@ export const en = {
     // Tags are shown as they are written here.
     knifeKill: 'KNIFE KILL',
     smokeKill: 'SMOKE KILL',
+    // The same kind in the list of a player's highlights by kind, which is written in sentence case.
+    smokeName: 'Through smoke',
     // A weapon label that is a plain word, not an item name of the game.
     knife: 'Knife',
     headshots: (count: number) => (count === 1 ? '1 headshot' : `${count} headshots`),
@@ -393,6 +399,10 @@ export const en = {
       until: (date: string) => date,
       fromMatch: 'From this match',
       match: 'Match',
+      play: 'Play the clip',
+      // The mono facts about the player under the title: `FACEIT 8 · ELO 1,742`; either part is left out without data.
+      faceitFacts: (level: number | null, elo: string | null) =>
+        [level !== null && `FACEIT ${level}`, elo !== null && `ELO ${elo}`].filter(Boolean).join(' · '),
     },
     errors: {
       highlightGone: 'This highlight no longer exists. Reload the page.',

@@ -63,6 +63,29 @@ export function highlightLabel(type: HighlightType, t: Messages): string {
   }
 }
 
+/**
+ * The kind of a highlight as a word in a list of kinds (a player's highlights by kind), where the board writes it in
+ * sentence case: `3K`, `ACE`, `No-scope`, `Wallbang`, `Defuse`; the two plain words come from the dictionary. The tags
+ * of the cards and the filters keep {@link highlightLabel}. A clutch is a tag only (`1v3 CLUTCH`): a list that
+ * counts clutches names them as a group.
+ */
+export function highlightKindName(type: HighlightType, t: Messages): string {
+  switch (type) {
+    case 'NO_SCOPE':
+      return 'No-scope'
+    case 'WALLBANG':
+      return 'Wallbang'
+    case 'NINJA_DEFUSE':
+      return 'Defuse'
+    case 'KNIFE_KILL':
+      return t.highlight.knife
+    case 'SMOKE_KILL':
+      return t.highlight.smokeName
+    default:
+      return highlightLabel(type, t)
+  }
+}
+
 /** `AK-47 ×3, Desert Eagle · 2 headshots`: the weapons in the order they first killed, then the headshots if any. */
 function describeKills(kills: HighlightKill[], t: Messages): string {
   const counts = new Map<string, number>()

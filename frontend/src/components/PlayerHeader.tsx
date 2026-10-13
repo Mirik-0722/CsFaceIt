@@ -1,42 +1,12 @@
-import { type ReactNode, useState } from 'react'
+import type { ReactNode } from 'react'
+import PlayerAvatar, { type AvatarSize } from '@/components/PlayerAvatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
-import { useT } from '@/i18n'
-import { cn } from '@/lib/utils'
+import { useLocale, useT } from '@/i18n'
+import { countryName } from '@/lib/countryName'
 import type { PlayerResponse } from '@/api/types'
 
-type Size = 'default' | 'lg'
-
-/** The picture of the player; the initial in a circle when he has none, or when the picture does not load. */
-function Avatar({ player, size }: { player: PlayerResponse; size: Size }) {
-  const box = size === 'lg' ? 'size-18' : 'size-14'
-  // The address that failed, not a flag: another player's address (this component is reused for the next player)
-  // is tried afresh, and fails to the initial in its turn.
-  const [failedSrc, setFailedSrc] = useState<string | null>(null)
-  if (player.avatar && player.avatar !== failedSrc) {
-    const src = player.avatar
-    return (
-      <img
-        src={src}
-        alt=""
-        onError={() => setFailedSrc(src)}
-        className={cn(box, 'shrink-0 rounded-full object-cover')}
-      />
-    )
-  }
-  return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        box,
-        'flex shrink-0 items-center justify-center rounded-full border border-line-strong bg-secondary font-semibold',
-        size === 'lg' ? 'text-[28px]' : 'text-xl',
-      )}
-    >
-      {player.nickname.charAt(0).toUpperCase()}
-    </div>
-  )
-}
+type Size = Exclude<AvatarSize, 'sm'>
 
 /** The found player of a search: a card with the avatar, the nickname, the country and ELO, and the level as a tag. */
 function PlayerCard({ player }: { player: PlayerResponse }) {
@@ -45,7 +15,7 @@ function PlayerCard({ player }: { player: PlayerResponse }) {
   return (
     <Card>
       <CardContent className="flex items-center gap-4">
-        <Avatar player={player} size="default" />
+        <PlayerAvatar nickname={player.nickname} avatar={player.avatar} size="default" />
         {/* Everything beside the avatar wraps as one: when the row is too narrow for the name (at least `basis-44`)
             and the tag side by side, the tag drops below the name and its line and the name keeps the full width. */}
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
@@ -72,22 +42,26 @@ function PlayerCard({ player }: { player: PlayerResponse }) {
 
 /**
  * The header of the player's page, as the board draws it: no card, the avatar, the nickname as a 30px heading and under
- * it one mono line (country, FACEIT level, ELO; "No CS2 data" instead of the last two without CS2 data), and `aside` on
- * the right edge. The aside drops below the rest where there is no room for both.
+ * it one mono line (the country by name, FACEIT level, ELO; "No CS2 data" instead of the last two without CS2 data),
+ * and `aside` on the right edge. The aside drops below the rest where there is no room for both.
  */
 function ProfileHeader({ player, aside }: { player: PlayerResponse; aside?: ReactNode }) {
   const t = useT()
+  const locale = useLocale()
+  const country = player.country ? countryName(player.country, locale) : null
   const hasCs2Data = player.elo !== null || player.level !== null
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-5">
       <div className="flex min-w-0 items-center gap-4.5">
-        <Avatar player={player} size="lg" />
+        <PlayerAvatar nickname={player.nickname} avatar={player.avatar} size="lg" />
         <div className="flex min-w-0 flex-col gap-1">
-          {/* The page's own h1 is the small label above this header, so the nickname is the heading of the section. */}
+          {/* The page's h1 only names the page (for screen readers): the nickname is the heading of the section. */}
           <h2 className="heading-page truncate">{player.nickname}</h2>
           <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
-            {/* FACEIT sends the country code in lower case; it is shown as a code. */}
-            {player.country && <span className="uppercase">{player.country}</span>}
+            {/* The country by name; where there is none, FACEIT's code (it sends it in lower case) as a code. */}
+            {player.country && (
+              <span className={country === null ? 'uppercase' : undefined}>{country ?? player.country}</span>
+            )}
             {player.level !== null && <span>{t.player.faceitLevel(player.level)}</span>}
             {player.elo !== null && <span>{t.player.elo(player.elo)}</span>}
             {!hasCs2Data && <span>{t.player.noCs2Data}</span>}

@@ -139,12 +139,14 @@
     font-variant-numeric: tabular-nums;
 }
 
-/* The page column: at most 1280px wide, centred, with a side gutter that grows with the viewport (spec 2.3). */
+/* The page column: at most 1280px wide, centred, with a side gutter that grows with the viewport (spec 2.3). The gutter
+   is a property too, so that something inside can run to the edge of the screen with `-mx-(--page-gutter)`. */
 @utility container-page {
+    --page-gutter: clamp(16px, 4vw, 40px);
     width: 100%;
     max-width: 1280px;
     margin-inline: auto;
-    padding-inline: clamp(16px, 4vw, 40px);
+    padding-inline: var(--page-gutter);
 }
 
 /* The blinking REC dot, applied as `animate-rec`. */

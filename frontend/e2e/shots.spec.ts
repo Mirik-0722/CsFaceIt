@@ -149,7 +149,7 @@ const PAGES = [
   // of what one Tab reaches from where the dialog put the focus when it opened.
   { name: 'order', path: `/matches/${WON_MATCH_ID}`, open: openClipOrder, tabs: 1 },
   { name: 'clips', path: '/clips', tabs: 7 }, // the first clip card
-  { name: 'clip', path: `/clips/${READY_CLIP_ID}`, tabs: 7 }, // the video
+  { name: 'clip', path: `/clips/${READY_CLIP_ID}`, tabs: 7 }, // the play button of the frame over the video
   { name: 'clip-recording', path: `/clips/${RECORDING_CLIP_ID}`, tabs: 7 }, // the link to the match
   { name: 'notfound', path: '/there-is-no-such-page', tabs: 7 }, // the link back to the search
   // The sign-in: the dialog that "Sign in" of the top bar opens over the home page. Its focus picture is of what one
@@ -536,7 +536,7 @@ function answersFor(backend: Backend): Map<string, Reply> {
       const source = highlightOf(clip, backend.highlights)
       return [`GET /api/v1/clips/${clip.id}`, { body: source ? clipDetailFixture(clip, source) : clip }]
     }),
-    // There is no video file behind a mocked clip: the player of a finished clip stays an empty frame.
+    // There is no video file behind a mocked clip: the frame over the player is the picture, and a started video fails.
     ...finishedClips.map((clip): [string, Reply] => [
       `GET /api/v1/clips/${clip.id}/video`,
       { status: 404, body: { code: 'CLIP_NOT_FOUND', message: 'Clip not found' } },

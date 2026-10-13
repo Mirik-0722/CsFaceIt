@@ -1,5 +1,5 @@
 import { useT } from '@/i18n'
-import { highlightGroup, highlightLabel } from '@/lib/highlightLabels'
+import { highlightGroup, highlightKindName } from '@/lib/highlightLabels'
 import { cn } from '@/lib/utils'
 import type { HighlightCount } from '@/api/overview'
 
@@ -34,7 +34,7 @@ export default function HighlightBreakdown({
     } else {
       counts.set(key, {
         key,
-        label: clutch ? t.highlight.groupClutch : highlightLabel(type, t),
+        label: clutch ? t.highlight.groupClutch : highlightKindName(type, t),
         count,
         ace: type === 'ACE',
       })

@@ -42,10 +42,12 @@ export function usePlayerSearch(nickname: string) {
   })
 }
 
-export function usePlayer(playerId: string) {
+/** `enabled: false` asks for nothing, for an id that cannot be a FACEIT player's (`steam:<SteamID>`). */
+export function usePlayer(playerId: string, enabled = true) {
   return useQuery<PlayerResponse, ApiError>({
     queryKey: ['player', playerId],
     queryFn: () => apiGet<PlayerResponse>(`/players/${playerId}`),
+    enabled,
     retry: retryUnlessClientError,
   })
 }

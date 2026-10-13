@@ -22,18 +22,30 @@ import { cn } from '@/lib/utils'
  */
 const LATEST_HIGHLIGHTS = 6
 
-/** The player's figures over the stored matches. A failure stays inside the section: the rest of the page stands. */
+/**
+ * The player's figures over the stored matches. The board draws the cards without a heading above them, so the heading
+ * that names the section is for screen readers. A failure stays inside the section: the rest of the page stands.
+ */
 function PlayerStats({ playerId }: { playerId: string }) {
   const t = useT()
+  const titleId = useId()
   const stats = usePlayerStats(playerId)
   return (
-    <section className="flex flex-col gap-4 pt-3">
-      <h2 className="heading-section">{t.statsCards.title}</h2>
+    // 36px under the header, as the board's page rhythm is (the page's own gap is 16px).
+    <section aria-labelledby={titleId} className="flex flex-col gap-4 pt-5">
+      <h2 id={titleId} className="sr-only">
+        {t.statsCards.title}
+      </h2>
       <div aria-live="polite" className="flex flex-col gap-2">
         {stats.isPending && (
           <>
             <p className="label-mono">{t.statsCards.loading}</p>
-            <Skeleton className="h-44 w-full" />
+            {/* Eight cards as tall as the real ones (124px) in their grid, so that nothing jumps when they arrive. */}
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {Array.from({ length: 8 }, (_, index) => (
+                <Skeleton key={index} className="h-31" />
+              ))}
+            </div>
           </>
         )}
         {stats.data && <StatsCards stats={stats.data} />}
@@ -60,7 +72,7 @@ function PlayerOverview({ playerId }: { playerId: string }) {
     return null
   }
   return (
-    <div className="flex flex-wrap items-start gap-x-12 gap-y-7 pt-3">
+    <div className="flex flex-wrap items-start gap-x-12 gap-y-7 pt-5">
       {(overview.isPending || failed || maps.length > 0) && (
         // The basis is the least the table needs (`min-w-160`), so that the second column goes under it where the table
         // would have to scroll beside it.
@@ -246,9 +258,10 @@ export default function PlayerPage() {
   const t = useT()
   const { playerId } = useParams()
   return (
-    // The nickname in the header is the page's big title, so the h1 is a small label above it.
     <main className="container-page flex flex-col gap-4 pt-9 pb-18">
-      <h1 className="label-mono">{t.player.title}</h1>
+      {/* The board has no label above the name: the nickname in the header is the page's big title, and this h1 only
+          names the page for those who hear it. */}
+      <h1 className="sr-only">{t.player.title}</h1>
       {playerId ? (
         <PlayerProfile playerId={playerId} />
       ) : (

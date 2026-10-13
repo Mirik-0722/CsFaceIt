@@ -59,11 +59,22 @@ export function clipLabel(clip: ClipResponse, t: Messages): string {
 
 /**
  * Where a clip is from, as the corner of its frame says it: `Mirage · R14`, and `Mirage · MATCH` for a compilation.
- * `R14` and `MATCH` are marks on the frame, the same in every language, like the tags of the highlights.
+ * `R14` and `MATCH` are marks on the frame, the same in every language, like the tags of the highlights. The large
+ * frame of a clip's page spells the round out with `spelled` (`Mirage · 14-raund`; the frame writes it in capitals).
  */
-export function frameLabel(clip: Pick<ClipResponse, 'mapName' | 'roundNumber'>, t: Messages): string {
-  const round = clip.roundNumber !== null ? `R${clip.roundNumber}` : 'MATCH'
+export function frameLabel(
+  clip: Pick<ClipResponse, 'mapName' | 'roundNumber'>,
+  t: Messages,
+  spelled = false,
+): string {
+  const number = clip.roundNumber
+  const round = number === null ? 'MATCH' : spelled ? t.highlight.round(number) : `R${number}`
   return `${mapLabel(clip.mapName) ?? t.match.unknownMap} · ${round}`
+}
+
+/** The quality and the frame rate as one mark, as the frame of a finished clip says it: `1080p60`. */
+export function qualityMark(clip: Pick<ClipResponse, 'quality' | 'fps'>): string {
+  return `${clip.quality}${clip.fps}`
 }
 
 /** A file size as it is shown next to a download: `21.4 MB`, and `640 KB` below one megabyte. */

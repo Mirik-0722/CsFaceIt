@@ -1,8 +1,9 @@
 import { Download, Link2 } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { type RefObject, useEffect, useId, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useClip, useDeleteClip, useMatchClips } from '@/api/queries'
+import { useClip, useDeleteClip, useMatchClips, useMatchStats, usePlayer } from '@/api/queries'
 import KillTimeline from '@/components/KillTimeline'
+import PlayerAvatar from '@/components/PlayerAvatar'
 import RecorderBanner from '@/components/RecorderBanner'
 import StatusChip from '@/components/StatusChip'
 import ViewfinderFrame from '@/components/ViewfinderFrame'
@@ -11,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useT, type Messages } from '@/i18n'
 import { setAdminKey, useAdminKey } from '@/lib/adminKey'
 import { copyText } from '@/lib/clipboard'
-import { clipLabel, formatBytes, frameLabel } from '@/lib/clips'
+import { clipLabel, formatBytes, frameLabel, qualityMark } from '@/lib/clips'
 import { isFinished } from '@/lib/clipStatus'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate, formatDateTime } from '@/lib/formatDate'
@@ -141,7 +142,13 @@ function DeleteControl({ clip, apiKey, onKeyRejected }: DeleteControlProps) {
 
   if (!confirming) {
     return (
-      <Button type="button" variant="destructive" autoFocus={kept} onClick={() => setConfirming(true)}>
+      <Button
+        type="button"
+        variant="destructive"
+        autoFocus={kept}
+        onClick={() => setConfirming(true)}
+        className="max-sm:h-12 max-sm:flex-1"
+      >
         {t.clip.page.delete}
       </Button>
     )
@@ -298,16 +305,136 @@ function MatchClips({ clip }: { clip: ClipResponse }) {
   )
 }
 
+interface ClipVideoProps {
+  clip: ClipResponse
+  video: RefObject<HTMLVideoElement | null>
+  /** Whether the visitor has started the video: until then the frame covers it. */
+  started: boolean
+  onStart: () => void
+  onError: () => void
+}
+
+/**
+ * The video of a finished clip, as the board draws it before it is started: the large viewfinder frame over the
+ * player, with the clip's own thumbnail (the scene of the map without one), where the clip is from, how long it is, its
+ * quality and a round play button. The video is in the page from the start but is not fetched (`preload="none"`; the
+ * thumbnail is its picture), and, while the frame covers it, is neither focusable nor announced (`inert`). Once it is
+ * started the frame is gone for good, and the browser's own controls are the player: full screen and the phone's player
+ * come with them (spec 8). On a phone the player runs from edge to edge, right under the top bar.
+ */
+function ClipVideo({ clip, video, started, onStart, onError }: ClipVideoProps) {
+  const t = useT()
+  return (
+    // On a phone the page's gutter and top padding are cancelled, and 4px of the column's 24px gap with them.
+    <div className="relative max-sm:-mx-(--page-gutter) max-sm:-mt-8 max-sm:-mb-1 sm:border sm:border-border">
+      <video
+        ref={video}
+        controls
+        playsInline
+        preload="none"
+        inert={!started}
+        aria-label={clipTitle(clip, t)}
+        poster={clip.thumbnailUrl ?? undefined}
+        src={clip.videoUrl ?? undefined}
+        onError={onError}
+        className="block aspect-video w-full bg-black"
+      />
+      {!started && (
+        <ViewfinderFrame
+          size="large"
+          className="absolute inset-0"
+          mapName={clip.mapName}
+          imageUrl={clip.thumbnailUrl}
+          topLeft={frameLabel(clip, t, true)}
+          bottomLeft={clip.durationMs !== null && formatDuration(clip.durationMs / 1000)}
+          bottomRight={qualityMark(clip)}
+          center={
+            <button
+              type="button"
+              aria-label={t.clip.page.play}
+              onClick={onStart}
+              className="flex size-16 items-center justify-center rounded-full bg-primary transition-colors hover:bg-primary/80 sm:size-18"
+            >
+              <svg aria-hidden="true" viewBox="0 0 12 12" className="size-5 fill-primary-foreground sm:size-5.5">
+                <path d="M3.5 1.5v9l7-4.5z" />
+              </svg>
+            </button>
+          }
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * The line under the title as the board draws it: the player's picture and nickname (the link to the profile, which a
+ * player the backend knows only from the demo does not have), the FACEIT level and ELO in mono, the link to the match
+ * with the match itself as its text (`team_A 13 : 9 team_B`), then the round and the date. The level, the ELO and the
+ * picture come from the player, the teams and the score from the stats of the match: both are asked for here, only as
+ * decoration, so that while they load, or when one fails or has nothing (no FACEIT player, a match FACEIT does not
+ * know), the line is what it has: the initial in the circle, no facts, the word "Match".
+ */
+function ClipByline({ clip }: { clip: ClipResponse }) {
+  const t = useT()
+  const locale = useLocale()
+  // A player the backend knows only from the demo (`steam:<SteamID>`) is not one of FACEIT's: nothing to ask for.
+  const profile = !clip.playerId.startsWith('steam:')
+  const player = usePlayer(clip.playerId, profile).data
+  const teams = useMatchStats(clip.matchId).data?.teams
+  const elo = player && player.elo !== null ? new Intl.NumberFormat(locale).format(player.elo) : null
+  const facts = player ? t.clip.page.faceitFacts(player.level, elo) : ''
+  const match =
+    teams?.length === 2
+      ? `${teams[0].name ?? t.stats.team} ${teams[0].score} : ${teams[1].score} ${teams[1].name ?? t.stats.team}`
+      : t.clip.page.match
+  const who = (
+    <>
+      <PlayerAvatar nickname={clip.nickname} avatar={player?.avatar} size="sm" />
+      {clip.nickname}
+    </>
+  )
+  return (
+    <div className="flex flex-wrap items-center gap-x-3.5 text-sm text-muted-foreground">
+      {/* On a phone the player has the first row to itself, as the phone board draws it, with the facts or without
+          them yet, so that the line is two rows from the start and does not grow when the facts arrive. */}
+      <div className="flex max-w-full flex-wrap items-center gap-x-3.5 max-sm:basis-full">
+        {profile ? (
+          <Link
+            to={`/players/${encodeURIComponent(clip.playerId)}`}
+            className="inline-flex min-h-11 items-center gap-2.5 font-semibold text-foreground underline-offset-4 hover:underline"
+          >
+            {who}
+          </Link>
+        ) : (
+          <span className="inline-flex min-h-11 items-center gap-2.5 font-semibold text-foreground">{who}</span>
+        )}
+        {facts && <span className="font-mono text-xs">{facts}</span>}
+      </div>
+      <Link
+        to={`/matches/${encodeURIComponent(clip.matchId)}`}
+        className="inline-flex min-h-11 max-w-full items-center text-foreground underline underline-offset-4 [overflow-wrap:anywhere]"
+      >
+        {match}
+      </Link>
+      <span>
+        {clip.roundNumber !== null && `${t.highlight.round(clip.roundNumber)} · `}
+        <time dateTime={clip.createdAt}>{formatDate(clip.createdAt, locale)}</time>
+      </span>
+    </div>
+  )
+}
+
 /** One clip: the video (or its state while there is none), what it shows, what can be done with it, and its facts. */
 function ClipView({ clip }: { clip: ClipResponse }) {
   const t = useT()
-  const locale = useLocale()
   const adminKey = useAdminKey()
   const video = useRef<HTMLVideoElement>(null)
   // What became of the last "Copy link", for as long as the button says it.
   const [copy, setCopy] = useState<'copied' | 'failed' | null>(null)
   // The browser could not load the video: its file is gone although the clip says it is done, or cannot be played here.
   const [videoFailed, setVideoFailed] = useState(false)
+  // The visitor started the video (the play button, or a kill of the list): the frame over it is gone for good.
+  const [started, setStarted] = useState(false)
   // The backend rejected the admin key of a deletion: the key is forgotten and "Delete" is gone, so the page says why.
   const [keyRejected, setKeyRejected] = useState(false)
   const ready = clip.status === 'DONE' && clip.videoUrl !== null
@@ -320,12 +447,28 @@ function ClipView({ clip }: { clip: ClipResponse }) {
     return () => clearTimeout(timer)
   }, [copy])
 
+  // The frame that went was the focus's place (its button), or the visitor pressed a kill below it: the video takes the
+  // focus, which it could not while the frame covered it.
+  useEffect(() => {
+    if (started) {
+      video.current?.focus()
+    }
+  }, [started])
+
+  /** Starts the video from where it is, which is its beginning. */
+  function start() {
+    setStarted(true)
+    // Playing can be refused (the browser's own rules); the video then waits, with its own controls to start it.
+    void video.current?.play().catch(() => {})
+  }
+
   /** Takes the video to a moment and plays from there; on a phone the video may be above the screen by then. */
   function seek(offsetMs: number) {
     const player = video.current
     if (!player) {
       return
     }
+    setStarted(true)
     player.currentTime = offsetMs / 1000
     // Playing can be refused (the browser's own rules); the video then waits at the moment it was taken to.
     void player.play().catch(() => {})
@@ -334,20 +477,15 @@ function ClipView({ clip }: { clip: ClipResponse }) {
 
   return (
     <div className="flex flex-wrap items-start gap-8">
-      <div className="flex min-w-0 flex-[999_1_40rem] flex-col gap-5">
+      <div className="flex min-w-0 flex-[999_1_40rem] flex-col gap-6 sm:gap-5">
         {ready ? (
           <div className="flex flex-col gap-2">
-            {/* The browser's own controls: full screen and the phone's player come with them (spec 8). */}
-            <video
-              ref={video}
-              controls
-              playsInline
-              preload="metadata"
-              aria-label={clipTitle(clip, t)}
-              poster={clip.thumbnailUrl ?? undefined}
-              src={clip.videoUrl ?? undefined}
+            <ClipVideo
+              clip={clip}
+              video={video}
+              started={started}
+              onStart={start}
               onError={() => setVideoFailed(true)}
-              className="aspect-video w-full border border-border bg-black"
             />
             {/* An alert, so that it is announced although it was not on the page before. */}
             {videoFailed && (
@@ -367,35 +505,22 @@ function ClipView({ clip }: { clip: ClipResponse }) {
         ) : (
           <ClipPlaceholder clip={clip} />
         )}
-        <div className="flex flex-col gap-1">
-          <h2 className="text-[26px] leading-[1.2] font-semibold tracking-[-0.02em]">{clipTitle(clip, t)}</h2>
-          <div className="flex flex-wrap items-center gap-x-3.5 text-sm text-muted-foreground">
-            {/* A player the backend knows only from the demo has no profile to link to. */}
-            {clip.playerId.startsWith('steam:') ? (
-              <span className="inline-flex min-h-11 items-center font-semibold text-foreground">{clip.nickname}</span>
-            ) : (
-              <Link
-                to={`/players/${encodeURIComponent(clip.playerId)}`}
-                className="inline-flex min-h-11 items-center font-semibold text-foreground underline-offset-4 hover:underline"
-              >
-                {clip.nickname}
-              </Link>
-            )}
-            <Link
-              to={`/matches/${encodeURIComponent(clip.matchId)}`}
-              className="inline-flex min-h-11 items-center text-foreground underline underline-offset-4"
-            >
-              {t.clip.page.match}
-            </Link>
-            <span>
-              {clip.roundNumber !== null && `${t.highlight.round(clip.roundNumber)} · `}
-              <time dateTime={clip.createdAt}>{formatDate(clip.createdAt, locale)}</time>
-            </span>
-          </div>
+        <div className="flex flex-col gap-1 sm:gap-2.5">
+          {/* The page's own title: the line about what the clip shows. */}
+          <h1 className="text-[22px] leading-tight font-semibold tracking-[-0.02em] sm:text-[26px] sm:leading-[1.2]">
+            {clipTitle(clip, t)}
+          </h1>
+          <ClipByline clip={clip} />
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        {/* On a phone "Download" has a row of its own and the other actions share the next one; from `sm` up all of
+            them are one row that wraps (the inner box then drops out of the layout). */}
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
           {ready && (
-            <a href={`${clip.videoUrl}?download=1`} download className={cn(buttonVariants())}>
+            <a
+              href={`${clip.videoUrl}?download=1`}
+              download
+              className={cn(buttonVariants(), 'max-sm:h-12 max-sm:text-[15px]')}
+            >
               <Download aria-hidden="true" />
               {t.clip.page.download}
               {clip.sizeBytes !== null && (
@@ -403,29 +528,32 @@ function ClipView({ clip }: { clip: ClipResponse }) {
               )}
             </a>
           )}
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => void copyText(window.location.href).then((done) => setCopy(done ? 'copied' : 'failed'))}
-          >
-            <Link2 aria-hidden="true" />
-            <span aria-live="polite">
-              {copy === 'copied'
-                ? t.clip.page.copied
-                : copy === 'failed'
-                  ? t.clip.page.copyFailed
-                  : t.clip.page.copyLink}
-            </span>
-          </Button>
-          {/* A clip that is being recorded cannot be deleted (the backend answers 409), so it is not offered then. */}
-          {adminKey !== null && (isFinished(clip.status) || clip.status === 'QUEUED') && (
-            <DeleteControl clip={clip} apiKey={adminKey} onKeyRejected={() => setKeyRejected(true)} />
-          )}
-          {keyRejected && adminKey === null && (
-            <p role="alert" className="basis-full text-sm text-destructive">
-              {t.demo.wrongKey}
-            </p>
-          )}
+          <div className="flex flex-wrap gap-2.5 sm:contents">
+            <Button
+              type="button"
+              variant="outline"
+              className="max-sm:h-12 max-sm:flex-1"
+              onClick={() => void copyText(window.location.href).then((done) => setCopy(done ? 'copied' : 'failed'))}
+            >
+              <Link2 aria-hidden="true" />
+              <span aria-live="polite">
+                {copy === 'copied'
+                  ? t.clip.page.copied
+                  : copy === 'failed'
+                    ? t.clip.page.copyFailed
+                    : t.clip.page.copyLink}
+              </span>
+            </Button>
+            {/* A clip that is being recorded cannot be deleted (the backend answers 409), so it is not offered then. */}
+            {adminKey !== null && (isFinished(clip.status) || clip.status === 'QUEUED') && (
+              <DeleteControl clip={clip} apiKey={adminKey} onKeyRejected={() => setKeyRejected(true)} />
+            )}
+            {keyRejected && adminKey === null && (
+              <p role="alert" className="basis-full text-sm text-destructive">
+                {t.demo.wrongKey}
+              </p>
+            )}
+          </div>
         </div>
         <section className="flex flex-col gap-2.5 pt-2">
           <h3 className="text-lg leading-[1.4] font-semibold">{t.clip.page.kills}</h3>
@@ -446,8 +574,11 @@ function ClipDetails({ clipId }: { clipId: number }) {
   // The clip was there and is not any more (a clip that waits can be withdrawn while its page is open): what the page
   // still holds of it is not shown as if it were there.
   const gone = clip.isError && clip.error.status === 404
+  const shown = clip.data && !gone ? clip.data : null
   return (
     <>
+      {/* The clip's title is the page's h1 once the clip is there; until then, and without it, this names the page. */}
+      {!shown && <h1 className="sr-only">{t.clip.title}</h1>}
       <div aria-live="polite" className="empty:hidden">
         {clip.isPending && (
           <>
@@ -459,7 +590,7 @@ function ClipDetails({ clipId }: { clipId: number }) {
           <p className="text-sm text-destructive">{errorMessage(clip.error, t)}</p>
         )}
       </div>
-      {clip.data && !gone && <ClipView clip={clip.data} />}
+      {shown && <ClipView clip={shown} />}
     </>
   )
 }
@@ -471,14 +602,17 @@ export default function ClipPage() {
   // A clip id is a number; anything else in the address is a clip that does not exist.
   const id = clipId !== undefined && /^[0-9]{1,15}$/.test(clipId) ? Number(clipId) : null
   return (
-    // The line about what the clip shows is the page's big title, so the h1 is a small label above everything.
-    <main className="container-page flex flex-col gap-4 pt-9 pb-18">
-      <h1 className="label-mono">{t.clip.title}</h1>
+    // The board has no label above the video: the page starts with it, 32px under the top bar (on a phone the video
+    // cancels the padding and runs from the very top).
+    <main className="container-page flex flex-col gap-4 pt-8 pb-18">
       {id !== null ? (
         // Keyed by the clip: the confirmation of a deletion does not follow the visitor to another clip.
         <ClipDetails key={id} clipId={id} />
       ) : (
-        <p className="text-sm text-destructive">{t.clip.notFound}</p>
+        <>
+          <h1 className="sr-only">{t.clip.title}</h1>
+          <p className="text-sm text-destructive">{t.clip.notFound}</p>
+        </>
       )}
     </main>
   )
