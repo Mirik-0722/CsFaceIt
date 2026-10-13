@@ -1,9 +1,11 @@
 package io.csfaceit.backend.demo;
 
+import io.csfaceit.backend.faceit.FaceitProperties;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
@@ -27,24 +29,40 @@ public class DemoDownloader {
     private static final Set<Integer> REDIRECT_STATUSES = Set.of(301, 302, 303, 307, 308);
     private static final int MAX_REDIRECTS = 5;
 
+    /** Where an address that is fetched came from; it decides what a refusal or an unknown host means. */
+    private enum Source {
+        /** The signed address FACEIT's Downloads API gave: a refusal by it is not about access to the Downloads API. */
+        SIGNED_ADDRESS,
+        /** The {@code demo_url} of a match, fetched as it is: FACEIT's private cloud when it is refused or unknown. */
+        DEMO_URL
+    }
+
     private final DemoDownloadProperties properties;
 
-    public DemoDownloader(DemoDownloadProperties properties) {
+    /**
+     * The host of {@code faceit.base-url}, resolved as a control when the host of a demo does not resolve (see
+     * {@link #downloadFaceitAddress}); null when that address has no host.
+     */
+    private final String controlHost;
+
+    public DemoDownloader(DemoDownloadProperties properties, FaceitProperties faceit) {
         this.properties = properties;
+        this.controlHost = hostOf(faceit.baseUrl());
     }
 
     /**
      * Downloads the demo into a temporary file in the system temp directory and normalizes it to zstd. Only
      * {@code http} and {@code https} addresses are used, also when the server redirects. The caller owns the
-     * returned file and deletes it. This is for an address that is meant to serve the file to anyone who has it, such
-     * as the signed one FACEIT's Downloads API gives.
+     * returned file and deletes it. This is for the signed address that FACEIT's Downloads API gives: it was handed to
+     * this site on purpose, so a refusal by it (it has expired, or FACEIT withdrew it) is not a matter of access to the
+     * Downloads API and says so.
      *
      * @throws DemoDownloadRejectedException the download will never work: the server refuses it (HTTP 401, 403, 404
      *         or 410), the file is too large, or the address is not usable
      * @throws DemoDownloadException any other failure; trying again may work
      */
     public Path download(String url) {
-        return download(url, false);
+        return download(url, Source.SIGNED_ADDRESS);
     }
 
     /**
@@ -53,17 +71,22 @@ public class DemoDownloader {
      * refuses with HTTP 401 or 403. Neither can change by asking again, so both are the rejection
      * {@link DemoDownloadRejectedException#needsAccess()} and not a failure to retry. Any other host that really serves
      * the file is downloaded as usual.
+     *
+     * <p>A host that does not resolve is FACEIT's private cloud only when name resolution works: the lookup of the host
+     * of {@code faceit.base-url} is made as a control, and only after the demo's host has failed. If the control fails
+     * too, the server has no DNS at the moment and nothing can be said of the demo's host, so the failure is the
+     * transient {@link DemoDownloadException} that the queue tries again.
      */
     public Path downloadFaceitAddress(String url) {
-        return download(url, true);
+        return download(url, Source.DEMO_URL);
     }
 
-    private Path download(String url, boolean faceitAddress) {
+    private Path download(String url, Source source) {
         URI uri = parse(url);
         Path downloaded = DemoFiles.createTempFile();
         boolean done = false;
         try {
-            fetch(uri, downloaded, faceitAddress);
+            fetch(uri, downloaded, source);
             Path normalized = DemoFiles.normalize(downloaded, properties.maxSize());
             done = true;
             return normalized;
@@ -75,7 +98,7 @@ public class DemoDownloader {
     }
 
     /** Follows the redirects itself so that each hop is checked to be an http or https address. */
-    private void fetch(URI start, Path target, boolean faceitAddress) {
+    private void fetch(URI start, Path target, Source source) {
         URI uri = start;
         for (int redirects = 0; ; redirects++) {
             requireHttp(uri);
@@ -92,9 +115,12 @@ public class DemoDownloader {
                     continue;
                 }
                 if (REJECTED_STATUSES.contains(status)) {
-                    throw faceitAddress && (status == 401 || status == 403)
-                            ? DemoDownloadRejectedException.needsAccess()
-                            : DemoDownloadRejectedException.forStatus(status);
+                    throw switch (source) {
+                        case SIGNED_ADDRESS -> DemoDownloadRejectedException.signedAddressRefused(status);
+                        case DEMO_URL -> status == 401 || status == 403
+                                ? DemoDownloadRejectedException.needsAccess()
+                                : DemoDownloadRejectedException.forStatus(status);
+                    };
                 }
                 if (status < 200 || status >= 300) {
                     throw new DemoDownloadException("The demo server answered HTTP " + status);
@@ -111,8 +137,8 @@ public class DemoDownloader {
                 }
                 return;
             } catch (IOException e) {
-                if (faceitAddress && e instanceof UnknownHostException) {
-                    throw DemoDownloadRejectedException.needsAccess();
+                if (source == Source.DEMO_URL && e instanceof UnknownHostException) {
+                    throw unknownDemoHost(e);
                 }
                 throw new DemoDownloadException("The demo could not be downloaded: " + e, e);
             } finally {
@@ -120,6 +146,36 @@ public class DemoDownloader {
                     connection.disconnect();
                 }
             }
+        }
+    }
+
+    /**
+     * The host of a demo address did not resolve. If a control host resolves, name resolution works and the host is
+     * really unknown, which for a FACEIT demo address means its private cloud; if the control does not resolve either,
+     * the lookups themselves are failing, and trying again later may work.
+     */
+    private DemoDownloadException unknownDemoHost(IOException cause) {
+        if (controlHost == null || resolves(controlHost)) {
+            return DemoDownloadRejectedException.needsAccess();
+        }
+        return new DemoDownloadException("The demo host does not resolve, and neither does the control host: "
+                + "name resolution looks down", cause);
+    }
+
+    private static boolean resolves(String host) {
+        try {
+            InetAddress.getByName(host);
+            return true;
+        } catch (UnknownHostException e) {
+            return false;
+        }
+    }
+
+    private static String hostOf(String address) {
+        try {
+            return address == null ? null : URI.create(address).getHost();
+        } catch (IllegalArgumentException e) {
+            return null;
         }
     }
 

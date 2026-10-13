@@ -321,8 +321,10 @@ export const en = {
     urlUnavailable: 'FACEIT has no demo file for this match.',
     // A demo that failed with the code DOWNLOAD_NEEDS_ACCESS: the site is not given the file, so the visitor fetches it.
     needsAccess:
-      "FACEIT did not let this site download the demo. Download it from the match's room on FACEIT and upload the file below.",
+      "FACEIT did not let this site download the demo. Download it from the match's room on FACEIT and upload the file below with the admin key.",
     needsAccessLink: "The match's room on FACEIT",
+    // Heard by a screen reader after the link's text, because the link opens another tab.
+    newTab: '(opens in a new tab)',
     notParsed: 'The demo has not been parsed yet.',
     tooLarge: 'The file is too large.',
   },

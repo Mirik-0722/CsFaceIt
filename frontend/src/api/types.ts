@@ -93,14 +93,12 @@ export interface MatchStatsResponse {
 /** Where a demo is in the import, parse and analysis pipeline. */
 export type DemoStatus = 'QUEUED' | 'STORED' | 'PARSED' | 'ANALYZED' | 'FAILED'
 
-/** The reasons of a failed demo that the backend names with a code, so that a page can explain them in its own words. */
-export type DemoErrorCode = 'DOWNLOAD_NEEDS_ACCESS'
-
 /**
  * The state of a match's demo. `matchId` is the FACEIT match id; `error` is set while the demo is FAILED, and while
  * it is PARSED after an analysis that failed: an English sentence for the logs. `errorCode` is the same reason as a
- * code to translate, and is null for every failure that has none. It is typed as a plain string because a newer
- * backend may name a code this page does not know; the page then shows `error` as it is.
+ * code to translate (so far only `DOWNLOAD_NEEDS_ACCESS`: FACEIT did not let the site download the demo), and is null
+ * for every failure that has none. It is typed as a plain string because a newer backend may name a code this page
+ * does not know; the page then shows `error` as it is.
  */
 export interface DemoResponse {
   demoId: number

@@ -2,11 +2,11 @@ package io.csfaceit.backend.messaging;
 
 import io.csfaceit.backend.demo.DemoDownloadRejectedException;
 import io.csfaceit.backend.demo.DemoDownloader;
-import io.csfaceit.backend.demo.FaceitDownloadsApi;
 import io.csfaceit.backend.demo.DemoPersistence;
 import io.csfaceit.backend.demo.DemoPersistence.ImportClaim;
 import io.csfaceit.backend.demo.DemoPersistence.StoredDemo;
 import io.csfaceit.backend.demo.DemoStatus;
+import io.csfaceit.backend.demo.FaceitDownloadsApi;
 import io.csfaceit.backend.messaging.DemoMessages.DemoImportRequested;
 import io.csfaceit.backend.storage.StorageService;
 import io.micrometer.core.instrument.Timer;

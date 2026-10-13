@@ -67,6 +67,15 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
   const storedKey = useAdminKey()
   const apiKey = storedKey ?? typedKey.trim()
   const demo = useDemo(matchId, watching)
+  // A demo that FACEIT did not let the site download is fixed by the controls: the explanation sends the visitor to the
+  // upload and to the admin key. So the first time the demo is seen in that state the controls are open, and after that
+  // the visitor decides (state adjusted while rendering, so that there is no frame with them closed).
+  const needsAccess = demo.data?.errorCode === DOWNLOAD_NEEDS_ACCESS
+  const [openedForAccess, setOpenedForAccess] = useState(false)
+  if (needsAccess && !openedForAccess) {
+    setOpenedForAccess(true)
+    setOpen(true)
+  }
   const importDemo = useImportDemo(matchId)
   const uploadDemo = useUploadDemo(matchId)
   const analyzeDemo = useAnalyzeDemo(matchId)
@@ -178,7 +187,7 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
           the backend's own words about what went wrong, as they are: a technical message. */}
       <div aria-live="polite">
         {demo.data?.error &&
-          (demo.data.errorCode === DOWNLOAD_NEEDS_ACCESS ? (
+          (needsAccess ? (
             <div className="flex flex-col items-start gap-0.5 border-t border-border px-4 py-3 text-sm">
               <p className="text-negative">{t.demo.needsAccess}</p>
               <a
@@ -187,7 +196,7 @@ export default function DemoPanel({ matchId }: { matchId: string }) {
                 rel="noopener noreferrer"
                 className="inline-flex min-h-11 max-w-full items-center text-foreground underline underline-offset-4 hover:text-muted-foreground"
               >
-                {t.demo.needsAccessLink}
+                {t.demo.needsAccessLink} <span className="sr-only">{t.demo.newTab}</span>
               </a>
             </div>
           ) : (

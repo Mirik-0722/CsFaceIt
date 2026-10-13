@@ -28,7 +28,8 @@ import org.springframework.web.client.RestClient;
  * here, the queue retries what throws {@link DemoDownloadException}. The token, the endpoint and the signed address
  * are never logged and never put in an exception message, because {@code demos.error} shows those messages and the
  * signed address is a bearer credential for the file: only the host of the signed address is logged, once. The signed
- * address is not stored anywhere either; it lives for the length of one import.
+ * address is not stored anywhere either; it lives for the length of one import. A refusal of the token (HTTP 401 or 403)
+ * is logged with FACEIT's own error code and message, which tell a missing scope from a bad token and are no secret.
  */
 @Component
 public class FaceitDownloadsApi {
@@ -88,8 +89,9 @@ public class FaceitDownloadsApi {
                     .body(Map.of("resource_url", demoUrl))
                     .exchange((request, response) -> {
                         int status = response.getStatusCode().value();
-                        byte[] body = status >= 200 && status < 300
-                                ? response.getBody().readNBytes(MAX_ANSWER_BYTES) : new byte[0];
+                        // The body is read for an answer that is used and for a refusal, whose FACEIT error code is logged.
+                        boolean wanted = status >= 200 && status < 300 || status == 401 || status == 403;
+                        byte[] body = wanted ? response.getBody().readNBytes(MAX_ANSWER_BYTES) : new byte[0];
                         return new Answer(status, body);
                     });
         } catch (ResourceAccessException e) {
@@ -97,6 +99,12 @@ public class FaceitDownloadsApi {
             Throwable cause = e.getMostSpecificCause();
             throw new DemoDownloadException("The FACEIT Downloads API could not be reached: "
                     + cause.getClass().getSimpleName());
+        } catch (RuntimeException e) {
+            // Anything else the request can throw may quote what it was given: the JDK's request builder answers an invalid
+            // header value (a token with a character above U+00FF or a control character) with an IllegalArgumentException
+            // whose message is `invalid header value: "Bearer <the token>"`. That message would be retried, republished with
+            // the exception in its headers and logged, so only the kind of failure is passed on, and the cause is not chained.
+            throw new DemoDownloadException("The FACEIT Downloads API could not be asked: " + e.getClass().getSimpleName());
         }
         return signedAddressOf(answer);
     }
@@ -104,6 +112,7 @@ public class FaceitDownloadsApi {
     private String signedAddressOf(Answer answer) {
         int status = answer.status();
         if (status == 401 || status == 403) {
+            logRefusal(status, answer.body());
             throw DemoDownloadRejectedException.needsAccess();
         }
         if (status == 404) {
@@ -125,6 +134,36 @@ public class FaceitDownloadsApi {
         }
         log.info("FACEIT's Downloads API gave a signed address on {}", hostOf(address));
         return address;
+    }
+
+    /**
+     * Logs a refusal with FACEIT's own words, which tell a token that lacks the scope ({@code err_f0}, "no valid scope
+     * provided") from a token that is bad or revoked; neither is a secret. The sentence in {@code demos.error} is the same
+     * for both. What FACEIT sent is cut short and cleaned of control characters, and left out if it would hold the token.
+     */
+    private void logRefusal(int status, byte[] body) {
+        String code = "none";
+        String message = "none";
+        try {
+            JsonNode first = mapper.readTree(body).path("errors").path(0);
+            code = printable(first.path("code").asText(null));
+            message = printable(first.path("message").asText(null));
+        } catch (IOException | RuntimeException e) {
+            // An answer that is not JSON has no code; the status is logged all the same.
+        }
+        log.warn("FACEIT's Downloads API refused the token: HTTP {}, error code {}, message {}", status, code, message);
+    }
+
+    /** A value taken from FACEIT's answer for a log line: at most 200 printable characters, and never the token. */
+    private String printable(String value) {
+        if (value == null || value.isBlank()) {
+            return "none";
+        }
+        if (settings.configured() && value.contains(settings.token())) {
+            return "withheld";
+        }
+        String clean = value.replaceAll("\\p{Cntrl}", " ").trim();
+        return clean.length() > 200 ? clean.substring(0, 200) + "..." : clean;
     }
 
     /** The {@code payload.download_url} of the answer, or null when the answer is not JSON or has none. */

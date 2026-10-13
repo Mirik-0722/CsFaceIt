@@ -500,7 +500,8 @@ const SCENARIOS: Scenario[] = [
   // The demo panel opened: the admin key field and the three requests it guards.
   { name: 'manage', pages: ['match'], before: openDemoControls },
   // A demo that FACEIT did not let the site download: the explanation in the language of the page and the link to the
-  // match's room on FACEIT, in place of the backend's English sentence. Opened, so that the upload "below" is in the picture.
+  // match's room on FACEIT, in place of the backend's English sentence. The controls are open by themselves (nothing is
+  // pressed here), because the sentence sends the visitor to the upload below it.
   {
     name: 'noaccess',
     pages: ['match'],
@@ -514,7 +515,6 @@ const SCENARIOS: Scenario[] = [
         errorCode: 'DOWNLOAD_NEEDS_ACCESS',
       },
     },
-    before: openDemoControls,
   },
   // The first scoreboard scrolled to its right end, on a phone: the player column and the team header stay in place.
   // The default scoreboard fits in 390px and has nothing to scroll; the one with the 32-character nickname overflows.

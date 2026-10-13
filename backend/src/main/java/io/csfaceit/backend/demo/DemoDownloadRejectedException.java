@@ -27,6 +27,16 @@ public class DemoDownloadRejectedException extends DemoDownloadException {
     }
 
     /**
+     * The signed address that FACEIT's Downloads API gave answered {@code status} (401, 403, 404 or 410) when the file was
+     * fetched from it: the token worked, so this is not a matter of access to the Downloads API. The signed address
+     * is a short-lived credential and is not in the sentence.
+     */
+    public static DemoDownloadRejectedException signedAddressRefused(int status) {
+        return new DemoDownloadRejectedException("Demo download rejected: the download address that FACEIT gave was "
+                + "refused or has expired (HTTP " + status + "). Request the import again, or upload the .dem manually.");
+    }
+
+    /**
      * FACEIT does not let this site have the file: its Downloads API refused the token, or the site has no token and
      * the demo address (FACEIT's private cloud) answers nobody else. Another try would be refused the same way.
      */
