@@ -60,7 +60,17 @@ function main() {
     // Loaded only here: the fake mode must not even load the libraries of Steam.
     const { createSteamCoordinator } = require('./steam');
     prepareDataDir(config.dataDir, log);
-    coordinator = createSteamCoordinator({ account: config.steam, dataDir: config.dataDir, log });
+    // onFatal: the coordinator never came back after a fatal error. Ending with a failure is what makes the restart policy
+    // of the container start the bridge again (attempts.js keeps that from signing in in a loop).
+    coordinator = createSteamCoordinator({
+      account: config.steam,
+      dataDir: config.dataDir,
+      log,
+      onFatal: () => {
+        coordinator.stop();
+        setTimeout(() => process.exit(1), 1000);
+      },
+    });
   }
 
   const queue = createQueue({ minGapMs: MIN_GAP_BETWEEN_REQUESTS_MS, maxWaiting: MAX_WAITING_REQUESTS });

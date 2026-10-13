@@ -45,16 +45,32 @@ function createQueue({ minGapMs, maxWaiting }) {
     });
   }
 
-  // Runs task when it is its turn and returns what it returns. Rejects with BUSY when the queue is full.
+  // Runs task when it is its turn and returns what it returns. Rejects with BUSY when the queue is full. The promise
+  // has a method cancel(): when the task is still waiting it is taken out of the line and never runs (the promise then
+  // rejects with an error whose cancelled is true); a task that is running, or done, is left alone.
   function submit(task) {
-    return new Promise((resolve, reject) => {
+    let item = null;
+    const promise = new Promise((resolve, reject) => {
       if (waiting.length >= maxWaiting) {
         reject(busy());
         return;
       }
-      waiting.push({ task, resolve, reject });
+      item = { task, resolve, reject };
+      waiting.push(item);
       pump();
     });
+    promise.cancel = () => {
+      const index = item === null ? -1 : waiting.indexOf(item);
+      if (index < 0) {
+        return false;
+      }
+      waiting.splice(index, 1);
+      const error = new Error('the caller left the queue');
+      error.cancelled = true;
+      item.reject(error);
+      return true;
+    };
+    return promise;
   }
 
   return { submit, size: () => waiting.length + (running ? 1 : 0) };

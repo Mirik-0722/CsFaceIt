@@ -76,7 +76,17 @@ function createApp({ token, coordinator, queue, log }) {
     request.code = shortCode(shareCode);
 
     coordinator.admit(shareCode);
-    const outcome = await queue.submit(() => coordinator.lookup(shareCode));
+    // A caller that gives up (its connection closes before the answer was sent) leaves the line if it is still in it:
+    // its request is never sent to the coordinator.
+    const turn = queue.submit(() => coordinator.lookup(shareCode));
+    const leave = () => {
+      if (!res.writableEnded && turn.cancel()) {
+        log.info(`The caller of a request (${request.code}) left while it waited; it was taken out of the queue.`);
+      }
+    };
+    res.on('close', leave);
+    const outcome = await turn;
+    res.off('close', leave);
     const answer = toAnswer(outcome);
     send(res, answer.status, answer.body);
   }
@@ -103,7 +113,7 @@ function createApp({ token, coordinator, queue, log }) {
     });
 
     resolve(req, res, request).catch((error) => {
-      if (res.headersSent) {
+      if (res.headersSent || error.cancelled) {
         return;
       }
       if (error instanceof BridgeError) {
