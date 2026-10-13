@@ -117,7 +117,12 @@ function PlayerMatches({ playerId }: { playerId: string }) {
                 {items && items.length > 0 && shown?.length === 0 && (
                   <p className="pt-4 text-sm text-muted-foreground">{t.matches.emptyFilter}</p>
                 )}
-                {matches.isError && <p className="text-sm text-destructive">{errorMessage(matches.error, t)}</p>}
+                {/* A failed refresh of rows that are already shown (the page asks again every 15 s while a clip is in
+                    progress) says nothing: the rows are still good, and the next try is on its way. The first page and a
+                    "load more" that fail are said. */}
+                {matches.isError && !matches.isRefetchError && (
+                  <p className="text-sm text-destructive">{errorMessage(matches.error, t)}</p>
+                )}
               </div>
             </div>
             {matches.hasNextPage && (
