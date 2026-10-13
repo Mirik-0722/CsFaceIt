@@ -8,10 +8,12 @@ import org.springframework.http.HttpHeaders;
 
 /**
  * The origin the browser used to reach the site: the scheme and the host (with the port, when the browser sent one) of
- * its address, such as {@code https://example.com} or {@code http://localhost:3000}. It is read from the request and
- * from no setting, because one and the same image is reached through a domain over HTTPS, through a bare address over
- * HTTP and through {@code localhost}, and the address Steam is told to send the visitor back to has to be the one the
- * visitor is on.
+ * its address, such as {@code https://example.com} or {@code http://localhost:3000}. It is read from the request,
+ * because one and the same image is reached through a domain over HTTPS, through a bare address over HTTP and through
+ * {@code localhost}, and the address Steam is told to send the visitor back to has to be the one the visitor is on.
+ * What the request says is only a candidate, though: it is the site's origin only if the operator has listed it, and
+ * {@link KnownOrigins#of} is where that is decided. Nothing but a known origin is used to build the address Steam
+ * sends a visitor back to, and no session is issued on any other.
  *
  * <p>The host is the {@code Host} header, which the Nginx of the stack passes on as the browser sent it. The scheme
  * is that of the {@code X-Forwarded-Proto} header when it says {@code http} or {@code https}, which a proxy in front

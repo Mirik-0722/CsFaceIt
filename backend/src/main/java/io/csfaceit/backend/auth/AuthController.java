@@ -3,10 +3,10 @@ package io.csfaceit.backend.auth;
 import io.csfaceit.backend.auth.SessionService.NewSession;
 import io.csfaceit.backend.auth.dto.MeResponse;
 import io.csfaceit.backend.auth.dto.ProvidersResponse;
-import io.csfaceit.backend.common.api.BadRequestException;
 import io.csfaceit.backend.common.api.NotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -29,7 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
  * cookie (see {@link LoginState}); {@code callback} is where Steam sends them back, and it makes a session of the
  * answer only if all the checks of {@link SteamOpenId} pass, in which case the visitor goes on to the page they asked
  * for. Whatever goes wrong, the visitor ends on {@code /?login=failed} with the one line in the log that says why, never
- * on an error page. The {@code csf_login} cookie is spent either way.
+ * on an error page. The {@code csf_login} cookie is spent either way. Both requests are served only on an origin that
+ * the operator has listed (see {@link KnownOrigins}): the {@code Host} header alone does not make a name the site's.
  */
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -44,13 +45,15 @@ public class AuthController {
     private final SteamOpenId steam;
     private final SignInService signIn;
     private final SessionService sessions;
+    private final KnownOrigins knownOrigins;
 
     public AuthController(AuthProperties properties, SteamOpenId steam, SignInService signIn,
-                          SessionService sessions) {
+                          SessionService sessions, KnownOrigins knownOrigins) {
         this.properties = properties;
         this.steam = steam;
         this.signIn = signIn;
         this.sessions = sessions;
+        this.knownOrigins = knownOrigins;
     }
 
     /**
@@ -66,13 +69,18 @@ public class AuthController {
 
     /**
      * Sends the visitor to Steam. {@code returnTo} is the path of the site to come back to; anything that is not a path
-     * of this site is replaced by {@code /} (see {@link ReturnPath}).
+     * of this site is replaced by {@code /} (see {@link ReturnPath}). A request that was not made at a known origin
+     * (see {@link KnownOrigins}) is sent to {@code /?login=failed} instead, as a failed sign-in is, and no cookie is set.
      */
     @GetMapping("/steam/start")
     public ResponseEntity<Void> startSteam(@RequestParam(required = false) String returnTo,
                                            HttpServletRequest request) {
-        RequestOrigin origin = RequestOrigin.of(request)
-                .orElseThrow(() -> new BadRequestException("The Host header of the request cannot be used"));
+        Optional<RequestOrigin> known = knownOrigins.of(request);
+        if (known.isEmpty()) {
+            log.warn("Sign-in with Steam refused: {}", unknownOrigin(request));
+            return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(LOGIN_FAILED)).build();
+        }
+        RequestOrigin origin = known.get();
         LoginState login = LoginState.begin(returnTo);
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(steam.loginRedirect(origin, login.state()))
@@ -91,8 +99,8 @@ public class AuthController {
         ResponseEntity.BodyBuilder redirect = ResponseEntity.status(HttpStatus.FOUND)
                 .header(HttpHeaders.SET_COOKIE, AuthCookies.clearedLogin(secure).toString());
         try {
-            RequestOrigin origin = RequestOrigin.of(request)
-                    .orElseThrow(() -> new SteamLoginRejectedException("the Host header cannot be used"));
+            RequestOrigin origin = knownOrigins.of(request)
+                    .orElseThrow(() -> new SteamLoginRejectedException(unknownOrigin(request)));
             LoginState login = AuthCookies.loginState(request).orElseThrow(() -> new SteamLoginRejectedException(
                     "this browser has no sign-in under way (no usable csf_login cookie)"));
             String[] states = request.getParameterValues("state");
@@ -114,6 +122,17 @@ public class AuthController {
             log.warn("Sign-in with Steam refused: {}", e.getMessage());
             return redirect.location(URI.create(LOGIN_FAILED)).build();
         }
+    }
+
+    /**
+     * Why the request cannot be served as a sign-in: the origin it was made at, which is the one thing here that is
+     * named, is not on the list of the known ones. A host name is no secret, and the one named has the shape of a host
+     * (see {@link RequestOrigin}), so it holds nothing that does not belong in a log line.
+     */
+    private static String unknownOrigin(HttpServletRequest request) {
+        return RequestOrigin.of(request)
+                .map(origin -> "the origin " + origin.value() + " is not a known origin of this site")
+                .orElse("the Host header cannot be used");
     }
 
     /**

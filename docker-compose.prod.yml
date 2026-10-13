@@ -10,8 +10,11 @@
 # 2.24.4 or newer for the `!override` tag, like docker-compose.fake.yml.
 #
 # A server that has no domain yet can use this file as well: with DOMAIN=:80 Caddy serves plain HTTP on port 80 under
-# any name or address and asks for no certificate. The origin the backend is given below then matches nothing, which
-# is right: over plain HTTP the page and the API are one origin and no entry is needed.
+# any name or address and asks for no certificate. The origin the backend is given below from DOMAIN then matches
+# nothing, and that is not enough: the backend serves the sign-in and accepts a write that carries the session cookie
+# only at the origins it knows, so set PUBLIC_ORIGIN in .env to the address the browser shows, such as
+# http://203.0.113.5 (the scheme, the host and the port when it is not 80; no path). Without it nobody can sign in and
+# the backend logs the origin it refused.
 services:
   caddy:
     image: caddy:2
@@ -45,8 +48,9 @@ services:
       APP_API_KEY: "${APP_API_KEY:?Set APP_API_KEY in .env to a long random secret, for example the output of openssl rand -hex 32}"
       # The page is at https://DOMAIN, so the browser sends that as the Origin of every write, while the backend, behind
       # Caddy and Nginx, sees plain http and takes the write for a cross-origin one: it must find the origin in this
-      # list or it answers 403. This takes the place of PUBLIC_ORIGIN of docker-compose.yml, which is for a proxy of
-      # your own.
+      # list or it answers 403. It is also the origin the backend serves the sign-in at (the known origins are this list
+      # and PUBLIC_ORIGIN, which docker-compose.yml passes on and which is for the no-domain mode, DOMAIN=:80, whose
+      # entry here, https://:80, is no origin and is ignored with a warning in the log at start).
       CORS_ALLOWED_ORIGINS: "https://${DOMAIN:?Set DOMAIN in .env to the host name of this server, without https:// (for example example.com)}"
 
   frontend:

@@ -136,13 +136,21 @@ services:
       # sign-in with FACEIT itself is not written yet, so they are read and nothing more; the secret is never logged.
       FACEIT_OAUTH_CLIENT_ID: ${FACEIT_OAUTH_CLIENT_ID:-}
       FACEIT_OAUTH_CLIENT_SECRET: ${FACEIT_OAUTH_CLIENT_SECRET:-}
-      # The browser origin the backend allows (scheme, host and port). Over plain HTTP on the published web port the
-      # page and the API are one origin and the list is not consulted, so the default is enough. Set PUBLIC_ORIGIN, for
-      # example https://example.com, when a proxy in front of the web port terminates HTTPS: the browser then sends
-      # `Origin: https://example.com` with every write (POST, PUT, DELETE), the backend only sees plain http behind
-      # Nginx, takes the write for a cross-origin one and refuses it with 403 unless that origin is in the list.
-      # docker-compose.prod.yml, which has Caddy do the HTTPS, sets it from DOMAIN.
-      CORS_ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:${WEB_PORT:-3000}}
+      # The origins the backend takes for the site's own: the scheme, the host and the port when it is not the default one,
+      # no path (a comma separated list). A visitor can sign in, and a write that carries the session cookie is accepted,
+      # only at one of them; the same list is what CORS allows. By default the stack is reached on the published web port
+      # at http://localhost:${WEB_PORT} or http://127.0.0.1:${WEB_PORT}, and nothing needs to be set. Set PUBLIC_ORIGIN, for
+      # example https://example.com or http://203.0.113.5, when it is reached any other way (the address of a server, a
+      # name, a tunnel): the sign-in is refused at an origin that is not listed. It is added to the two above, and it is
+      # also what a proxy in front of the web port that terminates HTTPS needs: the browser then sends
+      # `Origin: https://example.com` with every write (POST, DELETE), the backend only sees plain http behind Nginx, takes
+      # the write for a cross-origin one and refuses it with 403 unless that origin is in the list.
+      # docker-compose.prod.yml, which has Caddy do the HTTPS, puts https://${DOMAIN} in the list instead.
+      CORS_ALLOWED_ORIGINS: http://localhost:${WEB_PORT:-3000},http://127.0.0.1:${WEB_PORT:-3000}${PUBLIC_ORIGIN:+,${PUBLIC_ORIGIN:-}}
+      # The same origin for the backend's own list of known origins (app.public-origin), so that it reaches the backend
+      # when docker-compose.prod.yml replaces the list above: the no-domain mode (DOMAIN=:80) of that file has no
+      # origin of its own and needs this one.
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
     # Reachable only from other services of this stack (the Nginx in `frontend`); no host port.
     expose:
       - "8080"

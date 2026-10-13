@@ -5,8 +5,13 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,6 +42,13 @@ import org.springframework.web.client.RestClientException;
  *   <li>{@code openid.op_endpoint} is the login address of the setting
  *   <li>{@code openid.claimed_id} is exactly {@code https://steamcommunity.com/openid/id/} and 17 digits. That
  *       pattern is Steam's own and stays so in every environment, the stack with a fake Steam included
+ *   <li>{@code openid.identity} is {@code openid.claimed_id}: the two name the same account
+ *   <li>{@code openid.signed} lists {@code claimed_id}, {@code identity}, {@code return_to}, {@code op_endpoint} and
+ *       {@code response_nonce}. Steam's signature covers the fields that list names and no others, so a field that is
+ *       not in it could have been put there by anybody on the way, and these are the fields this check relies on
+ *   <li>{@code openid.response_nonce} starts with the time Steam made the answer, and that time is not more than five
+ *       minutes ago nor more than a minute ahead of this server's clock. An answer is for the moment of the sign-in, so
+ *       one that was kept and is shown again later is refused, even if it were still to be confirmed
  *   <li>Steam confirms the answer: the parameters are posted back to the verification address of the setting with
  *       {@code openid.mode} changed to {@code check_authentication}, and the reply must hold the line
  *       {@code is_valid:true}. It is Steam that checks the signature of the fields and, as OpenID 2.0 asks of a provider,
@@ -65,6 +77,20 @@ public class SteamOpenId {
     /** The one shape of Steam's identity: the SteamID64 is the 17 digits. Matched against the whole value. */
     private static final Pattern CLAIMED_ID = Pattern.compile("https://steamcommunity\\.com/openid/id/(\\d{17})");
 
+    /** The fields whose values are relied on, and which {@code openid.signed} therefore has to list. */
+    private static final List<String> REQUIRED_SIGNED_FIELDS =
+            List.of("claimed_id", "identity", "return_to", "op_endpoint", "response_nonce");
+
+    /**
+     * How a nonce starts (OpenID 2.0, section 10.1): the time in UTC as {@code YYYY-MM-DDThh:mm:ssZ}, then characters
+     * of the provider's own that make it unique. Only the time is read; the whole value is already limited to
+     * {@link #MAX_VALUE_LENGTH} characters with the other parameters.
+     */
+    private static final Pattern NONCE_TIME = Pattern.compile("(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z).*",
+            Pattern.DOTALL);
+    private static final Duration NONCE_MAX_AGE = Duration.ofMinutes(5);
+    private static final Duration NONCE_MAX_AHEAD = Duration.ofMinutes(1);
+
     /** Steam's answer has ten parameters; this is far above that and far below what a client could make us repeat. */
     private static final int MAX_PARAMETERS = 30;
     private static final int MAX_VALUE_LENGTH = 1024;
@@ -77,8 +103,10 @@ public class SteamOpenId {
     private final String loginUrl;
     private final URI verifyUri;
     private final RestClient restClient;
+    private final Clock clock;
 
-    public SteamOpenId(AuthProperties properties) {
+    public SteamOpenId(AuthProperties properties, Clock clock) {
+        this.clock = clock;
         this.loginUrl = properties.steam().loginUrl();
         // A setting that is not a URI fails here, at startup, and not at the first visitor's sign-in.
         URI.create(loginUrl);
@@ -135,6 +163,11 @@ public class SteamOpenId {
         if (!claimedId.matches()) {
             throw new SteamLoginRejectedException("openid.claimed_id is not a Steam identity");
         }
+        if (!openid.get("openid.claimed_id").equals(openid.get("openid.identity"))) {
+            throw new SteamLoginRejectedException("openid.identity is not openid.claimed_id");
+        }
+        requireSigned(openid.get("openid.signed"));
+        requireFreshNonce(openid.get("openid.response_nonce"));
 
         confirm(openid);
         return claimedId.group(1);
@@ -162,6 +195,37 @@ public class SteamOpenId {
             openid.put(entry.getKey(), values[0]);
         }
         return openid;
+    }
+
+    /** Fails unless {@code openid.signed} names every field of {@link #REQUIRED_SIGNED_FIELDS}. */
+    private static void requireSigned(String signed) {
+        List<String> names = signed == null ? List.of() : Arrays.asList(signed.split(",", -1));
+        if (!names.containsAll(REQUIRED_SIGNED_FIELDS)) {
+            throw new SteamLoginRejectedException("openid.signed does not list all of claimed_id, identity, return_to, "
+                    + "op_endpoint and response_nonce");
+        }
+    }
+
+    /** Fails unless the time at the start of the nonce is within the window of the sign-in around this server's clock. */
+    private void requireFreshNonce(String nonce) {
+        Matcher time = NONCE_TIME.matcher(nonce == null ? "" : nonce);
+        if (!time.matches()) {
+            throw new SteamLoginRejectedException("openid.response_nonce does not start with a time");
+        }
+        Instant issuedAt;
+        try {
+            issuedAt = Instant.parse(time.group(1));
+        } catch (DateTimeParseException e) {
+            throw new SteamLoginRejectedException("openid.response_nonce does not start with a time");
+        }
+        Instant now = clock.instant();
+        if (issuedAt.isBefore(now.minus(NONCE_MAX_AGE))) {
+            throw new SteamLoginRejectedException("openid.response_nonce is older than 5 minutes");
+        }
+        if (issuedAt.isAfter(now.plus(NONCE_MAX_AHEAD))) {
+            throw new SteamLoginRejectedException(
+                    "openid.response_nonce is more than 1 minute ahead of this server's clock");
+        }
     }
 
     /** Has Steam say whether the answer is genuine: the parameters go back to it, and the reply must say so. */
