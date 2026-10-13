@@ -56,7 +56,8 @@ export const en = {
     invalidNickname: 'Nickname must be 2–32 characters: letters, digits, _ or -',
     // The sections under the search. The clip, the scoreboard and the names in them are made up: `sample` says so.
     sample: 'Sample',
-    frameRound: 'MIRAGE · ROUND 14',
+    // The corner label of the sample frame: the map is the one whose turn it is in the strip of maps.
+    frameRound: (map: string) => `${map} · ROUND 14`,
     steps: {
       title: 'From demo to clip in three steps',
       demo: {
@@ -101,6 +102,13 @@ export const en = {
     closing: {
       line: 'See what happened in your last match.',
       button: 'Find a player',
+    },
+    // The strip of maps at the foot of the hero: its label, and the two names of the button that stops the maps from
+    // taking turns and lets them go on.
+    maps: {
+      label: 'On every map',
+      stop: 'Stop turning through the maps',
+      resume: 'Resume turning through the maps',
     },
   },
   player: {

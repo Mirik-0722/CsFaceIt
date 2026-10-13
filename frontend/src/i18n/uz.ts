@@ -50,7 +50,7 @@ export const uz: Messages = {
     searching: 'Qidirilmoqda…',
     invalidNickname: "Nickname 2–32 belgi bo'lsin: harf, raqam, _ yoki -",
     sample: 'Namuna',
-    frameRound: 'MIRAGE · 14-RAUND',
+    frameRound: (map) => `${map} · 14-RAUND`,
     steps: {
       title: 'Demodan klipgacha — uch qadam',
       demo: {
@@ -93,6 +93,11 @@ export const uz: Messages = {
     closing: {
       line: "Oxirgi matchingizda nima bo'lganini ko'ring.",
       button: "O'yinchini qidirish",
+    },
+    maps: {
+      label: 'Har xaritada',
+      stop: "Xaritalar almashishini to'xtatish",
+      resume: 'Xaritalar almashishini davom ettirish',
     },
   },
   player: {

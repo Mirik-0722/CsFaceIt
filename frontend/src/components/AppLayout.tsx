@@ -37,7 +37,9 @@ export default function AppLayout() {
     }
   }, [location, navigationType])
   return (
-    <div className="flex min-h-dvh flex-col">
+    // `isolate`: what a page lays behind itself and the top bar (the landing page's backdrop) stays over the ground of
+    // the page and under everything else.
+    <div className="isolate flex min-h-dvh flex-col">
       <TopBar />
       <UnlinkedStrip />
       {/* A plain block, not a flex container, so a page's own `<main>` keeps its block layout (auto margins centre it). */}

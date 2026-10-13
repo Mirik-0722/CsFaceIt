@@ -45,6 +45,9 @@ import {
  *
  * The API is mocked as in search-flow.spec.ts. To photograph more, add a row to PAGES or to SCENARIOS: the loop at
  * the bottom turns the two tables into tests.
+ *
+ * Every picture is taken as a visitor who asked for less motion sees the page: the landing page then does not turn
+ * through its maps by itself, so its pictures are of the first map (Mirage) whenever they are taken.
  */
 
 type Language = 'uz' | 'en'
@@ -466,6 +469,9 @@ const SCENARIOS: Scenario[] = [
     before: openLastTab,
   },
   { name: 'visitor', pages: ['clips'], backend: { me: null, clips: OWN_CLIPS } },
+  // The landing page with another map pressed in its strip: the backdrop and the corner label of the sample frame are
+  // that map's. Nuke has the brightest sky of the eight, so it is the one to judge the veil by.
+  { name: 'map', pages: ['home'], before: pressOtherMap },
   // FACEIT turned on in the backend: its sign-in button is a button now, in the hero and in the dialog.
   { name: 'faceit', pages: ['home', 'signin'], backend: { providers: { steam: true, faceit: true } } },
   // The players of the demo are not linked to the roster: the strip has one row, the scoreboard no analysis columns.
@@ -650,6 +656,13 @@ async function openDemoControls(page: Page) {
   await page.locator('main button[aria-expanded="false"]').first().click()
 }
 
+/** Presses "Nuke" in the landing page's strip of maps and waits until the backdrop shows that map's scenery. */
+async function pressOtherMap(page: Page) {
+  await page.getByRole('button', { name: 'Nuke', exact: true }).click()
+  await page.locator('main img[src*="scenes/de_nuke"]').waitFor({ state: 'attached' })
+  await settle(page)
+}
+
 /** Scrolls the first scoreboard's box to its right end; a table that fits in its box does not move. */
 async function scrollScoreboard(page: Page) {
   await page.locator('[data-slot="table-container"]').first().evaluate((box) => {
@@ -674,6 +687,7 @@ function defineShots() {
 
             test(name, async ({ page }) => {
               await page.setViewportSize(viewport)
+              await page.emulateMedia({ reducedMotion: 'reduce' })
               await setLanguage(page, language)
               await mockApi(page, answersFor(backend))
               await page.goto(shotPage.path)

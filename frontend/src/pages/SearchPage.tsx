@@ -6,8 +6,11 @@ import ClipKindsSection from '@/components/landing/ClipKindsSection'
 import ClosingCall from '@/components/landing/ClosingCall'
 import HeroIllustration from '@/components/landing/HeroIllustration'
 import HeroSignIn from '@/components/landing/HeroSignIn'
+import MapBackdrop from '@/components/landing/MapBackdrop'
+import MapStrip from '@/components/landing/MapStrip'
 import StatisticsSection from '@/components/landing/StatisticsSection'
 import StepsSection from '@/components/landing/StepsSection'
+import { HERO_MAPS, useMapTurn } from '@/components/landing/useMapTurn'
 import PlayerHeader from '@/components/PlayerHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,7 +25,9 @@ const NICKNAME_PATTERN = /^[A-Za-z0-9_-]{2,32}$/
 /**
  * The home page (spec 4, screen 1): the landing page. Its hero offers signing in first and, under a line, the player
  * search for a visitor who does not want to. Under the hero come what the product does (three steps, two kinds of
- * clip, statistics) and a last call. The sections only tell about what the product does: none of them has a link.
+ * clip, statistics) and a last call. The sections only tell about what the product does: none of them has a link. The
+ * hero turns through the maps of its strip: the scenery behind it and the top bar, and the corner label of its sample
+ * frame, are of the map whose turn it is.
  *
  * Two things arrive in the address. `?q=` is the nickname that the top bar's search handed over: the search for it
  * runs at once. `?login=failed` is a sign-in that did not work: the hero says so once, and the address is cleaned.
@@ -42,6 +47,8 @@ export default function SearchPage() {
   const [loginFailed] = useState(() => searchParams.get('login') === 'failed')
   const search = usePlayerSearch(nickname)
   const inputRef = useRef<HTMLInputElement>(null)
+  const turn = useMapTurn()
+  const activeMap = HERO_MAPS[turn.active]
 
   const loginInAddress = searchParams.has('login')
   useEffect(() => {
@@ -88,81 +95,86 @@ export default function SearchPage() {
     <main>
       {/* The hero (spec 4, screen 1): signing in is its call to action, the nickname search sits under a line for the
           visitor who does not want to, and beside them, from `lg` up, a picture of what the product makes. In the code
-          the buttons come first, so that they are the first stops of the keyboard after the top bar. */}
-      <section className="container-page pt-18 pb-22">
-        {/* The columns take their widths from the mockup: 400px and 480px to start from, the free room shared 1 to
-            1.35. They are top-aligned: the column on the left grows with a search (the skeleton, the card, an error),
-            and a centred column would move the headline and the field when it did. */}
-        <div className="flex flex-col gap-x-14 gap-y-12 lg:flex-row lg:items-start">
-          <div className="flex min-w-0 flex-col items-start gap-6 lg:flex-[1_1_400px]">
-            <p className="label-mono">{t.home.eyebrow}</p>
-            <h1 className="text-[clamp(40px,5vw,72px)] leading-[1.02] font-semibold tracking-[-0.035em] text-balance">
-              {t.home.title}
-            </h1>
-            <p className="max-w-[30em] text-lg text-pretty text-muted-foreground">{t.home.subtitle}</p>
-            <HeroSignIn failed={loginFailed} />
-            <div className="mt-1 w-full border-t border-border pt-5">
-              {/* The words that introduce the search, read before it. They are not the field's label (that is `nickname`,
-                  below) and do not name the form: a second label would make two things of the page answer to the name
-                  of the field. A visitor who is signed in is not told "or without signing in"; until the answer is
-                  here the words are not shown. */}
-              <p className={cn('label-mono mb-2.5', me.isPending && 'invisible')}>
-                {me.data ? t.auth.byNickname : t.auth.orByNickname}
-              </p>
-              {/* The field and the button share a row where they fit and wrap where they do not. */}
-              <form role="search" onSubmit={handleSubmit} className="flex flex-wrap gap-3">
-                {/* A real label, hidden: the placeholder is not a name, and it goes away as soon as something is
-                    typed. */}
-                <label htmlFor="nickname" className="sr-only">
-                  {t.home.nicknameLabel}
-                </label>
-                {/* FACEIT's nickname lookup is case-sensitive: a phone must not capitalise or correct what is
-                    typed. The text is the mockup's 15px from `sm` up and 16px below, because an iPhone zooms the page
-                    into a field under 16px. */}
-                <Input
-                  id="nickname"
-                  name="nickname"
-                  ref={inputRef}
-                  className="flex-[1_1_260px] text-base sm:text-[15px]"
-                  placeholder={t.home.placeholder}
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  enterKeyHint="search"
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  aria-invalid={invalidNickname ? true : undefined}
-                  aria-describedby={invalidNickname ? 'nickname-error' : undefined}
-                />
-                <Button type="submit" variant="outline">
-                  {t.home.submit}
-                </Button>
-              </form>
-              {/* Always in the page, so that what lands in it is announced; it takes room only when it holds
-                  something. */}
-              <div aria-live="polite" className="flex flex-col gap-2 not-empty:mt-6">
-                {invalidNickname && (
-                  <p id="nickname-error" className="text-sm text-destructive">
-                    {t.home.invalidNickname}
-                  </p>
-                )}
-                {search.isLoading && (
-                  <>
-                    <p className="label-mono">{t.home.searching}</p>
-                    <Skeleton className="h-20 w-full" />
-                  </>
-                )}
-                {search.isError && <p className="text-sm text-destructive">{errorMessage(search.error, t)}</p>}
-                {search.data && (
-                  <Link to={`/players/${encodeURIComponent(search.data.playerId)}`} className="block">
-                    <PlayerHeader player={search.data} />
-                  </Link>
-                )}
+          the buttons come first, so that they are the first stops of the keyboard after the top bar. Behind it all is
+          the scenery of the active map, and at its foot the strip of maps. */}
+      <section className="relative">
+        <MapBackdrop mapName={activeMap} />
+        <div className="container-page pt-18 pb-8">
+          {/* The columns take their widths from the mockup: 400px and 480px to start from, the free room shared 1 to
+              1.35. They are top-aligned: the column on the left grows with a search (the skeleton, the card, an error),
+              and a centred column would move the headline and the field when it did. */}
+          <div className="flex flex-col gap-x-14 gap-y-12 lg:flex-row lg:items-start">
+            <div className="flex min-w-0 flex-col items-start gap-6 lg:flex-[1_1_400px]">
+              <p className="label-mono">{t.home.eyebrow}</p>
+              <h1 className="text-[clamp(40px,5vw,72px)] leading-[1.02] font-semibold tracking-[-0.035em] text-balance">
+                {t.home.title}
+              </h1>
+              <p className="max-w-[30em] text-lg text-pretty text-muted-foreground">{t.home.subtitle}</p>
+              <HeroSignIn failed={loginFailed} />
+              <div className="mt-1 w-full border-t border-border pt-5">
+                {/* The words that introduce the search, read before it. They are not the field's label (that is
+                    `nickname`, below) and do not name the form: a second label would make two things of the page answer
+                    to the name of the field. A visitor who is signed in is not told "or without signing in"; until the
+                    answer is here the words are not shown. */}
+                <p className={cn('label-mono mb-2.5', me.isPending && 'invisible')}>
+                  {me.data ? t.auth.byNickname : t.auth.orByNickname}
+                </p>
+                {/* The field and the button share a row where they fit and wrap where they do not. */}
+                <form role="search" onSubmit={handleSubmit} className="flex flex-wrap gap-3">
+                  {/* A real label, hidden: the placeholder is not a name, and it goes away as soon as something is
+                      typed. */}
+                  <label htmlFor="nickname" className="sr-only">
+                    {t.home.nicknameLabel}
+                  </label>
+                  {/* FACEIT's nickname lookup is case-sensitive: a phone must not capitalise or correct what is
+                      typed. The text is the mockup's 15px from `sm` up and 16px below, because an iPhone zooms the page
+                      into a field under 16px. */}
+                  <Input
+                    id="nickname"
+                    name="nickname"
+                    ref={inputRef}
+                    className="flex-[1_1_260px] text-base sm:text-[15px]"
+                    placeholder={t.home.placeholder}
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    enterKeyHint="search"
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    aria-invalid={invalidNickname ? true : undefined}
+                    aria-describedby={invalidNickname ? 'nickname-error' : undefined}
+                  />
+                  <Button type="submit" variant="outline">
+                    {t.home.submit}
+                  </Button>
+                </form>
+                {/* Always in the page, so that what lands in it is announced; it takes room only when it holds
+                    something. */}
+                <div aria-live="polite" className="flex flex-col gap-2 not-empty:mt-6">
+                  {invalidNickname && (
+                    <p id="nickname-error" className="text-sm text-destructive">
+                      {t.home.invalidNickname}
+                    </p>
+                  )}
+                  {search.isLoading && (
+                    <>
+                      <p className="label-mono">{t.home.searching}</p>
+                      <Skeleton className="h-20 w-full" />
+                    </>
+                  )}
+                  {search.isError && <p className="text-sm text-destructive">{errorMessage(search.error, t)}</p>}
+                  {search.data && (
+                    <Link to={`/players/${encodeURIComponent(search.data.playerId)}`} className="block">
+                      <PlayerHeader player={search.data} />
+                    </Link>
+                  )}
+                </div>
               </div>
             </div>
+            <HeroIllustration mapName={activeMap} className="lg:flex-[1.35_1_480px]" />
           </div>
-          <HeroIllustration className="lg:flex-[1.35_1_480px]" />
+          <MapStrip turn={turn} className="mt-12 lg:mt-18" />
         </div>
       </section>
       <StepsSection />

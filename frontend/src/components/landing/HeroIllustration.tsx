@@ -4,11 +4,12 @@ import { Badge } from '@/components/ui/badge'
 import ViewfinderFrame from '@/components/ViewfinderFrame'
 import { useT } from '@/i18n'
 import { formatDuration, highlightLabel } from '@/lib/highlightLabels'
+import { mapLabel } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
 import { weaponLabel } from '@/lib/weapons'
 
-// The sample clip: an ace on Mirage by a player who does not exist. Nothing in it is real, and the label above the
-// picture says so.
+// The sample clip: an ace by a player who does not exist. Nothing in it is real, and the label above the picture says
+// so.
 const KILLER = 'temur1k'
 const WEAPON = 'ak47'
 const VICTIMS = [
@@ -41,16 +42,18 @@ function Crosshair() {
 /**
  * The picture beside the search (mockup, screen 1): what the product makes. A frame of the game with the REC timecode,
  * the kill feed of an ace and the crosshair; under it the line of the clip with its five kills, and what the clip is.
- * It is a drawing of an example, so it is hidden from assistive technology as a whole and marked as a sample.
+ * It is a drawing of an example, so it is hidden from assistive technology as a whole and marked as a sample. Its
+ * content is always the same; only the corner label names the map whose turn it is on the page (`mapName`).
  */
-export default function HeroIllustration({ className }: { className?: string }) {
+export default function HeroIllustration({ mapName, className }: { mapName: string; className?: string }) {
   const t = useT()
   const headshots = VICTIMS.filter((victim) => victim.headshot).length
   return (
-    <div aria-hidden="true" className={cn('flex min-w-0 flex-col gap-3.5', className)}>
+    // `scenery-plate`: the page's backdrop is behind the sample, and its small grey lines need a darker ground.
+    <div aria-hidden="true" className={cn('scenery-plate flex min-w-0 flex-col gap-3.5', className)}>
       <p className="label-mono">{t.home.sample}</p>
       <ViewfinderFrame
-        // The frame is a drawing: it keeps the tinted scene and never shows the view of the map.
+        // The frame itself does not follow the map: the page's backdrop is the map's picture, the frame a drawing.
         mapName="de_mirage"
         scenery={false}
         size="large"
@@ -79,7 +82,11 @@ export default function HeroIllustration({ className }: { className?: string }) 
           </div>
         }
         center={<Crosshair />}
-        bottomLeft={<span className={cn('text-muted-foreground', LABEL_SIZE)}>{t.home.frameRound}</span>}
+        bottomLeft={
+          <span className={cn('text-muted-foreground', LABEL_SIZE)}>
+            {t.home.frameRound((mapLabel(mapName) ?? '').toUpperCase())}
+          </span>
+        }
         bottomRight={<span className={LABEL_SIZE}>1080p · 60 FPS</span>}
       />
       {/* The clip itself is the track: from its first second to its last, with a red mark per kill. */}
