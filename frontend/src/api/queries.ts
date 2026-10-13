@@ -10,6 +10,7 @@ import {
 import { isFinished } from '@/lib/clipStatus'
 import { refreshMe } from './auth'
 import { ApiError, apiDelete, apiGet, apiPost } from './client'
+import type { MontageRequest } from './editorTypes'
 import type {
   ClipPageResponse,
   ClipQuality,
@@ -397,6 +398,24 @@ export function useRequestCompilation() {
   >({
     mutationFn: ({ apiKey, matchId, playerId, quality }) =>
       apiPost<ClipResponse>(`/matches/${matchId}/clips`, { apiKey, body: { playerId, quality } }),
+    gcTime: 0,
+    ...SEND_AT_ONCE,
+    onSuccess: (clip) => takeInRequestedClip(queryClient, clip),
+    onSettled: () => refreshMe(queryClient),
+  })
+}
+
+/**
+ * Orders a montage: the segments of a match the player chose, in their order, with a title, an intro, music, a quality
+ * and an aspect. Answered (202) and cached like {@link useRequestCompilation}; every order is a new clip. The backend
+ * refuses segments that do not fit the demo (400 `INVALID_SEGMENTS`), an option it does not know (400
+ * `INVALID_MONTAGE_OPTION`) and a montage that is too long (409 `CLIP_TOO_LONG`).
+ */
+export function useOrderMontage() {
+  const queryClient = useQueryClient()
+  return useMutation<ClipResponse, ApiError, WriteVariables & { matchId: string; request: MontageRequest }>({
+    mutationFn: ({ apiKey, matchId, request }) =>
+      apiPost<ClipResponse>(`/matches/${matchId}/montages`, { apiKey, body: request }),
     gcTime: 0,
     ...SEND_AT_ONCE,
     onSuccess: (clip) => takeInRequestedClip(queryClient, clip),

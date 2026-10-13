@@ -188,7 +188,7 @@ export interface PlayerAggregateStatsResponse {
 }
 
 /** What a clip shows: one highlight, or every kill of a player in a match. */
-export type ClipKind = 'HIGHLIGHT' | 'COMPILATION'
+export type ClipKind = 'HIGHLIGHT' | 'COMPILATION' | 'MONTAGE'
 
 /** Where a clip is on its way to a video file. `DONE` and `FAILED` are final. */
 export type ClipStatus = 'QUEUED' | 'RECORDING' | 'ENCODING' | 'UPLOADING' | 'DONE' | 'FAILED'
@@ -243,6 +243,7 @@ export interface ClipResponse {
   expiresAt: string | null
   kills: ClipKill[]
   mine: boolean
+  montage?: { title: string|null; aspect: '16:9'|'9:16'; intro: boolean; musicTrack: string|null; segments: {startTick:number; endTick:number; slowMo:boolean}[] } | null
 }
 
 /** A page of clips, newest first; `offset` and `limit` echo the request. */
