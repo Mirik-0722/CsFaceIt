@@ -301,14 +301,19 @@
 }
 
 /* A panel of frosted glass over a scenery: what is behind it is seen blurred, and the panel's own colour (`--card`) is
-   laid over it only as thick as the texts on it need (measured over the landing page's eight maps). Where the browser
-   cannot blur what is behind, the panel is as plain as it was before: the same colour, thicker. */
+   laid over it only as thick as the texts on it need (measured over the landing page's eight maps). The glass is for
+   `lg` and up, where the hero has two columns and the picture shows around the panel. Under `lg` the veil over the
+   backdrop is even and dark, so there is nothing to see through the glass (and a blur would be recomputed on every
+   frame of the drifting picture inside the frame for nothing): the panel is plain, thicker. It is also what a browser
+   that cannot blur gets. */
 @utility glass-panel {
     background-color: color-mix(in srgb, var(--card) 85%, transparent);
-    @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-        background-color: color-mix(in srgb, var(--card) var(--glass-tint, 55%), transparent);
-        -webkit-backdrop-filter: blur(16px) saturate(1.2);
-        backdrop-filter: blur(16px) saturate(1.2);
+    @media (width >= 64rem) {
+        @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+            background-color: color-mix(in srgb, var(--card) 55%, transparent);
+            -webkit-backdrop-filter: blur(16px) saturate(1.2);
+            backdrop-filter: blur(16px) saturate(1.2);
+        }
     }
 }
 

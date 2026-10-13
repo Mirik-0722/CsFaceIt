@@ -45,3 +45,21 @@ export function mapEmblemUrl(mapName: string | null): string | null {
 export function mapSceneryUrl(mapName: string | null, size: 'large' | 'small' = 'large'): string | null {
   return find(size === 'large' ? SCENES : SMALL_SCENES, mapName)
 }
+
+/**
+ * The map whose view a URL is, as its key (`mirage`; `mapLabel` and `mapSceneryUrl` take it as a map name too), or null
+ * for an address that is no view of a map. For whoever holds only the picture that is shown and has to name its map.
+ */
+export function mapOfSceneryUrl(url: string | null): string | null {
+  if (!url) {
+    return null
+  }
+  for (const views of [SCENES, SMALL_SCENES]) {
+    for (const [key, viewUrl] of views) {
+      if (viewUrl === url) {
+        return key
+      }
+    }
+  }
+  return null
+}

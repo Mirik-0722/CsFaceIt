@@ -3,6 +3,9 @@ import { sampleClipSources } from '@/lib/sampleClip'
 import { usePrefersReducedMotion } from '@/lib/usePrefersReducedMotion'
 import { useTabHidden } from '@/lib/useTabHidden'
 
+// Known when the page is built, so it is read once, not on every render.
+const SOURCES = sampleClipSources()
+
 /**
  * The sample's video, filling the frame under its labels (it is only drawn when a clip is in `src/assets/landing/`).
  * It is decoration: muted, no controls, out of the keyboard's way and never announced. It starts by itself, loops, and
@@ -34,7 +37,9 @@ export default function SampleVideo({ poster }: { poster: string | null }) {
       return
     }
     if (playing) {
-      // The browser may refuse to start a video by itself; the poster then stays, which is the calm picture.
+      // The browser may refuse to start a video by itself; the poster then stays, which is the calm picture, and nothing
+      // is shown or logged. It is asked again the next time `playing` turns true: that is whenever the frame comes into
+      // view again or the tab becomes visible again (a refusal that outlasts them is not fought: no loop, no timer).
       void element.play().catch(() => undefined)
     } else {
       element.pause()
@@ -59,7 +64,7 @@ export default function SampleVideo({ poster }: { poster: string | null }) {
           aria-hidden="true"
           className="absolute inset-0 size-full object-cover"
         >
-          {sampleClipSources().map((source) => (
+          {SOURCES.map((source) => (
             <source key={source.type} src={source.src} type={source.type} />
           ))}
         </video>

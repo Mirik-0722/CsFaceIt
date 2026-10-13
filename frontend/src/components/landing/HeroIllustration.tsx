@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import ViewfinderFrame from '@/components/ViewfinderFrame'
 import { useT } from '@/i18n'
 import { formatDuration, highlightLabel } from '@/lib/highlightLabels'
-import { mapSceneryUrl } from '@/lib/mapArt'
+import { mapOfSceneryUrl, mapSceneryUrl } from '@/lib/mapArt'
 import { mapLabel } from '@/lib/mapTint'
 import { sampleClipSources } from '@/lib/sampleClip'
 import { cn } from '@/lib/utils'
@@ -67,7 +67,8 @@ function Crosshair() {
  *
  * The frame is not empty: it shows the scenery of the map whose turn it is on the page, in step with the page's
  * backdrop (`scenes`), drifting slowly (`driftPaused` holds it where it is while the turn is held). The corner label
- * names that map, and the rest of the sample is always the same. When a video of the clip exists it plays in the frame
+ * names the map of the picture that is shown (`mapName`, the turn's, only when the stack has none to name), and the rest
+ * of the sample is always the same. When a video of the clip exists it plays in the frame
  * instead: the drawn kill feed and crosshair are left out (the video has its own), and the corner label and the caption
  * say what the clip is, whichever map has its turn.
  */
@@ -83,9 +84,10 @@ export default function HeroIllustration({
   className?: string
 }) {
   const t = useT()
-  const clip = SAMPLE_CLIP
-  const headshots = clip.victims.filter((victim) => victim.headshot).length
-  const frameMap = HAS_VIDEO ? clip.mapName : mapName
+  const headshots = SAMPLE_CLIP.victims.filter((victim) => victim.headshot).length
+  // The label names the map of the picture that is shown, which is the turn's only once that picture has come in: a late
+  // or failed one leaves the previous map's on top (see `useSceneStack`). A video is the clip's own map.
+  const frameMap = HAS_VIDEO ? SAMPLE_CLIP.mapName : (mapOfSceneryUrl(scenes.over) ?? mapName)
   return (
     // The whole sample stands on one panel of frosted glass: the page's backdrop is behind it, blurred, and its small
     // grey lines need a ground of their own. The picture shows around the panel.
@@ -93,11 +95,11 @@ export default function HeroIllustration({
       <p className="label-mono text-muted-foreground">{t.home.sample}</p>
       <ViewfinderFrame
         // The tint behind the picture is the clip's map: the picture covers it, and shows only while it comes in.
-        mapName={clip.mapName}
+        mapName={SAMPLE_CLIP.mapName}
         scenery={false}
         picture={
           HAS_VIDEO ? (
-            <SampleVideo poster={mapSceneryUrl(clip.mapName)} />
+            <SampleVideo poster={mapSceneryUrl(SAMPLE_CLIP.mapName)} />
           ) : (
             <SampleScenery scenes={scenes} paused={driftPaused} />
           )
@@ -107,7 +109,7 @@ export default function HeroIllustration({
         topLeft={
           <span className={cn('flex items-center gap-2 font-medium', LABEL_SIZE)}>
             <span className="size-2 shrink-0 animate-rec rounded-full bg-rec" />
-            REC {clip.timecode}
+            REC {SAMPLE_CLIP.timecode}
           </span>
         }
         topRight={
@@ -115,13 +117,13 @@ export default function HeroIllustration({
           // taller and hangs from the top.
           !HAS_VIDEO && (
             <div className="mt-5 flex flex-col items-end gap-1 self-start tracking-normal whitespace-nowrap normal-case @md:mt-0">
-              {clip.victims.map((victim) => (
+              {SAMPLE_CLIP.victims.map((victim) => (
                 <KillFeedRow
                   key={victim.nickname}
                   className={FEED_ROW}
-                  killer={clip.killer}
+                  killer={SAMPLE_CLIP.killer}
                   killerSide="T"
-                  weapon={weaponLabel(clip.weapon)}
+                  weapon={weaponLabel(SAMPLE_CLIP.weapon)}
                   headshot={victim.headshot}
                   victim={victim.nickname}
                   victimSide="CT"
@@ -133,26 +135,30 @@ export default function HeroIllustration({
         center={!HAS_VIDEO && <Crosshair />}
         bottomLeft={
           <span className={cn('text-muted-foreground', LABEL_SIZE)}>
-            {t.home.frameRound((mapLabel(frameMap) ?? '').toUpperCase(), clip.round)}
+            {t.home.frameRound((mapLabel(frameMap) ?? '').toUpperCase(), SAMPLE_CLIP.round)}
           </span>
         }
-        bottomRight={<span className={LABEL_SIZE}>{clip.quality}</span>}
+        bottomRight={<span className={LABEL_SIZE}>{SAMPLE_CLIP.quality}</span>}
       />
       {/* The clip itself is the track: from its first second to its last, with a red mark per kill. */}
       <div className="flex items-center gap-3 font-mono text-[11px] text-muted-foreground tabular-nums">
         <span>{formatDuration(0)}</span>
         <div className="min-w-0 flex-1">
-          <KillTimeline start={0} end={clip.seconds * 1000} marks={clip.killMarksMs} />
+          <KillTimeline start={0} end={SAMPLE_CLIP.seconds * 1000} marks={SAMPLE_CLIP.killMarksMs} />
         </div>
-        <span>{formatDuration(clip.seconds)}</span>
+        <span>{formatDuration(SAMPLE_CLIP.seconds)}</span>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Badge className="normal-case">{highlightLabel('ACE', t)}</Badge>
         <span className="text-sm font-medium">
-          {`${clip.killer} · ${weaponLabel(clip.weapon)} ×${clip.victims.length} · ${t.highlight.headshots(headshots)}`}
+          {[
+            SAMPLE_CLIP.killer,
+            `${weaponLabel(SAMPLE_CLIP.weapon)} ×${SAMPLE_CLIP.victims.length}`,
+            t.highlight.headshots(headshots),
+          ].join(' · ')}
         </span>
         <span className="ml-auto font-mono text-xs text-muted-foreground">
-          {`${formatDuration(clip.seconds)} · ${clip.sizeMb.toFixed(1)} MB · MP4`}
+          {`${formatDuration(SAMPLE_CLIP.seconds)} · ${SAMPLE_CLIP.sizeMb.toFixed(1)} MB · MP4`}
         </span>
       </div>
     </div>

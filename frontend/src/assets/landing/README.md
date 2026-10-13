@@ -29,9 +29,12 @@ For example: `ffmpeg -i recording.mp4 -an -vf scale=1280:-2 -r 30 -c:v libx264 -
 ### After replacing the file
 
 The corner label and the caption under the frame describe the clip, not the map that is turning. They are made from
-`SAMPLE_CLIP` in `src/components/landing/HeroIllustration.tsx` (the map and round, who got the kills and with what, the
-length, the size and where the kills are in the clip). Its values today are those of the drawn sample; edit them to say
-what is in the new file. With a clip in place the frame draws no kill feed and no crosshair: the video has its own.
+`SAMPLE_CLIP` in `src/components/landing/HeroIllustration.tsx`: the map and round (`mapName`, `round`), the REC timecode
+of the corner (`timecode`), the quality named at the bottom right (`quality`), who got the kills and with what
+(`killer`, `weapon`, `victims`), the length and the size (`seconds`, `sizeMb`) and where the kills are in the clip
+(`killMarksMs`). Its values today describe a drawing, not a file within the limits above (16 seconds, 21.4 MB,
+1080p at 60 FPS), so edit all of them to say what is in the new file. With a clip in place the frame draws no kill feed
+and no crosshair: the video has its own.
 
 ### Whose footage it is
 
