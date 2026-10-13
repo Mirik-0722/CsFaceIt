@@ -52,4 +52,30 @@ function waitBeforeSignIn(attempts, now = Date.now()) {
   return Math.max(0, last + gap - now);
 }
 
-module.exports = { readAttempts, recordAttempt, waitBeforeSignIn };
+// Some waits must outlive the process: Steam rate-limited the sign-in (no attempt for an hour), or the previous run ended
+// because the game coordinator stayed unavailable (no attempt for 30 minutes). The time before which no sign-in is to be
+// made is kept in a second small file; a start finds it and waits.
+const HOLD_FILE_NAME = 'signin-not-before.json';
+
+function readHold(dir) {
+  try {
+    const time = JSON.parse(fs.readFileSync(path.join(dir, HOLD_FILE_NAME), 'utf8'));
+    return Number.isFinite(time) ? time : 0;
+  } catch {
+    return 0;
+  }
+}
+
+// No sign-in before `time` (milliseconds since 1970). A later hold already kept is not shortened. False when the file
+// could not be written.
+function holdSignInUntil(dir, time) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, HOLD_FILE_NAME), JSON.stringify(Math.max(time, readHold(dir))));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { readAttempts, recordAttempt, waitBeforeSignIn, readHold, holdSignInUntil };

@@ -4,7 +4,7 @@ const GlobalOffensive = require('globaloffensive');
 const SteamTotp = require('steam-totp');
 const SteamUser = require('steam-user');
 
-const { readAttempts, recordAttempt, waitBeforeSignIn } = require('./attempts');
+const { holdSignInUntil, readAttempts, readHold, recordAttempt, waitBeforeSignIn } = require('./attempts');
 const { describeError } = require('./log');
 const { badRequest, unavailable } = require('./errors');
 const { decode } = require('./sharecode');
@@ -44,8 +44,12 @@ const RETRY_SLOW_MS = 60 * 60 * 1000;
 // coordinator for this long ends, and the restart policy of the container starts it again.
 const COORDINATOR_DOWN_EXIT_MS = 10 * 60 * 1000;
 
-// A request that timed out may still be answered. The answer has no id to tell it by, so for this long after a timeout
-// the bridge remembers that one answer is outstanding.
+// After the bridge ended because the coordinator stayed unavailable, the next start waits this long before it signs in.
+// With the 10 minutes of waiting for the coordinator, a lasting problem costs one sign-in about every 40 minutes.
+const AFTER_COORDINATOR_EXIT_WAIT_MS = 30 * 60 * 1000;
+
+// A request that timed out may still be answered. An answer has no id to tell it by, so every timeout adds an entry to a
+// list of answers still owed, each good for this long; see the match list handler.
 const OUTSTANDING_ANSWER_MS = 60 * 1000;
 
 // A two-factor code for the account, made from the shared secret of its mobile authenticator. steam-totp can ask Steam
@@ -134,7 +138,7 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
   let wrongCodes = 0;
   let blocked = false;
   let stopped = false;
-  let outstandingSince = null; // when a request timed out and its answer may still come
+  const owed = []; // the times (ms) up to which the answer of a request that timed out may still come, oldest first
   let downTimer = null;
 
   const ready = () => state.steam && state.gc;
@@ -156,6 +160,8 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
       downTimer = setTimeout(() => {
         log.error('Signed in to Steam, but the game coordinator has been unavailable for '
           + `${COORDINATOR_DOWN_EXIT_MS / 60000} minutes and the library does not open the session again. The bridge ends so that it is started again.`);
+        // The restart must not sign in at once: the next start waits (see start()).
+        holdSignInUntil(dataDir, Date.now() + AFTER_COORDINATOR_EXIT_WAIT_MS);
         onFatal();
       }, COORDINATOR_DOWN_EXIT_MS);
     } else if (!down && downTimer !== null) {
@@ -235,6 +241,8 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
     const result = SteamUser.EResult[error.eresult];
     if (SLOW.has(error.eresult)) {
       log.warn(`Steam is rate-limiting the sign-in (${result}); the next attempt is in ${RETRY_SLOW_MS / 3600000} hour.`);
+      // A restart must keep this wait too.
+      holdSignInUntil(dataDir, Date.now() + RETRY_SLOW_MS);
       scheduleRetry(RETRY_SLOW_MS);
       return;
     }
@@ -306,33 +314,45 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
     log.error(`The game coordinator refused the account: ${describeError(error)}.`);
   });
 
-  // True while the answer to a request that timed out may still come (and is then cleared).
-  const answerOutstanding = () => outstandingSince !== null && Date.now() - outstandingSince < OUTSTANDING_ANSWER_MS;
+  // The answers still owed: one entry for every request that timed out (and was not already given its own answer, see
+  // lookup), each good for OUTSTANDING_ANSWER_MS. Entries that ran out are removed whenever the list is looked at.
+  function forgetExpiredAnswers() {
+    const now = Date.now();
+    while (owed.length > 0 && owed[0] <= now) {
+      owed.shift();
+    }
+  }
 
-  // The answer to requestGame. The event can come at other times too, so it is taken for the answer only when it names
-  // the match that was asked for, or when it is empty (the coordinator knows no such match). An empty list names
-  // nothing, so after a timeout the first list that comes is taken for the late answer to that request: it is dropped
-  // and not paired with the next request, which would turn into a final 404 for a match that was never asked about. If
-  // the request that is waiting then gets nothing, it ends as 503, which the caller may ask again.
+  // The answer to requestGame. The event can come at other times too, and a list has no id of the request it answers, so:
+  // - a list that names the match asked for is the answer;
+  // - a non-empty list of other matches is ignored; it was the answer to the oldest request that is still owed one, if any;
+  // - an empty list means "no such match", but while an answer is owed (a request timed out) it is more likely the late
+  //   answer to that request: the oldest owed entry is removed and the list is dropped, and the current request remembers
+  //   that one list was dropped during its wait. Taking it for the answer to the current request would be a final 404
+  //   for a match that was never asked about. If the current request then gets nothing it ends as 503, which the caller
+  //   may ask again;
+  // - a list that comes when no request waits pays the oldest owed entry.
   csgo.on('matchList', (matches) => {
     const request = pending;
     const list = Array.isArray(matches) ? matches : [];
+    forgetExpiredAnswers();
     if (!request) {
-      outstandingSince = null;
+      owed.shift();
       return;
     }
     const info = list.find((candidate) => sameMatch(candidate.matchid, request.matchId));
     if (!info && list.length > 0) {
-      outstandingSince = null;
+      owed.shift();
       log.warn(`A match list of ${list.length} matches arrived, none of them the one asked for; waiting for the answer.`);
       return;
     }
-    if (!info && answerOutstanding()) {
-      outstandingSince = null;
-      log.warn('An empty match list arrived after a request had timed out; it is taken for the late answer to that one and dropped.');
+    if (!info && owed.length > 0) {
+      owed.shift();
+      request.droppedList = true;
+      log.warn('An empty match list arrived while the answer to a request that timed out was owed; it is taken for that '
+        + 'answer and dropped.');
       return;
     }
-    outstandingSince = null;
 
     pending = null;
     clearTimeout(request.timer);
@@ -379,7 +399,11 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
           if (pending === request) {
             pending = null;
           }
-          outstandingSince = Date.now();
+          // Its answer may still come. But if a list was dropped during its own wait, that list may have been its own
+          // answer; owing another one would start the chain again (every later request would lose its answer).
+          if (!request.droppedList) {
+            owed.push(Date.now() + OUTSTANDING_ANSWER_MS);
+          }
           reject(unavailable('the game coordinator did not answer in time'));
         }, requestTimeoutMs);
         pending = request;
@@ -393,13 +417,19 @@ function createSteamCoordinator({ account, dataDir, log, requestTimeoutMs = REQU
       });
     },
 
-    // Signs in, after a wait when the bridge was started again soon after a sign-in (see attempts.js).
+    // Signs in, after a wait when the bridge was started again soon after a sign-in, or when an earlier run asked for a
+    // pause (see attempts.js).
     start() {
-      const wait = waitBeforeSignIn(readAttempts(dataDir));
+      const now = Date.now();
+      const sinceAttempts = waitBeforeSignIn(readAttempts(dataDir), now);
+      const sinceHold = Math.max(0, readHold(dataDir) - now);
+      const wait = Math.max(sinceAttempts, sinceHold);
       if (wait <= 0) {
         return signIn();
       }
-      log.warn(`The last sign-in attempt was recent; waiting ${Math.ceil(wait / 1000)} s before signing in again, `
+      log.warn(`${sinceHold >= sinceAttempts
+        ? 'An earlier run asked for a pause before the next sign-in (Steam was rate-limiting it, or the game coordinator stayed unavailable)'
+        : 'The last sign-in attempt was recent'}; waiting ${Math.ceil(wait / 1000)} s before signing in again, `
         + 'so that a bridge that is restarted over and over does not sign in over and over.');
       retryTimer = setTimeout(() => {
         retryTimer = null;

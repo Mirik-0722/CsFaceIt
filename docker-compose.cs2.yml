@@ -15,7 +15,7 @@ services:
       # network of the stack, so `up` stops with a message instead.
       BRIDGE_TOKEN: "${BRIDGE_TOKEN:?Set BRIDGE_TOKEN in .env to a long random secret, for example the output of openssl rand -hex 32}"
       # The Steam account of the bridge (an account of its own, not yours; see gcbridge/README.md). Set the refresh token
-      # that "docker compose -f docker-compose.cs2.yml run --rm gcbridge node src/login.js" prints (preferred), or all
+      # that "docker compose -f docker-compose.yml -f docker-compose.cs2.yml run --rm gcbridge node src/login.js" prints (preferred), or all
       # three of the account name, the password and the shared secret of its mobile authenticator. Empty by default. In
       # .env a value with a $ in it goes between single quotes. None of these is ever logged.
       STEAM_BOT_REFRESH_TOKEN: ${STEAM_BOT_REFRESH_TOKEN:-}

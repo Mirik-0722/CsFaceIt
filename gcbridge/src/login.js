@@ -3,7 +3,7 @@
 // The sign-in helper: signs in to Steam once as a Steam client, with the account name, the password and the Steam Guard
 // code that it asks for on the terminal, and prints the refresh token to put into STEAM_BOT_REFRESH_TOKEN. Nothing is
 // written to disk and nothing else is logged. Run it as
-//   docker compose -f docker-compose.cs2.yml run --rm gcbridge node src/login.js
+//   docker compose -f docker-compose.yml -f docker-compose.cs2.yml run --rm gcbridge node src/login.js
 // or, on a machine with Node, as "node src/login.js" in gcbridge/ (after npm ci).
 
 const readline = require('node:readline');
