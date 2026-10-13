@@ -32,6 +32,10 @@ import org.hibernate.type.SqlTypes;
  * the highlight's own window; the video is made of {@code segments}, which lie inside it. The three fields are
  * {@code null} in a compilation.
  *
+ * <p>{@code requestedBy} is the id of the user whose session ordered the clip, and is what makes a clip somebody's own:
+ * only that user (and the admin key and an administrator) may delete or retry it. It is {@code null} for a clip ordered
+ * with the admin key, which nobody in particular ordered, and it never changes once the row is there.
+ *
  * <p>The status changes only through the methods below, and any move they do not list throws an
  * {@link IllegalStateException}: a caller has the row under lock and has already decided what it wants, so a wrong
  * move is a bug in the caller. {@code DONE} and {@code FAILED} are final. Every move refreshes {@code updatedAt}.
@@ -147,10 +151,15 @@ public class Clip {
     @Column(name = "finished_at")
     private Instant finishedAt;
 
+    /** The id of the user who ordered the clip; a plain id, because nothing here reads the user. */
+    @Column(name = "requested_by", updatable = false)
+    private Long requestedBy;
+
     protected Clip() {
     }
 
-    private Clip(Match match, Player player, ClipKind kind, ClipQuality quality, int fps, List<ClipSegment> segments) {
+    private Clip(Match match, Player player, ClipKind kind, ClipQuality quality, int fps, List<ClipSegment> segments,
+                 Long requestedBy) {
         this.match = match;
         this.player = player;
         this.kind = kind;
@@ -158,12 +167,18 @@ public class Clip {
         this.fps = fps;
         this.segments = List.copyOf(segments);
         this.status = ClipStatus.QUEUED;
+        this.requestedBy = requestedBy;
     }
 
-    /** A new clip of a highlight, waiting in the queue. {@code tickStart} and {@code tickEnd} are the highlight's. */
+    /**
+     * A new clip of a highlight, waiting in the queue. {@code tickStart} and {@code tickEnd} are the highlight's.
+     *
+     * @param requestedBy the id of the user who orders it, or {@code null} when it is ordered with the admin key
+     */
     public static Clip highlight(Match match, Player player, HighlightType type, int roundNumber, int tickStart,
-                                 int tickEnd, ClipQuality quality, int fps, List<ClipSegment> segments) {
-        Clip clip = new Clip(match, player, ClipKind.HIGHLIGHT, quality, fps, segments);
+                                 int tickEnd, ClipQuality quality, int fps, List<ClipSegment> segments,
+                                 Long requestedBy) {
+        Clip clip = new Clip(match, player, ClipKind.HIGHLIGHT, quality, fps, segments, requestedBy);
         clip.highlightType = type;
         clip.roundNumber = roundNumber;
         clip.tickStart = tickStart;
@@ -174,10 +189,12 @@ public class Clip {
     /**
      * A new compilation of the kills of {@code player} in {@code match}, waiting in the queue. It is made for no
      * highlight and no window, so the fields of those stay {@code null}.
+     *
+     * @param requestedBy the id of the user who orders it, or {@code null} when it is ordered with the admin key
      */
     public static Clip compilation(Match match, Player player, ClipQuality quality, int fps,
-                                   List<ClipSegment> segments) {
-        return new Clip(match, player, ClipKind.COMPILATION, quality, fps, segments);
+                                   List<ClipSegment> segments, Long requestedBy) {
+        return new Clip(match, player, ClipKind.COMPILATION, quality, fps, segments, requestedBy);
     }
 
     @PrePersist
@@ -455,5 +472,9 @@ public class Clip {
 
     public Instant getFinishedAt() {
         return finishedAt;
+    }
+
+    public Long getRequestedBy() {
+        return requestedBy;
     }
 }

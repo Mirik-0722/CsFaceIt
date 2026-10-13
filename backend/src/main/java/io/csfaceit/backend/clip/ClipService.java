@@ -2,13 +2,18 @@ package io.csfaceit.backend.clip;
 
 import io.csfaceit.backend.analysis.api.HighlightQueryService;
 import io.csfaceit.backend.analysis.api.dto.HighlightResponse;
+import io.csfaceit.backend.auth.Access;
+import io.csfaceit.backend.auth.Actor;
+import io.csfaceit.backend.auth.ForbiddenException;
 import io.csfaceit.backend.clip.ClipFacts.RoundKills;
 import io.csfaceit.backend.clip.ClipPersistence.CompilationKey;
+import io.csfaceit.backend.clip.ClipPersistence.FailedClip;
 import io.csfaceit.backend.clip.ClipPersistence.HighlightKey;
 import io.csfaceit.backend.clip.dto.ClipResponse;
 import io.csfaceit.backend.common.api.ConflictException;
 import io.csfaceit.backend.common.api.NotFoundException;
 import io.csfaceit.backend.common.api.TooManyRequestsException;
+import io.csfaceit.backend.common.log.SteamIds;
 import io.csfaceit.backend.demo.Demo;
 import io.csfaceit.backend.demo.DemoRepository;
 import io.csfaceit.backend.match.Match;
@@ -22,14 +27,15 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 /**
- * Takes the requests for clips, and deletes them. Like {@code DemoService} it opens no transaction itself: the facts
- * are read and the segments worked out with none open, and the short database steps are the transactions of
+ * Takes the requests for clips, retries and deletes them. Like {@code DemoService} it opens no transaction itself: the
+ * facts are read and the segments worked out with none open, and the short database steps are the transactions of
  * {@link ClipPersistence}. What a request answers with, and every other read of clips, is {@link ClipQueryService}'s.
  *
  * <p>A clip is requested for a highlight and a quality. The highlight is read only through
@@ -39,6 +45,11 @@ import org.springframework.stereotype.Service;
  *
  * <p>A compilation is requested for a player and a quality in a match and is made of every kill of the player in the
  * match, round by round. No highlight is behind it, so the demo is read from the parser's facts alone.
+ *
+ * <p>Every request is made by an {@link Actor}, and {@link Access} is asked whether the actor may: the admin key and an
+ * administrator always; a user orders clips of their own player only, and deletes and retries only the clips they
+ * ordered. A clip ordered by a session records the user ({@code clips.requested_by}); one ordered with the admin key
+ * records nobody. Asking again for a clip that exists answers with it and leaves whoever ordered it as they were.
  */
 @Service
 public class ClipService {
@@ -55,6 +66,11 @@ public class ClipService {
     private static final String MATCH_NOT_FOUND = "MATCH_NOT_FOUND";
     private static final String PLAYER_NOT_FOUND = "PLAYER_NOT_FOUND";
     private static final String NO_KILLS = "NO_KILLS";
+    private static final String CLIP_NOT_FOUND = "CLIP_NOT_FOUND";
+
+    /** The owner check of a delete that nobody asked for: the clean-up of old clips removes every clip alike. */
+    private static final Consumer<Long> ANY_OWNER = requestedBy -> {
+    };
 
     private static final Logger log = LoggerFactory.getLogger(ClipService.class);
 
@@ -68,10 +84,11 @@ public class ClipService {
     private final ClipProperties properties;
     private final StorageService storage;
     private final ClipMetrics metrics;
+    private final Access access;
 
     public ClipService(HighlightQueryService highlights, MatchRepository matches, PlayerRepository players,
                        DemoRepository demos, ClipFacts facts, ClipPersistence persistence, ClipQueryService queries,
-                       ClipProperties properties, StorageService storage, ClipMetrics metrics) {
+                       ClipProperties properties, StorageService storage, ClipMetrics metrics, Access access) {
         this.highlights = highlights;
         this.matches = matches;
         this.players = players;
@@ -82,6 +99,7 @@ public class ClipService {
         this.properties = properties;
         this.storage = storage;
         this.metrics = metrics;
+        this.access = access;
     }
 
     /**
@@ -90,6 +108,7 @@ public class ClipService {
      * <ol>
      *   <li>the highlight is read (see {@link HighlightQueryService#find}): there is none, or its demo is not
      *       {@code ANALYZED}
+     *   <li>the highlight's player is the actor's own (a user; the admin key and an administrator order for anyone)
      *   <li>a clip of this highlight and quality that is not {@code FAILED} exists: it is the answer, whatever became
      *       of the demo file since (the files are removed after a while, the clips outlive them) and however long
      *       the queue is
@@ -101,12 +120,15 @@ public class ClipService {
      * Repeating a request, also in parallel, therefore leaves one clip. The queue limit is soft: the count and the
      * insert are not one step, so two requests at the limit may both get in.
      *
+     * @param actor who orders; the clip that is queued records its user
      * @throws NotFoundException {@code HIGHLIGHT_NOT_FOUND}
+     * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_YOUR_PLAYER}
      * @throws ConflictException {@code DEMO_NOT_AVAILABLE}, {@code PLAYER_STEAM_ID_UNKNOWN} or {@code CLIP_TOO_LONG}
      * @throws TooManyRequestsException {@code CLIP_QUEUE_FULL}
      */
-    public ClipCreation requestHighlightClip(long highlightId, ClipQuality quality) {
+    public ClipCreation requestHighlightClip(Actor actor, long highlightId, ClipQuality quality) {
         HighlightResponse highlight = highlights.find(highlightId).orElseThrow(() -> highlightNotFound(highlightId));
+        access.requireOwnPlayer(actor, highlight.playerId());
         // The highlight was read from rows that join its match, its player and its demo, so they are there; a row that
         // has gone since is the highlight having gone.
         Match match = matches.findByFaceitMatchId(highlight.matchId())
@@ -116,22 +138,34 @@ public class ClipService {
 
         HighlightKey key = new HighlightKey(match.getId(), player.getId(), highlight.type(), highlight.roundNumber(),
                 highlight.tickStart(), quality);
+        return orderHighlightClip(key, highlight.tickEnd(), match, player, actor.userId(), actor.userId());
+    }
+
+    /**
+     * The clip that stands for the key, or a new one in the queue: the checks of {@link #requestHighlightClip} from the
+     * second on, for an order and for a retry alike.
+     *
+     * @param tickEnd the last tick of the highlight (its first is in the key)
+     * @param requestedBy who a new clip is recorded for; an existing one keeps whoever ordered it
+     * @param viewerId who the answer is for (see {@link ClipResponse#mine})
+     */
+    private ClipCreation orderHighlightClip(HighlightKey key, int tickEnd, Match match, Player player,
+                                            Long requestedBy, Long viewerId) {
         Optional<Long> existing = persistence.findLiveHighlightClip(key);
         if (existing.isPresent()) {
-            return new ClipCreation(queries.summary(existing.get()), false);
+            return new ClipCreation(queries.summary(existing.get(), viewerId), false);
         }
 
         int tickRate = tickRateOfRecordableDemo(match, player);
         rejectIfQueueFull();
-        List<Integer> killTicks = facts.killTicks(match.getId(), player.getId(), highlight.roundNumber(),
-                highlight.tickStart(), highlight.tickEnd());
-        List<ClipSegment> segments = SegmentBuilder.build(killTicks, highlight.tickStart(), highlight.tickEnd(),
-                tickRate, properties);
+        List<Integer> killTicks = facts.killTicks(match.getId(), player.getId(), key.roundNumber(), key.tickStart(),
+                tickEnd);
+        List<ClipSegment> segments = SegmentBuilder.build(killTicks, key.tickStart(), tickEnd, tickRate, properties);
         rejectIfTooLong(segments, tickRate);
 
         long clipId;
         try {
-            clipId = persistence.queueHighlightClip(key, highlight.tickEnd(), properties.fps(), segments);
+            clipId = persistence.queueHighlightClip(key, tickEnd, properties.fps(), segments, requestedBy);
         } catch (DataIntegrityViolationException e) {
             // A concurrent request queued the same clip between the look above and the insert, and the unique index
             // let only one of them in. The loser's transaction is aborted; the clip it was after is the winner's.
@@ -139,15 +173,16 @@ public class ClipService {
             if (winner.isEmpty()) {
                 throw e;
             }
-            log.info("Lost a concurrent request for the clip of highlight {} at {}, answering with clip {}",
-                    highlightId, quality.label(), winner.get());
-            return new ClipCreation(queries.summary(winner.get()), false);
+            log.info("Lost a concurrent request for the clip of the {} in round {} of match {} at {}, answering with "
+                    + "clip {}", key.type(), key.roundNumber(), match.getFaceitMatchId(), key.quality().label(),
+                    winner.get());
+            return new ClipCreation(queries.summary(winner.get(), viewerId), false);
         }
         metrics.requested(ClipKind.HIGHLIGHT);
-        log.info("Queued clip {} at {} for highlight {} ({} of {}, round {}): {} segment(s), {} ticks", clipId,
-                quality.label(), highlightId, highlight.type(), highlight.matchId(), highlight.roundNumber(),
-                segments.size(), SegmentBuilder.totalTicks(segments));
-        return new ClipCreation(queries.summary(clipId), true);
+        log.info("Queued clip {} at {} for the {} in round {} of match {}: {} segment(s), {} ticks", clipId,
+                key.quality().label(), key.type(), key.roundNumber(), match.getFaceitMatchId(), segments.size(),
+                SegmentBuilder.totalTicks(segments));
+        return new ClipCreation(queries.summary(clipId, viewerId), true);
     }
 
     /**
@@ -155,6 +190,7 @@ public class ClipService {
      * stands for them: one video of every kill of an enemy the player made in the match, round by round. The checks
      * come in this order, and the first that fails ends the request:
      * <ol>
+     *   <li>the player is the actor's own (a user; the admin key and an administrator order for anyone)
      *   <li>the match, and then the player, are known to the database (FACEIT is not asked)
      *   <li>a compilation of this match, player and quality that is not {@code FAILED} exists: it is the answer,
      *       whatever became of the demo file since and however long the queue is
@@ -168,21 +204,40 @@ public class ClipService {
      * Repeating a request, also in parallel, therefore leaves one compilation. The queue limit is soft, as for a
      * highlight.
      *
+     * @param actor who orders; the clip that is queued records its user
+     * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_YOUR_PLAYER}
      * @throws NotFoundException {@code MATCH_NOT_FOUND} or {@code PLAYER_NOT_FOUND}
      * @throws ConflictException {@code DEMO_NOT_AVAILABLE}, {@code PLAYER_STEAM_ID_UNKNOWN}, {@code NO_KILLS} or
      *         {@code CLIP_TOO_LONG}
      * @throws TooManyRequestsException {@code CLIP_QUEUE_FULL}
      */
-    public ClipCreation requestCompilation(String faceitMatchId, String faceitPlayerId, ClipQuality quality) {
+    public ClipCreation requestCompilation(Actor actor, String faceitMatchId, String faceitPlayerId,
+                                           ClipQuality quality) {
+        access.requireOwnPlayer(actor, faceitPlayerId);
         Match match = matches.findByFaceitMatchId(faceitMatchId)
                 .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND, "Match not found: " + faceitMatchId));
         Player player = players.findByFaceitId(faceitPlayerId)
                 .orElseThrow(() -> new NotFoundException(PLAYER_NOT_FOUND, "Player not found: " + faceitPlayerId));
 
         CompilationKey key = new CompilationKey(match.getId(), player.getId(), quality);
+        return orderCompilation(key, match, player, actor.userId(), actor.userId());
+    }
+
+    /**
+     * The compilation that stands for the key, or a new one in the queue: the checks of {@link #requestCompilation}
+     * from the third on, for an order and for a retry alike.
+     *
+     * @param requestedBy who a new clip is recorded for; an existing one keeps whoever ordered it
+     * @param viewerId who the answer is for (see {@link ClipResponse#mine})
+     */
+    private ClipCreation orderCompilation(CompilationKey key, Match match, Player player, Long requestedBy,
+                                          Long viewerId) {
+        String faceitMatchId = match.getFaceitMatchId();
+        String faceitPlayerId = SteamIds.maskPlayerId(player.getFaceitId());
+        ClipQuality quality = key.quality();
         Optional<Long> existing = persistence.findLiveCompilation(key);
         if (existing.isPresent()) {
-            return new ClipCreation(queries.summary(existing.get()), false);
+            return new ClipCreation(queries.summary(existing.get(), viewerId), false);
         }
 
         int tickRate = tickRateOfRecordableDemo(match, player);
@@ -197,7 +252,7 @@ public class ClipService {
 
         long clipId;
         try {
-            clipId = persistence.queueCompilation(key, properties.fps(), segments);
+            clipId = persistence.queueCompilation(key, properties.fps(), segments, requestedBy);
         } catch (DataIntegrityViolationException e) {
             // A concurrent request queued the same compilation between the look above and the insert, and the unique
             // index let only one of them in. The loser's transaction is aborted; the clip it was after is the winner's.
@@ -207,12 +262,59 @@ public class ClipService {
             }
             log.info("Lost a concurrent request for the compilation of {} in match {} at {}, answering with clip {}",
                     faceitPlayerId, faceitMatchId, quality.label(), winner.get());
-            return new ClipCreation(queries.summary(winner.get()), false);
+            return new ClipCreation(queries.summary(winner.get(), viewerId), false);
         }
         metrics.requested(ClipKind.COMPILATION);
         log.info("Queued clip {} at {} for the compilation of {} in match {}: {} segment(s), {} ticks", clipId,
                 quality.label(), faceitPlayerId, faceitMatchId, segments.size(), SegmentBuilder.totalTicks(segments));
-        return new ClipCreation(queries.summary(clipId), true);
+        return new ClipCreation(queries.summary(clipId, viewerId), true);
+    }
+
+    /**
+     * Orders a failed clip again: the same highlight (or the same compilation) at the same quality, as a new clip in
+     * the queue, and the failed row goes with whatever its attempts left in the storage. The new clip is recorded for
+     * whoever ordered the failed one, so a clip that an administrator retries for a user stays that user's.
+     *
+     * <p>The clip is read under its lock, where {@link Access} is asked whether the actor may (a user retries only a
+     * clip they ordered) and the status is looked at. Then it is ordered like any clip, with the same checks (the demo
+     * file is still stored, the queue has room, ...): if one of them refuses, the failed clip stays as it was, to be
+     * tried again later. The failed row goes only once its successor stands. Two retries of the same clip at once leave
+     * one new clip: the second finds the first one's and answers with it.
+     *
+     * <p>A clip of a highlight is ordered by the key the failed clip holds, not through the highlight row, so it can be
+     * tried again after an analysis that no longer finds the highlight; the kills are read from the facts as always.
+     *
+     * @return the new clip and {@code created} true; or, when a clip that is not failed already stood for the same
+     *         highlight or compilation (someone ordered it again in the meantime), that clip and false
+     * @throws NotFoundException {@code CLIP_NOT_FOUND}
+     * @throws ForbiddenException {@code NOT_YOUR_CLIP}
+     * @throws ConflictException {@code CLIP_NOT_FAILED}, and those of an order
+     * @throws TooManyRequestsException {@code CLIP_QUEUE_FULL}
+     */
+    public ClipCreation retry(Actor actor, long clipId) {
+        FailedClip failed = persistence.findFailed(clipId,
+                requestedBy -> access.requireClipOwner(actor, requestedBy));
+        // The clip was just read with its match and player, so they are there; rows that have gone since took the clip
+        // with them.
+        Match match = matches.findById(failed.matchRowId()).orElseThrow(() -> clipNotFound(clipId));
+        Player player = players.findById(failed.playerRowId()).orElseThrow(() -> clipNotFound(clipId));
+
+        ClipCreation creation;
+        if (failed.kind() == ClipKind.HIGHLIGHT) {
+            HighlightKey key = new HighlightKey(failed.matchRowId(), failed.playerRowId(), failed.highlightType(),
+                    failed.roundNumber(), failed.tickStart(), failed.quality());
+            creation = orderHighlightClip(key, failed.tickEnd(), match, player, failed.requestedBy(), actor.userId());
+        } else {
+            CompilationKey key = new CompilationKey(failed.matchRowId(), failed.playerRowId(), failed.quality());
+            creation = orderCompilation(key, match, player, failed.requestedBy(), actor.userId());
+        }
+        try {
+            remove(clipId, ANY_OWNER);
+        } catch (NotFoundException e) {
+            log.debug("Clip {} was removed by a concurrent retry or delete", clipId);
+        }
+        log.info("Clip {} was tried again as clip {}", clipId, creation.clip().id());
+        return creation;
     }
 
     /**
@@ -275,8 +377,25 @@ public class ClipService {
         return new NotFoundException(HIGHLIGHT_NOT_FOUND, "Highlight not found: " + highlightId);
     }
 
+    private static NotFoundException clipNotFound(long clipId) {
+        return new NotFoundException(CLIP_NOT_FOUND, "Clip not found: " + clipId);
+    }
+
     /**
-     * Deletes a clip and its files, for a delete request and for the clean-up of old clips alike. The row goes first,
+     * Deletes a clip and its files because someone asked: {@link Access} is asked, under the lock of the clip's row,
+     * whether the actor may. A user deletes only a clip they ordered. Otherwise as {@link #delete(long)}.
+     *
+     * @throws NotFoundException {@code CLIP_NOT_FOUND}
+     * @throws ForbiddenException {@code NOT_YOUR_CLIP}
+     * @throws ConflictException {@code CLIP_IN_PROGRESS}
+     */
+    public void delete(Actor actor, long clipId) {
+        remove(clipId, requestedBy -> access.requireClipOwner(actor, requestedBy));
+    }
+
+    /**
+     * Deletes a clip and its files with no question of whose it is: for the clean-up of old clips, which nobody asked
+     * for and which takes every clip alike. A request never comes this way. The row goes first,
      * under its lock, in one transaction; then the files are removed from the storage with no transaction open. A clip
      * that is waiting for a recorder can be deleted (that withdraws the request); one that a recorder is working on
      * cannot.
@@ -290,7 +409,11 @@ public class ClipService {
      * @throws ConflictException {@code CLIP_IN_PROGRESS}
      */
     public void delete(long clipId) {
-        ClipPersistence.DeletedClip deleted = persistence.delete(clipId);
+        remove(clipId, ANY_OWNER);
+    }
+
+    private void remove(long clipId, Consumer<Long> requireOwner) {
+        ClipPersistence.DeletedClip deleted = persistence.delete(clipId, requireOwner);
         for (String key : filesOf(clipId, deleted)) {
             removeFile(clipId, key);
         }

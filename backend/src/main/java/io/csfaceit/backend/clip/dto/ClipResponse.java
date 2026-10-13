@@ -26,6 +26,10 @@ import java.util.List;
  * file, which is known from the upload on; {@code finishedAt} is when the clip became {@code DONE} or {@code FAILED}.
  * {@code kills} are the kills the video shows, on its timeline; only the answer for one clip carries them, in every
  * list and in the answer to a request for a clip the array is empty.
+ *
+ * <p>{@code mine} says whether the clip was ordered by the session that is reading: true for the signed-in user who
+ * ordered it, and false for everybody else, for a visitor who is not signed in and for a request with the admin key.
+ * It is what a page shows the delete and the retry of a clip by; an administrator may do both to any clip all the same.
  */
 public record ClipResponse(
         long id,
@@ -51,5 +55,6 @@ public record ClipResponse(
         Instant createdAt,
         Instant finishedAt,
         Instant expiresAt,
-        List<ClipKill> kills) {
+        List<ClipKill> kills,
+        boolean mine) {
 }

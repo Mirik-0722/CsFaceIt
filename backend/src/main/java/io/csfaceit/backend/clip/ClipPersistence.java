@@ -8,6 +8,7 @@ import io.csfaceit.backend.player.PlayerRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +26,7 @@ public class ClipPersistence {
 
     private static final String CLIP_NOT_FOUND = "CLIP_NOT_FOUND";
     private static final String CLIP_IN_PROGRESS = "CLIP_IN_PROGRESS";
+    private static final String CLIP_NOT_FAILED = "CLIP_NOT_FAILED";
 
     /** The two statuses a clip ends in, from which it never moves on. */
     private static final List<ClipStatus> FINISHED_STATUSES = List.of(ClipStatus.DONE, ClipStatus.FAILED);
@@ -34,6 +36,15 @@ public class ClipPersistence {
      * and the files its row named, {@code videoKey} and {@code thumbnailKey}, which are {@code null} while it has none.
      */
     public record DeletedClip(int attempts, String videoKey, String thumbnailKey) {
+    }
+
+    /**
+     * A failed clip as a retry needs it: what it was a clip of (its key and its quality, by the ids of the rows; the
+     * three fields of a highlight are {@code null} in a compilation) and who ordered it.
+     */
+    public record FailedClip(ClipKind kind, long matchRowId, long playerRowId, HighlightType highlightType,
+                             Integer roundNumber, Integer tickStart, Integer tickEnd, ClipQuality quality,
+                             Long requestedBy) {
     }
 
     /**
@@ -79,14 +90,18 @@ public class ClipPersistence {
      * recorder in the same moment: whoever gets the lock first wins, and a delete that comes second finds the clip
      * active. A {@code QUEUED} clip is deleted too, which is how a request is withdrawn.
      *
+     * @param requireOwner asked under the lock with {@code clips.requested_by} of the clip ({@code null} when it has
+     *        none), and throws when whoever is deleting may not: the rule is the caller's, the lock is this method's.
+     *        The clean-up of old clips passes one that allows everything.
      * @return what the clip leaves in the storage, read before the row went
      * @throws NotFoundException {@code CLIP_NOT_FOUND}
      * @throws ConflictException {@code CLIP_IN_PROGRESS}: a recorder holds the clip
      */
     @Transactional
-    public DeletedClip delete(long clipId) {
+    public DeletedClip delete(long clipId, Consumer<Long> requireOwner) {
         Clip clip = clips.findByIdForUpdate(clipId)
                 .orElseThrow(() -> new NotFoundException(CLIP_NOT_FOUND, "Clip not found: " + clipId));
+        requireOwner.accept(clip.getRequestedBy());
         if (clip.getStatus().isActive()) {
             throw new ConflictException(CLIP_IN_PROGRESS,
                     "Clip " + clipId + " is being made (" + clip.getStatus() + ") and cannot be deleted now");
@@ -94,6 +109,28 @@ public class ClipPersistence {
         DeletedClip deleted = new DeletedClip(clip.getAttempts(), clip.getVideoKey(), clip.getThumbnailKey());
         clips.delete(clip);
         return deleted;
+    }
+
+    /**
+     * Reads a clip that is to be recorded again. It is read under its lock like a delete, so that the owner and the
+     * status are those of one moment; {@code FAILED} is final, so what is returned stays true after the lock is gone.
+     *
+     * @param requireOwner as for {@link #delete}
+     * @throws NotFoundException {@code CLIP_NOT_FOUND}
+     * @throws ConflictException {@code CLIP_NOT_FAILED}: the clip is waiting, being made or done
+     */
+    @Transactional
+    public FailedClip findFailed(long clipId, Consumer<Long> requireOwner) {
+        Clip clip = clips.findByIdForUpdate(clipId)
+                .orElseThrow(() -> new NotFoundException(CLIP_NOT_FOUND, "Clip not found: " + clipId));
+        requireOwner.accept(clip.getRequestedBy());
+        if (clip.getStatus() != ClipStatus.FAILED) {
+            throw new ConflictException(CLIP_NOT_FAILED,
+                    "Clip " + clipId + " is " + clip.getStatus() + ", and only a failed clip can be tried again");
+        }
+        return new FailedClip(clip.getKind(), clip.getMatch().getId(), clip.getPlayer().getId(),
+                clip.getHighlightType(), clip.getRoundNumber(), clip.getTickStart(), clip.getTickEnd(),
+                clip.getQuality(), clip.getRequestedBy());
     }
 
     /** The ids of the clips that finished ({@code DONE} or {@code FAILED}) before {@code cutoff}, the oldest first. */
@@ -108,12 +145,14 @@ public class ClipPersistence {
      * @param tickEnd the last tick of the highlight (its first is in the key)
      * @param fps the frames per second the clip is to be recorded at
      * @param segments the stretches of the demo the video is made of
+     * @param requestedBy the id of the user who orders the clip, {@code null} for the admin key
      */
     @Transactional
-    public long queueHighlightClip(HighlightKey key, int tickEnd, int fps, List<ClipSegment> segments) {
+    public long queueHighlightClip(HighlightKey key, int tickEnd, int fps, List<ClipSegment> segments,
+                                   Long requestedBy) {
         Clip clip = Clip.highlight(matches.getReferenceById(key.matchRowId()),
                 players.getReferenceById(key.playerRowId()), key.type(), key.roundNumber(), key.tickStart(), tickEnd,
-                key.quality(), fps, segments);
+                key.quality(), fps, segments, requestedBy);
         return clips.saveAndFlush(clip).getId();
     }
 
@@ -128,11 +167,12 @@ public class ClipPersistence {
      *
      * @param fps the frames per second the clip is to be recorded at
      * @param segments the stretches of the demo the video is made of, round after round
+     * @param requestedBy the id of the user who orders the clip, {@code null} for the admin key
      */
     @Transactional
-    public long queueCompilation(CompilationKey key, int fps, List<ClipSegment> segments) {
+    public long queueCompilation(CompilationKey key, int fps, List<ClipSegment> segments, Long requestedBy) {
         Clip clip = Clip.compilation(matches.getReferenceById(key.matchRowId()),
-                players.getReferenceById(key.playerRowId()), key.quality(), fps, segments);
+                players.getReferenceById(key.playerRowId()), key.quality(), fps, segments, requestedBy);
         return clips.saveAndFlush(clip).getId();
     }
 }

@@ -5,6 +5,7 @@ import static io.csfaceit.backend.match.MatchController.MATCH_ID_PATTERN;
 import static io.csfaceit.backend.player.PlayerController.PLAYER_ID_MESSAGE;
 import static io.csfaceit.backend.player.PlayerController.PLAYER_ID_PATTERN;
 
+import io.csfaceit.backend.auth.Access;
 import io.csfaceit.backend.clip.ClipService.ClipCreation;
 import io.csfaceit.backend.clip.dto.ClipPageResponse;
 import io.csfaceit.backend.clip.dto.ClipRequest;
@@ -30,9 +31,12 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Asking for the clip of a highlight or for the compilation of a player's kills in a match, deleting a clip, and
- * reading clips and the state of the recorder. The two requests are {@code POST}s and the delete a {@code DELETE}, and
- * all three need the admin key like every other write; the reads are open and answer from the database only: an id the
+ * Asking for the clip of a highlight or for the compilation of a player's kills in a match, trying a failed clip
+ * again, deleting a clip, and reading clips and the state of the recorder. The three requests are {@code POST}s and the
+ * delete a {@code DELETE}; they take the admin key or a session, and a user who is no administrator acts for their own
+ * player and their own clips only, which {@link ClipService} asks {@link Access} about (403 otherwise). The controller
+ * only says who is acting, and who is reading: every clip in an answer says whether it is the reader's own
+ * ({@code mine}). The reads are open and answer from the database only: an id the
  * database does not know gives an empty list, not a 404 (a single clip that does not exist is a 404). A {@code quality}
  * that is not one of the {@link ClipQuality} labels is a 400. The video and the thumbnail of a clip are served by
  * {@link ClipMediaController}.
@@ -47,10 +51,12 @@ public class ClipController {
 
     private final ClipService clips;
     private final ClipQueryService queries;
+    private final Access access;
 
-    public ClipController(ClipService clips, ClipQueryService queries) {
+    public ClipController(ClipService clips, ClipQueryService queries, Access access) {
         this.clips = clips;
         this.queries = queries;
+        this.access = access;
     }
 
     /** 201 for the clip this request queued, 200 for the one that already stood for the highlight at that quality. */
@@ -58,7 +64,7 @@ public class ClipController {
     public ResponseEntity<ClipResponse> requestHighlightClip(@PathVariable long highlightId,
                                                              @RequestBody(required = false) ClipRequest request) {
         ClipQuality quality = (request == null ? new ClipRequest(null) : request).quality();
-        ClipCreation creation = clips.requestHighlightClip(highlightId, quality);
+        ClipCreation creation = clips.requestHighlightClip(access.current(), highlightId, quality);
         return ResponseEntity.status(creation.created() ? HttpStatus.CREATED : HttpStatus.OK).body(creation.clip());
     }
 
@@ -71,13 +77,25 @@ public class ClipController {
     public ResponseEntity<ClipResponse> requestCompilation(
             @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId,
             @Valid @RequestBody CompilationRequest request) {
-        ClipCreation creation = clips.requestCompilation(matchId, request.playerId(), request.quality());
+        ClipCreation creation = clips.requestCompilation(access.current(), matchId, request.playerId(),
+                request.quality());
         return ResponseEntity.status(creation.created() ? HttpStatus.CREATED : HttpStatus.OK).body(creation.clip());
     }
 
     @GetMapping("/clips/{clipId}")
     public ClipResponse getClip(@PathVariable long clipId) {
-        return queries.get(clipId);
+        return queries.get(clipId, access.viewerId());
+    }
+
+    /**
+     * Orders a failed clip again, at the same quality: 201 with the new clip, and the failed one is gone. 409
+     * {@code CLIP_NOT_FAILED} for a clip that is waiting, being made or done. (200 with the clip that stands, when
+     * someone ordered the same clip again before this request.)
+     */
+    @PostMapping("/clips/{clipId}/retry")
+    public ResponseEntity<ClipResponse> retryClip(@PathVariable long clipId) {
+        ClipCreation creation = clips.retry(access.current(), clipId);
+        return ResponseEntity.status(creation.created() ? HttpStatus.CREATED : HttpStatus.OK).body(creation.clip());
     }
 
     /**
@@ -87,13 +105,13 @@ public class ClipController {
     @DeleteMapping("/clips/{clipId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteClip(@PathVariable long clipId) {
-        clips.delete(clipId);
+        clips.delete(access.current(), clipId);
     }
 
     @GetMapping("/matches/{matchId}/clips")
     public List<ClipResponse> getMatchClips(
             @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId) {
-        return queries.forMatch(matchId);
+        return queries.forMatch(matchId, access.viewerId());
     }
 
     @GetMapping("/players/{playerId}/clips")
@@ -101,7 +119,7 @@ public class ClipController {
             @PathVariable @Pattern(regexp = PLAYER_ID_PATTERN, message = PLAYER_ID_MESSAGE) String playerId,
             @RequestParam(defaultValue = "0") @Min(0) @Max(MAX_OFFSET) int offset,
             @RequestParam(defaultValue = "20") @Min(1) @Max(MAX_LIMIT) int limit) {
-        return queries.forPlayer(playerId, offset, limit);
+        return queries.forPlayer(playerId, offset, limit, access.viewerId());
     }
 
     /** Whether a recorder is online to take the clips that wait, and how many wait and are being recorded. */
@@ -115,6 +133,6 @@ public class ClipController {
     public ClipPageResponse getFinishedClips(
             @RequestParam(defaultValue = "0") @Min(0) @Max(MAX_OFFSET) int offset,
             @RequestParam(defaultValue = "20") @Min(1) @Max(MAX_LIMIT) int limit) {
-        return queries.latest(offset, limit);
+        return queries.latest(offset, limit, access.viewerId());
     }
 }

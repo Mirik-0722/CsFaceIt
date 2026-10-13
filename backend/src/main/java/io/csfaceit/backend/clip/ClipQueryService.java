@@ -68,13 +68,15 @@ public class ClipQueryService {
      * Every clip with what the response names of its match and player. The position in the queue is the number of
      * queued clips that are not after the clip in the order a recorder takes them, {@code (created_at, id)}, so the
      * head of the queue is 1. The demo is a left join: only its tick rate is wanted, and a clip is listed whatever
-     * became of its demo.
+     * became of its demo. {@code mine} is whether the clip was ordered by the reader, {@code :viewerId}, which is NULL
+     * for a reader who is no signed-in user: the comparison is then NULL, and so is it for a clip nobody ordered.
      */
     private static final String CLIPS_SQL = """
             SELECT c.id, c.match_id, c.player_id, c.kind, c.status, c.progress, m.faceit_match_id, m.map_name,
                    p.faceit_id AS player_faceit_id, p.nickname, c.highlight_type, c.round_number, c.tick_start,
                    c.quality, c.fps, c.duration_ms, c.size_bytes, c.error, c.error_code, c.video_key, c.thumbnail_key,
                    c.created_at, c.finished_at, c.segments, d.tick_rate,
+                   COALESCE(c.requested_by = CAST(:viewerId AS BIGINT), FALSE) AS mine,
                    CASE WHEN c.status = :queued THEN (
                        SELECT count(*) FROM clips q
                        WHERE q.status = :queued AND (q.created_at, q.id) <= (c.created_at, c.id)) END AS queue_position
@@ -126,10 +128,12 @@ public class ClipQueryService {
      * timeline: the length of the segments before the one it is in, plus its distance from that segment's first tick,
      * in milliseconds (the ticks are turned into time with the tick rate of the demo).
      *
+     * @param viewerId the id of the user whose session is reading, for {@link ClipResponse#mine}; {@code null} for
+     *        anyone else (the same in every read below)
      * @throws NotFoundException {@code CLIP_NOT_FOUND}
      */
-    public ClipResponse get(long clipId) {
-        Row row = find(clipId);
+    public ClipResponse get(long clipId, Long viewerId) {
+        Row row = find(clipId, viewerId);
         return row.toResponse(properties, kills(row));
     }
 
@@ -138,8 +142,8 @@ public class ClipQueryService {
      *
      * @throws NotFoundException {@code CLIP_NOT_FOUND}
      */
-    public ClipResponse summary(long clipId) {
-        return find(clipId).toResponse(properties, List.of());
+    public ClipResponse summary(long clipId, Long viewerId) {
+        return find(clipId, viewerId).toResponse(properties, List.of());
     }
 
     /**
@@ -151,14 +155,14 @@ public class ClipQueryService {
      * @throws NotFoundException {@code CLIP_NOT_FOUND}
      */
     public ClipMedia media(long clipId) {
-        Row row = find(clipId);
+        Row row = find(clipId, null);
         return new ClipMedia(row.status(), row.kind(), row.nickname(), row.highlightType(), row.roundNumber(),
                 row.videoKey(), row.thumbnailKey());
     }
 
     /** Every clip of the match, whatever its status, the newest first. Empty for a match the database does not know. */
-    public List<ClipResponse> forMatch(String faceitMatchId) {
-        return responses(select(BY_MATCH, Map.of("matchId", faceitMatchId)));
+    public List<ClipResponse> forMatch(String faceitMatchId, Long viewerId) {
+        return responses(select(BY_MATCH, Map.of("matchId", faceitMatchId), viewerId));
     }
 
     /**
@@ -167,15 +171,16 @@ public class ClipQueryService {
      *
      * @param faceitPlayerId the FACEIT player id ({@code players.faceit_id})
      */
-    public ClipPageResponse forPlayer(String faceitPlayerId, int offset, int limit) {
-        List<Row> rows = select(BY_PLAYER_PAGE, Map.of("playerId", faceitPlayerId, "offset", offset, "limit", limit));
+    public ClipPageResponse forPlayer(String faceitPlayerId, int offset, int limit, Long viewerId) {
+        List<Row> rows = select(BY_PLAYER_PAGE, Map.of("playerId", faceitPlayerId, "offset", offset, "limit", limit),
+                viewerId);
         return new ClipPageResponse(responses(rows), offset, limit);
     }
 
     /** A page of the clips that are {@code DONE}, the most recently finished first. */
-    public ClipPageResponse latest(int offset, int limit) {
+    public ClipPageResponse latest(int offset, int limit, Long viewerId) {
         List<Row> rows = select(FINISHED_PAGE,
-                Map.of("done", ClipStatus.DONE.name(), "offset", offset, "limit", limit));
+                Map.of("done", ClipStatus.DONE.name(), "offset", offset, "limit", limit), viewerId);
         return new ClipPageResponse(responses(rows), offset, limit);
     }
 
@@ -197,8 +202,8 @@ public class ClipQueryService {
                 .single();
     }
 
-    private Row find(long clipId) {
-        return select(BY_ID, Map.of("clipId", clipId)).stream().findFirst()
+    private Row find(long clipId, Long viewerId) {
+        return select(BY_ID, Map.of("clipId", clipId), viewerId).stream().findFirst()
                 .orElseThrow(() -> new NotFoundException(CLIP_NOT_FOUND, "Clip not found: " + clipId));
     }
 
@@ -252,9 +257,10 @@ public class ClipQueryService {
      * The rows of {@code CLIPS_SQL} narrowed by {@code filterAndOrder}. A row with a value this version does not know
      * is left out, and the request logs one WARN for them.
      */
-    private List<Row> select(String filterAndOrder, Map<String, Object> params) {
+    private List<Row> select(String filterAndOrder, Map<String, Object> params, Long viewerId) {
         Map<String, Object> all = new HashMap<>(params);
         all.put("queued", ClipStatus.QUEUED.name());
+        all.put("viewerId", viewerId);
         Set<String> unknown = new TreeSet<>();
         List<Row> rows = jdbc.sql(CLIPS_SQL + filterAndOrder)
                 .params(all)
@@ -292,7 +298,8 @@ public class ClipQueryService {
                 ClipErrorCode.fromName(rs.getString("error_code")), rs.getString("video_key"),
                 rs.getString("thumbnail_key"), rs.getObject("created_at", OffsetDateTime.class).toInstant(),
                 finishedAt == null ? null : finishedAt.toInstant(), rs.getString("segments"),
-                ClipFacts.tickRate(nullableInt(rs, "tick_rate")), nullableInt(rs, "queue_position"));
+                ClipFacts.tickRate(nullableInt(rs, "tick_rate")), nullableInt(rs, "queue_position"),
+                rs.getBoolean("mine"));
     }
 
     /** The constant of that name, or {@code null} when there is none; the value is then added to the set. */
@@ -331,7 +338,7 @@ public class ClipQueryService {
                        Integer roundNumber, Integer tickStart, ClipQuality quality, int fps, Integer durationMs,
                        Long sizeBytes, String error, ClipErrorCode errorCode, String videoKey, String thumbnailKey,
                        Instant createdAt, Instant finishedAt, String segmentsJson, int tickRate,
-                       Integer queuePosition) {
+                       Integer queuePosition, boolean mine) {
 
         ClipResponse toResponse(ClipProperties properties, List<ClipKill> kills) {
             boolean done = status == ClipStatus.DONE;
@@ -342,7 +349,7 @@ public class ClipQueryService {
                     errorCode, status == ClipStatus.QUEUED ? queuePosition : null,
                     done ? "/api/v1/clips/" + id + "/video" : null,
                     done && thumbnailKey != null ? "/api/v1/clips/" + id + "/thumbnail" : null,
-                    createdAt, finishedAt, expiresAt, kills);
+                    createdAt, finishedAt, expiresAt, kills, mine);
         }
     }
 }
