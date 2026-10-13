@@ -1,11 +1,13 @@
 package io.csfaceit.backend.clip;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import java.time.Duration;
+import java.util.List;
 import org.hibernate.validator.constraints.time.DurationMin;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.unit.DataSize;
@@ -30,6 +32,9 @@ import org.springframework.validation.annotation.Validated;
  * @param retentionDays a finished clip is kept this many days; 0 keeps it forever
  * @param retentionCron when the clean-up of expired clips runs: Spring's six cron fields, server time
  * @param uploadMaxSize the most a recorder may upload for one clip
+ * @param musicTracks the tracks a montage may be laid over, by id and name, in the order the editor lists them; only
+ *        the names, no audio, so a recorder that knows no track by an id records the montage without music. Empty
+ *        when none is set: a montage then has no music to choose.
  */
 @Validated
 @ConfigurationProperties(prefix = "clip")
@@ -46,7 +51,27 @@ public record ClipProperties(
         @NotNull @DurationMin(nanos = 1) Duration workerOnlineWithin,
         @PositiveOrZero int retentionDays,
         @NotBlank String retentionCron,
-        @NotNull DataSize uploadMaxSize) {
+        @NotNull DataSize uploadMaxSize,
+        @Valid List<MusicTrack> musicTracks) {
+
+    /** One track of the music of montages: {@code id} is what a montage stores, {@code name} what a page shows. */
+    public record MusicTrack(@NotBlank String id, @NotBlank String name) {
+    }
+
+    public ClipProperties {
+        musicTracks = musicTracks == null ? List.of() : List.copyOf(musicTracks);
+    }
+
+    /** Whether {@code id} names one of {@link #musicTracks}. */
+    public boolean hasMusicTrack(String id) {
+        return musicTracks.stream().anyMatch(track -> track.id().equals(id));
+    }
+
+    /** Two tracks of one id would make a stored montage name either of them. */
+    @AssertTrue(message = "clip.music-tracks must not repeat an id")
+    boolean isMusicTrackIdsUnique() {
+        return musicTracks.stream().map(MusicTrack::id).distinct().count() == musicTracks.size();
+    }
 
     /** Spring's {@link DataSize} has no constraint of its own; a missing size is for {@code @NotNull} to report. */
     @AssertTrue(message = "clip.upload-max-size must be positive")
@@ -62,6 +87,7 @@ public record ClipProperties(
                 + ", maxDurationSeconds=" + maxDurationSeconds + ", maxQueued=" + maxQueued
                 + ", maxAttempts=" + maxAttempts + ", staleAfter=" + staleAfter
                 + ", workerOnlineWithin=" + workerOnlineWithin + ", retentionDays=" + retentionDays
-                + ", retentionCron=" + retentionCron + ", uploadMaxSize=" + uploadMaxSize + "]";
+                + ", retentionCron=" + retentionCron + ", uploadMaxSize=" + uploadMaxSize
+                + ", musicTracks=" + musicTracks + "]";
     }
 }

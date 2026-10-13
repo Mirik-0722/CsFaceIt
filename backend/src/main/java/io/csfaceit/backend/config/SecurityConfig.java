@@ -83,12 +83,13 @@ public class SecurityConfig {
 
     /**
      * The writes a signed-in user reaches without the admin key: bringing the demo of a match (import, upload) and
-     * asking for its analysis, ordering the clip of a highlight and a compilation, and retrying a clip. {@code *}
-     * stands for one path segment, the id.
+     * asking for its analysis, ordering the clip of a highlight, a compilation and a montage, and retrying a clip.
+     * {@code *} stands for one path segment, the id.
      */
     private static final String[] USER_POSTS = {
             "/api/v1/matches/*/demo/import", "/api/v1/matches/*/demo/upload", "/api/v1/matches/*/demo/analyze",
-            "/api/v1/highlights/*/clips", "/api/v1/matches/*/clips", "/api/v1/clips/*/retry"};
+            "/api/v1/highlights/*/clips", "/api/v1/matches/*/clips", "/api/v1/matches/*/montages",
+            "/api/v1/clips/*/retry"};
 
     /** And the one delete: a clip. */
     private static final String[] USER_DELETES = {"/api/v1/clips/*"};

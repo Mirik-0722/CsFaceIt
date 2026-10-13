@@ -199,3 +199,11 @@ clip:
   # The most a recorder may upload for one clip (the video and the thumbnail each). Nginx has a limit of its own for the
   # upload path (frontend/nginx.conf); keep the two in step.
   upload-max-size: ${CLIP_UPLOAD_MAX_SIZE:1GB}
+  # The music a montage may be laid over: an id a montage stores and a name the editor shows, in the editor's order. Only
+  # the names live here, no audio file; which tracks are actually licensed and played is the operator's decision. An id
+  # is never reused for another track, and the list may be empty (a montage then has no music).
+  music-tracks:
+    - { id: night-drive, name: Night Drive }
+    - { id: clutch-pulse, name: Clutch Pulse }
+    - { id: smoke-and-mirrors, name: Smoke and Mirrors }
+    - { id: last-round, name: Last Round }

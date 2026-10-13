@@ -12,8 +12,10 @@ import java.util.List;
  * A clip and where it is on its way to a video.
  *
  * <p>{@code matchId} is the FACEIT match id and {@code playerId} the FACEIT player id ({@code steam:<SteamID>} for a
- * player the backend knows only from a demo). {@code highlightType}, {@code roundNumber} and {@code tickStart} name
- * the highlight of a clip of one highlight and are {@code null} in a compilation. {@code progress} is the percent
+ * player the backend knows only from a demo). {@code kind} is {@code HIGHLIGHT}, {@code COMPILATION} or
+ * {@code MONTAGE}. {@code highlightType}, {@code roundNumber} and {@code tickStart} name the highlight of a clip of one
+ * highlight and are {@code null} in a compilation and a montage; {@code montage} is what a montage was ordered with,
+ * and {@code null} for every other kind. {@code progress} is the percent
  * done of the attempt that is running. {@code error} says why the clip failed, or why its last attempt did while it
  * waits to be recorded again. {@code errorCode} is the same reason as a code a page can translate (see
  * {@link ClipErrorCode}); it is {@code null} for the recorder's own words, which have none, and whenever there is no
@@ -56,5 +58,6 @@ public record ClipResponse(
         Instant finishedAt,
         Instant expiresAt,
         List<ClipKill> kills,
-        boolean mine) {
+        boolean mine,
+        MontageResponse montage) {
 }

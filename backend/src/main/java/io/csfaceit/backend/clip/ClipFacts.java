@@ -36,6 +36,20 @@ public class ClipFacts {
     public record KillRow(int tick, String weapon, boolean headshot, String victimNickname) {
     }
 
+    /**
+     * One kill of the player as the montage editor lists it, with its round: {@code roundStartTick..roundEndTick} is
+     * the round, and {@code side} the side the player played it on as the roster of the round says, or as the kill
+     * itself says when the roster does not list him ({@code null} when neither does).
+     */
+    public record EditorKillRow(int roundNumber, int roundStartTick, int roundEndTick, String side, int tick,
+                                String weapon, boolean headshot, boolean wallbang, boolean noscope,
+                                boolean throughSmoke, String victimNickname) {
+    }
+
+    /** One round of a match: {@code startTick..endTick}, both included. */
+    public record RoundSpan(int roundNumber, int startTick, int endTick) {
+    }
+
     private static final String ENEMY_KILL = """
             k.match_id = :matchId AND k.killer_id = :playerId AND k.victim_id <> k.killer_id
               AND k.killer_side IS DISTINCT FROM k.victim_side""";
@@ -59,6 +73,33 @@ public class ClipFacts {
             JOIN players v ON v.id = k.victim_id
             WHERE %s AND k.tick BETWEEN :fromTick AND :toTick
             ORDER BY k.tick, k.id""".formatted(ENEMY_KILL);
+
+    private static final String EDITOR_KILLS_SQL = """
+            SELECT k.round_number, r.start_tick, r.end_tick, COALESCE(rp.side, k.killer_side) AS side, k.tick,
+                   k.weapon, k.headshot, k.wallbang, k.noscope, k.thrusmoke, v.nickname AS victim_nickname
+            FROM kills k
+            JOIN rounds r ON r.match_id = k.match_id AND r.round_number = k.round_number
+            JOIN players v ON v.id = k.victim_id
+            LEFT JOIN round_players rp ON rp.match_id = k.match_id AND rp.round_number = k.round_number
+                                      AND rp.player_id = k.killer_id
+            WHERE %s
+            ORDER BY k.round_number, k.tick, k.id""".formatted(ENEMY_KILL);
+
+    private static final String ROUNDS_SQL = """
+            SELECT r.round_number, r.start_tick, r.end_tick
+            FROM rounds r
+            WHERE r.match_id = :matchId
+            ORDER BY r.round_number""";
+
+    /**
+     * Whether the player is one of the match: the demo's roster of a round lists him, a kill names him, or FACEIT's
+     * statistics of the match have a row of his.
+     */
+    private static final String PLAYS_IN_SQL = """
+            SELECT EXISTS (SELECT 1 FROM round_players WHERE match_id = :matchId AND player_id = :playerId)
+                OR EXISTS (SELECT 1 FROM kills WHERE match_id = :matchId
+                           AND (killer_id = :playerId OR victim_id = :playerId))
+                OR EXISTS (SELECT 1 FROM player_match_stats WHERE match_id = :matchId AND player_id = :playerId)""";
 
     private final JdbcClient jdbc;
 
@@ -130,6 +171,39 @@ public class ClipFacts {
                 .query((rs, rowNumber) -> new KillRow(rs.getInt("tick"), rs.getString("weapon"),
                         rs.getBoolean("headshot"), rs.getString("victim_nickname")))
                 .list();
+    }
+
+    /**
+     * Every kill of an enemy the player made in the match, with what the montage editor shows of it and the round it
+     * falls in, by round number and then by tick. A kill in a round the parser has no row of is not in the answer.
+     */
+    public List<EditorKillRow> editorKills(long matchId, long playerId) {
+        return jdbc.sql(EDITOR_KILLS_SQL)
+                .param("matchId", matchId)
+                .param("playerId", playerId)
+                .query((rs, rowNumber) -> new EditorKillRow(rs.getInt("round_number"), rs.getInt("start_tick"),
+                        rs.getInt("end_tick"), rs.getString("side"), rs.getInt("tick"), rs.getString("weapon"),
+                        rs.getBoolean("headshot"), rs.getBoolean("wallbang"), rs.getBoolean("noscope"),
+                        rs.getBoolean("thrusmoke"), rs.getString("victim_nickname")))
+                .list();
+    }
+
+    /** The rounds of the match the parser found, by number; empty for a demo that is not parsed. */
+    public List<RoundSpan> rounds(long matchId) {
+        return jdbc.sql(ROUNDS_SQL)
+                .param("matchId", matchId)
+                .query((rs, rowNumber) -> new RoundSpan(rs.getInt("round_number"), rs.getInt("start_tick"),
+                        rs.getInt("end_tick")))
+                .list();
+    }
+
+    /** Whether the player played in the match, as the facts of its demo or FACEIT's statistics of it say. */
+    public boolean playsIn(long matchId, long playerId) {
+        return Boolean.TRUE.equals(jdbc.sql(PLAYS_IN_SQL)
+                .param("matchId", matchId)
+                .param("playerId", playerId)
+                .query(Boolean.class)
+                .single());
     }
 
     /** A kill with the round it falls in, as the join of {@code killTicksByRound} reads it. */

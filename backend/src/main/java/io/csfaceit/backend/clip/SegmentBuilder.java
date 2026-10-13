@@ -52,8 +52,8 @@ public final class SegmentBuilder {
         return segments.isEmpty() ? List.of(new ClipSegment(windowStart, windowEnd)) : List.copyOf(segments);
     }
 
-    /** The length of the video the segments make together, in ticks. */
+    /** The length of the video the segments make together, in ticks; a slow-motion segment counts twice. */
     public static long totalTicks(List<ClipSegment> segments) {
-        return segments.stream().mapToLong(segment -> (long) segment.endTick() - segment.startTick()).sum();
+        return segments.stream().mapToLong(ClipSegment::videoTicks).sum();
     }
 }

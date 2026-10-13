@@ -40,11 +40,13 @@ public class ClipPersistence {
 
     /**
      * A failed clip as a retry needs it: what it was a clip of (its key and its quality, by the ids of the rows; the
-     * three fields of a highlight are {@code null} in a compilation) and who ordered it.
+     * three fields of a highlight are {@code null} in a compilation and a montage) and who ordered it. A montage is
+     * ordered again with its own {@code segments} and {@code options}; {@code options} is {@code null} for every other
+     * kind, whose segments are worked out again from the facts.
      */
     public record FailedClip(ClipKind kind, long matchRowId, long playerRowId, HighlightType highlightType,
                              Integer roundNumber, Integer tickStart, Integer tickEnd, ClipQuality quality,
-                             Long requestedBy) {
+                             Long requestedBy, List<ClipSegment> segments, MontageOptions options) {
     }
 
     /**
@@ -130,7 +132,7 @@ public class ClipPersistence {
         }
         return new FailedClip(clip.getKind(), clip.getMatch().getId(), clip.getPlayer().getId(),
                 clip.getHighlightType(), clip.getRoundNumber(), clip.getTickStart(), clip.getTickEnd(),
-                clip.getQuality(), clip.getRequestedBy());
+                clip.getQuality(), clip.getRequestedBy(), List.copyOf(clip.getSegments()), clip.getOptions());
     }
 
     /** The ids of the clips that finished ({@code DONE} or {@code FAILED}) before {@code cutoff}, the oldest first. */
@@ -180,6 +182,25 @@ public class ClipPersistence {
         beforeInsert.run();
         Clip clip = Clip.compilation(matches.getReferenceById(key.matchRowId()),
                 players.getReferenceById(key.playerRowId()), key.quality(), fps, segments, requestedBy);
+        return clips.saveAndFlush(clip).getId();
+    }
+
+    /**
+     * Puts a montage in the queue, as {@code QUEUED}, and returns its id. No index keeps a montage unique: every order
+     * is a clip of its own.
+     *
+     * @param segments the stretches of the demo the video is made of, in the order the player put them in
+     * @param options what the montage is recorded with besides its segments
+     * @param requestedBy the id of the user who orders the clip, {@code null} for the admin key
+     * @param beforeInsert as for {@link #queueHighlightClip}
+     */
+    @Transactional
+    public long queueMontage(long matchRowId, long playerRowId, ClipQuality quality, int fps,
+                             List<ClipSegment> segments, MontageOptions options, Long requestedBy,
+                             Runnable beforeInsert) {
+        beforeInsert.run();
+        Clip clip = Clip.montage(matches.getReferenceById(matchRowId), players.getReferenceById(playerRowId), quality,
+                fps, segments, options, requestedBy);
         return clips.saveAndFlush(clip).getId();
     }
 }
