@@ -105,6 +105,7 @@ Then edit `.env`:
 | `APP_API_KEY` | **Required.** Secret that clients send in the `X-API-Key` header. Everything except `GET`/`HEAD` on `/api/v1/**`, `/actuator/health` and `/actuator/prometheus` requires it (signing out, `POST /api/v1/auth/logout`, is the one exception, see [Signing in](#signing-in)), and `/api/worker/**`, which takes the worker token instead (`CLIP_WORKER_TOKEN`). A signed-in player reaches a few of the writes without it, for their own matches and clips, and an administrator's session all of them (see [What a signed-in player can do](#what-a-signed-in-player-can-do)). Choose a long random value, for example `openssl rand -hex 32`. While it is empty the backend logs a warning and rejects every protected request. | empty |
 | `CLIP_WORKER_TOKEN` | The secret the recorder sends in the `X-Worker-Token` header (see [Worker API](#worker-api-the-recorder)). It opens `/api/worker/**` and nothing else, and the admin key does not open that. Choose a long random value, for example `openssl rand -hex 32`, and give the same one to the recorder. While it is empty the backend logs a warning and rejects every request of a recorder. The fake-FACEIT mode sets `dev-worker-token`. | empty |
 | `AUTH_ADMIN_STEAM_IDS` | The SteamID64s (17 digits, comma separated) of the people who get the role `ADMIN` when they sign in with Steam (see [Signing in](#signing-in)). An administrator's session does what `APP_API_KEY` does, so list only people you would give the key to. The list is read at every request: after a restart with a SteamID removed, that person is a `USER` again with the cookie they have. The role is in the answer of `GET /api/v1/auth/me`. | empty |
+| `LIMITS_WINDOW`, `LIMITS_DEMO_UPLOADS`, `LIMITS_DEMO_IMPORTS`, `LIMITS_CLIP_ORDERS` | What a signed-in player who is no administrator may start within a rolling window: the window (a time span such as `24h`) and how many demo uploads, demo imports and clip orders fit in it (see [Limits per day](#limits-per-day)). All four have to be positive. | `24h`, `10`, `20`, `5` |
 | `FACEIT_OAUTH_CLIENT_ID`, `FACEIT_OAUTH_CLIENT_SECRET` | The FACEIT OAuth application, for signing in with FACEIT. The sign-in with FACEIT itself is not written yet, so the two are read and nothing more: `GET /api/v1/auth/providers` answers `faceit: false` whatever they hold, and only Steam is offered. The secret is never logged. | empty |
 | `FACEIT_DOWNLOADS_TOKEN` | The access token for FACEIT's Downloads API (`faceit.downloads.token`), the only way to get a demo file; it is not the Data API key, which that API refuses. Applied for at FACEIT (see [How the import gets the file](#how-the-import-gets-the-file)). Empty means no access: the import then fails at once with `DOWNLOAD_NEEDS_ACCESS`, and the demo is uploaded by hand. Never logged. | empty |
 | `FACEIT_DOWNLOADS_URL` | The address of the Downloads API (`faceit.downloads.url`); override it only to point the backend at a fake FACEIT. Commented out in `.env.example`. | `https://open.faceit.com/download/v2/demos/download` |
@@ -470,7 +471,8 @@ cd frontend && SHOTS=1 npx playwright test e2e/shots.spec.ts
 ## API
 
 Base URL: <http://localhost:3000> with Docker Compose, <http://localhost:8080> in dev mode. Everything returns JSON,
-and errors have the shape `{"code": "...", "message": "..."}`. The player and match endpoints below are `GET` and open;
+and errors have the shape `{"code": "...", "message": "..."}` (a `429` for a [limit per day](#limits-per-day) has a
+third field, `retryAt`; no other error has it). The player and match endpoints below are `GET` and open;
 the four [demo endpoints](#demo-pipeline) and the [clip endpoints](#video-clips) are described in their own sections,
 and the requests that change something (`POST`, `DELETE`) need the `X-API-Key` header or, for the ones listed under
 [What a signed-in player can do](#what-a-signed-in-player-can-do), a session; signing out needs neither (it has to come
@@ -524,6 +526,7 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip file expands beyond it), or a recorder's video or thumbnail is larger than `CLIP_UPLOAD_MAX_SIZE`. |
 | 416 | `RANGE_NOT_SATISFIABLE` | The `Range` of a request for a clip's video starts at or beyond its end; see [Video clips](#video-clips). |
 | 429 | `CLIP_QUEUE_FULL` | A new clip was requested but the queue of clips is full; see [Video clips](#video-clips). |
+| 429 | `UPLOAD_LIMIT_REACHED`, `IMPORT_LIMIT_REACHED`, `CLIP_LIMIT_REACHED` | A signed-in player has started as many demo uploads, demo imports or clip orders as a day allows. The body also has `retryAt` and the answer a `Retry-After` header; see [Limits per day](#limits-per-day). |
 | 502 | `FACEIT_UNAVAILABLE` | FACEIT failed or timed out after retries, or refused the request (for example a rejected `FACEIT_API_KEY`, which is not retried), and no cached copy exists. |
 | 503 | `STORAGE_UNAVAILABLE` | The storage cannot do what a request needs: a recorder's (see [Worker API](#worker-api-the-recorder)), or the request for the video or the thumbnail of a clip (see [Video clips](#video-clips)). |
 
@@ -552,12 +555,15 @@ only. Signing in with FACEIT itself (OAuth) is a later step.
 | `GET /api/v1/auth/steam/start?returnTo=/clips` | `302` to Steam's login page, and the cookie `csf_login`. `returnTo` is the path of the site to come back to. At an origin that is not a known one: `302` to `/?login=failed`, no cookie, and a `WARN` that names the origin. |
 | `GET /api/v1/auth/steam/callback?state=...&openid....` | Where Steam sends the visitor back; nothing calls it by hand. On success `302` to the `returnTo` of the start, with the cookie `csf_session`. On any failure `302` to `/?login=failed` and no session. `csf_login` is spent either way. |
 | `GET /api/v1/auth/faceit/start`, `GET /api/v1/auth/faceit/callback` | `404` `AUTH_PROVIDER_DISABLED`: the sign-in with FACEIT is not written yet. |
-| `GET /api/v1/auth/me` | `200` with who is signed in, `204` with no body without a session. `role` is the **effective** role, `ADMIN` or `USER`: what the settings say of the user's SteamID now (see [What a signed-in player can do](#what-a-signed-in-player-can-do)). A visitor who is not signed in is the common case and no error: every page asks this once, and a `401` would make the browser print a failed request in the console of every visitor. |
+| `GET /api/v1/auth/me` | `200` with who is signed in, `204` with no body without a session. `role` is the **effective** role, `ADMIN` or `USER`: what the settings say of the user's SteamID now (see [What a signed-in player can do](#what-a-signed-in-player-can-do)). A visitor who is not signed in is the common case and no error: every page asks this once, and a `401` would make the browser print a failed request in the console of every visitor. `limits` is what the user has left of the [limits per day](#limits-per-day), `null` for an administrator. The request also notes that the user is around (`users.last_seen_at`), at most once in 15 minutes. |
 | `POST /api/v1/auth/logout` | `204`. The session is deleted from the database and its cookie cleared; the old cookie signs nobody in any more. `204` also when there was no session, and no admin key is needed. With a session cookie it needs an `Origin` header that is a known origin, like any write: `403` `CROSS_SITE_REQUEST` without one (a browser always sends it). |
 
 ```json
 {"id": 1, "nickname": "s1mple", "avatarUrl": "https://assets.example/avatars/s1mple.jpg", "role": "USER",
- "steamId": "76561198000000001", "playerId": "11111111-1111-1111-1111-111111111111"}
+ "steamId": "76561198000000001", "playerId": "11111111-1111-1111-1111-111111111111",
+ "limits": {"demoUploads": {"limit": 10, "remaining": 10, "resetsAt": null},
+            "demoImports": {"limit": 20, "remaining": 19, "resetsAt": "2026-01-02T09:30:00Z"},
+            "clipOrders": {"limit": 5, "remaining": 0, "resetsAt": "2026-01-02T08:15:00Z"}}}
 ```
 
 `playerId` is the FACEIT player id that the site uses in `/players/{playerId}`, and `null` while no FACEIT player is
@@ -662,8 +668,9 @@ not write before.
 ### What is stored
 
 The migration `V5__users.sql` adds two tables (and `V8__session_authority.sql` the places for what comes after: an index on
-`user_sessions (user_id)`, `clips.requested_by` (who ordered a clip), the table `user_actions` (what a user did, for limits
-that are to come) and `users.last_seen_at` and `users.faceit_synced_at`; nothing uses them yet).
+`user_sessions (user_id)`, `clips.requested_by` (who ordered a clip), the table `user_actions` (what a user started, one
+row each, counted for the [limits per day](#limits-per-day)), `users.last_seen_at` (when the user last used the site,
+noted by `GET /api/v1/auth/me` at most once in 15 minutes) and `users.faceit_synced_at`, which nothing uses yet).
 
 - `users`: `steam_id` and `faceit_id` (each unique; at least one is set), `player_id` (the row of the FACEIT player in
   `players`, once found), `nickname`, `avatar_url`, `role`, `created_at` and `last_login_at`.
@@ -742,6 +749,60 @@ curl -b jar.txt -X POST -H 'Origin: http://localhost:3000' http://localhost:3000
 curl -b jar.txt -X DELETE -H 'Origin: http://localhost:3000' http://localhost:3000/api/v1/clips/<clipId>
 ```
 
+### Limits per day
+
+A player (`USER`) may start only so much within a rolling window of 24 hours. The admin key and an administrator are
+never counted and never refused.
+
+| What | Limit | Setting | Variable | Refused with |
+| --- | --- | --- | --- | --- |
+| Demo uploads | 10 | `limits.demo-uploads` | `LIMITS_DEMO_UPLOADS` | `429 UPLOAD_LIMIT_REACHED` |
+| Demo imports | 20 | `limits.demo-imports` | `LIMITS_DEMO_IMPORTS` | `429 IMPORT_LIMIT_REACHED` |
+| Clip orders | 5 | `limits.clip-orders` | `LIMITS_CLIP_ORDERS` | `429 CLIP_LIMIT_REACHED` |
+| The window | 24 hours | `limits.window` | `LIMITS_WINDOW` | |
+
+The window is rolling: it is the last 24 hours at the moment of the request, not a calendar day, so a place frees 24
+hours after the action that took it. The backend refuses to start with a window or a count that is not positive.
+
+What counts is what was **started**:
+
+| Request | Counts as | When |
+| --- | --- | --- |
+| `POST /api/v1/matches/{id}/demo/upload` | a demo upload | When the upload is accepted, before the file is received. The place is given back if the upload then fails before the demo is stored (no `file` part, a file that is no demo, a demo that was parsed in the meantime, the storage failing). |
+| `POST /api/v1/matches/{id}/demo/import` | a demo import | Only when the request queues something. A request that finds the demo there or under way, and is answered with it as it is, is not counted. |
+| `POST /api/v1/matches/{id}/demo/analyze` | a demo import | Every time the analysis is announced (a member of the match could otherwise repeat it without bound while the demo is `PARSED`). |
+| `POST /api/v1/highlights/{id}/clips`, `POST /api/v1/matches/{id}/clips` | a clip order | Only when a new clip is queued (`201`). Asking again for a clip that exists (`200`) is not counted. |
+| `POST /api/v1/clips/{id}/retry` | a clip order | When it queues the new clip; it is counted for whoever retries. |
+| `DELETE /api/v1/clips/{id}` | nothing | Never counted, and deleting a clip gives no place back. |
+
+- **The limit is the last thing that refuses.** The rules of [What a signed-in player can do](#what-a-signed-in-player-can-do)
+  (`403`) and the state of the demo or the clip (`404`, `409`, `429 CLIP_QUEUE_FULL`) are asked first, so a request that
+  would be refused anyway neither uses a place nor tells whether the limit is reached. A refused request is never
+  counted.
+- **A user at the upload limit sends nothing.** Like the roster rule, the limit is asked before the backend reads the
+  body of the upload, so the `429` comes before the file is received.
+- **Two requests at once cannot both take the last place.** The count and the new row are one step under a lock on the
+  user's row. A clip or an import and its counted row are written in one transaction: when the clip is not queued after
+  all (a concurrent request queued the same one, which is then the answer), nothing is counted.
+- The counted actions are the rows of `user_actions`; those older than the window plus a day are removed once a day
+  (04:45 server time).
+
+The refusal says when the next place frees: the oldest counted action plus the window, as `retryAt` in the body
+(ISO-8601, UTC) and as seconds from now in the `Retry-After` header.
+
+```
+HTTP/1.1 429
+Retry-After: 4980
+
+{"code": "CLIP_LIMIT_REACHED",
+ "message": "The limit of 5 clip orders in 24 hours is reached; the next one is possible at 2026-01-02T08:15:00Z",
+ "retryAt": "2026-01-02T08:15:00Z"}
+```
+
+`GET /api/v1/auth/me` says what is left before a request is made: `limits` has `demoUploads`, `demoImports` and
+`clipOrders`, each with the `limit`, how many are `remaining` and `resetsAt`, the time the next place frees (`null`
+when nothing is counted). For an administrator `limits` is `null`.
+
 ### The FACEIT player
 
 After Steam has confirmed the visitor, the site asks FACEIT for the CS2 player of that SteamID
@@ -772,6 +833,7 @@ No call to Steam or FACEIT is made inside a database transaction.
 | `auth.steam.verify-url` | `AUTH_STEAM_VERIFY_URL` | the same | Where the backend posts the answer back to have it confirmed. |
 | `auth.faceit.client-id`, `auth.faceit.client-secret` | `FACEIT_OAUTH_CLIENT_ID`, `FACEIT_OAUTH_CLIENT_SECRET` | empty | The FACEIT OAuth application. Neither is logged. Read, but not used until the sign-in with FACEIT is written (`/auth/providers` answers `faceit: false`). |
 | `auth.session-lifetime` | none | `30d` | How long a session lasts. |
+| `limits.window`, `limits.demo-uploads`, `limits.demo-imports`, `limits.clip-orders` | `LIMITS_WINDOW`, `LIMITS_DEMO_UPLOADS`, `LIMITS_DEMO_IMPORTS`, `LIMITS_CLIP_ORDERS` | `24h`, `10`, `20`, `5` | What a player may start within the rolling window (see [Limits per day](#limits-per-day)). |
 | `app.cors.allowed-origins` | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | The origins allowed to call the API from a browser, and the first part of the known origins of the site (see "Where the address comes from"). |
 | `app.public-origin` | `PUBLIC_ORIGIN` | empty | The second part of the known origins: the origin the site is reached at when it is none of the above. |
 
@@ -1530,6 +1592,7 @@ Besides `200`, `201` and `204`, the requests above are answered with:
 | 409 | `CLIP_NOT_FAILED` | The clip to retry is not `FAILED`. |
 | 416 | `RANGE_NOT_SATISFIABLE` | The `Range` of a request for the video starts at or beyond its end; `Content-Range: bytes */size` says how long it is. |
 | 429 | `CLIP_QUEUE_FULL` | `clip.max-queued` clips are waiting already. Ask again later. The limit is soft: two requests at the same moment may both get in. |
+| 429 | `CLIP_LIMIT_REACHED` | A signed-in player has ordered as many clips as a day allows (`limits.clip-orders`, retries included); `retryAt` and `Retry-After` say when the next one is possible. See [Limits per day](#limits-per-day). |
 | 503 | `STORAGE_UNAVAILABLE` | The video or the thumbnail was asked for while the storage could not be asked for the file (it cannot be reached, or it fails for another reason than the file being gone). Ask again later. |
 
 The `POST` for a highlight checks in this order, and the first that fails ends the request: the highlight; that its
