@@ -1,6 +1,7 @@
 import { X } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { useRecorderStatus, useRequestCompilation, useRequestHighlightClip } from '@/api/queries'
+import HighlightTag from '@/components/HighlightTag'
 import KillTimeline from '@/components/KillTimeline'
 import RecDot from '@/components/RecDot'
 import { Badge } from '@/components/ui/badge'
@@ -11,7 +12,7 @@ import { useT } from '@/i18n'
 import { setAdminKey, useAdminKey } from '@/lib/adminKey'
 import { CLIP_QUALITIES } from '@/lib/clips'
 import { denialText, errorMessage } from '@/lib/errorMessage'
-import { describeHighlight, formatDuration, highlightLabel } from '@/lib/highlightLabels'
+import { describeHighlight, formatDuration } from '@/lib/highlightLabels'
 import { nextPossible } from '@/lib/limits'
 import { mapLabel } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
@@ -35,9 +36,7 @@ function HighlightSummary({ highlight }: { highlight: HighlightResponse }) {
   return (
     <div className="flex flex-col gap-3 border border-border bg-background p-4">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-        <Badge variant={highlight.type === 'ACE' ? 'default' : 'outline'} className="normal-case">
-          {highlightLabel(highlight.type, t)}
-        </Badge>
+        <HighlightTag type={highlight.type} />
         <span className="min-w-0 truncate text-[15px] font-semibold">{highlight.nickname}</span>
         <span className="label-mono">
           {map && `${map} · `}

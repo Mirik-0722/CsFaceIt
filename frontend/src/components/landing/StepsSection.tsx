@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
+import HighlightTag from '@/components/HighlightTag'
 import StatusChip from '@/components/StatusChip'
 import { Badge } from '@/components/ui/badge'
 import { useT } from '@/i18n'
-import { highlightLabel } from '@/lib/highlightLabels'
 import { cn } from '@/lib/utils'
 import type { ClipResponse, HighlightType } from '@/api/types'
 import SectionTitle from './SectionTitle'
@@ -77,9 +77,7 @@ export default function StepsSection() {
             example={
               <div className="flex min-h-11 flex-wrap items-center gap-2">
                 {SAMPLE_TAGS.map((type) => (
-                  <Badge key={type} variant={type === 'ACE' ? 'default' : 'outline'} className="normal-case">
-                    {highlightLabel(type, t)}
-                  </Badge>
+                  <HighlightTag key={type} type={type} />
                 ))}
               </div>
             }

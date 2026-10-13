@@ -1,9 +1,10 @@
 import { ChevronRight, Upload } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import DemoStages from '@/components/DemoStages'
 import FaceitTag from '@/components/FaceitTag'
+import HighlightTag from '@/components/HighlightTag'
 import MapEmblem from '@/components/MapEmblem'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useLocale, useT } from '@/i18n'
 import { formatMatchTime } from '@/lib/formatDate'
@@ -15,7 +16,7 @@ import { isDemoInProgress, type ClipCounts, type PlayerMatchResponse } from '@/a
 import type { Bringing } from '@/lib/useDemoBringing'
 import { useViewer } from '@/lib/viewer'
 import { nextPossible } from '@/lib/limits'
-import type { MatchResult } from '@/api/types'
+import { RESULT_ROW } from '@/lib/resultRow'
 
 // The columns of the header and of every row: the map with where the match is from and its date, the score, K / D / A,
 // the highlights (the one that takes what is left), the clips and the arrow. The first one holds the emblem and, on one
@@ -23,12 +24,35 @@ import type { MatchResult } from '@/api/types'
 // their room. The row starts 14px in: 3px of it is the bar of the result.
 const COLUMNS = 'grid grid-cols-[220px_100px_104px_minmax(0,1fr)_160px_16px] items-center gap-4 pr-1 pl-3.5'
 
-// A row carries its result (the `result-row` utility: a bar at the left edge and a tint that fades out); a match
-// without a known result has neither. The word of the result stays in the row: the colour is never the only sign.
-const RESULT_ROW: Record<MatchResult, string | undefined> = {
-  WIN: 'result-row [--result:var(--positive)]',
-  LOSS: 'result-row [--result:var(--negative)]',
-  UNKNOWN: undefined,
+interface MatchMapCellProps {
+  mapName: string | null
+  /** The name to show: the map's, "Unknown map", or nothing while the map is still being asked for. */
+  name: ReactNode
+  /** When the match started, as the row writes it. */
+  date: ReactNode
+  startedAt: string
+}
+
+/**
+ * The first cell of a row of matches: the map's 44px emblem, its name, and under it on one line the FACEIT tag with the
+ * date. The tag is decoration here, not a word of the link's name: every match of a list is from FACEIT, and it would be
+ * heard once per row. The rows of the profile's history use it too.
+ */
+export function MatchMapCell({ mapName, name, date, startedAt }: MatchMapCellProps) {
+  return (
+    <span className="flex min-w-0 items-center gap-3">
+      <MapEmblem mapName={mapName} size={44} />
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="min-h-5 truncate text-[15px] leading-5 font-semibold">{name}</span>
+        <span className="flex items-center gap-2">
+          <FaceitTag decorative />
+          <time dateTime={startedAt} className="font-mono text-[11px] whitespace-nowrap text-subtle">
+            {date}
+          </time>
+        </span>
+      </span>
+    </span>
+  )
 }
 
 /**
@@ -102,10 +126,8 @@ function HighlightsCell({ match, onItsWay }: { match: PlayerMatchResponse; onIts
   }
   return (
     <>
-      {/* Written as it is shown, as on the highlight cards: the tag leaves the case of `1v3 CLUTCH` alone. */}
-      <Badge variant={top.type === 'ACE' ? 'default' : 'outline'} className="normal-case">
-        {kindText(top, t)}
-      </Badge>
+      {/* Written as it is shown, as on the highlight cards, in the colour of its family. */}
+      <HighlightTag type={top.type}>{kindText(top, t)}</HighlightTag>
       {rest && (
         // Two lines at most, so that the count of the kinds left out (`+3`) is not cut off with the rest of the text.
         <span title={rest} className="line-clamp-2 min-w-0 font-mono text-xs text-muted-foreground">
@@ -238,19 +260,12 @@ function MatchRow({
           RESULT_ROW[match.result],
         )}
       >
-        <span className="flex min-w-0 items-center gap-3">
-          <MapEmblem mapName={match.mapName} size={44} />
-          <span className="flex min-w-0 flex-col gap-1">
-            <span className="text-[15px] leading-5 font-semibold">{mapLabel(match.mapName) ?? t.match.unknownMap}</span>
-            <span className="flex items-center gap-2">
-              {/* Every match of the list is from FACEIT: the tag is decoration here, not a word in the link's name. */}
-              <FaceitTag decorative />
-              <time dateTime={match.startedAt} className="font-mono text-[11px] whitespace-nowrap text-subtle">
-                {formatMatchTime(match.startedAt, locale)}
-              </time>
-            </span>
-          </span>
-        </span>
+        <MatchMapCell
+          mapName={match.mapName}
+          name={mapLabel(match.mapName) ?? t.match.unknownMap}
+          date={formatMatchTime(match.startedAt, locale)}
+          startedAt={match.startedAt}
+        />
         <span className="flex flex-col">
           <span className={cn('font-mono text-[19px] leading-[1.3] font-semibold tabular-nums', resultClass)}>
             <span className="sr-only">{t.stats.score}</span> {formatScore(match.score, match.result)}

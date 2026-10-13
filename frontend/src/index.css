@@ -39,6 +39,9 @@
     --color-level-4: var(--level-4);
     --color-level-8: var(--level-8);
     --color-level-10: var(--level-10);
+    --color-hl-multi: var(--hl-multi);
+    --color-hl-clutch: var(--hl-clutch);
+    --color-hl-special: var(--hl-special);
     --color-side-ct: var(--side-ct);
     --color-side-t: var(--side-t);
     --radius-sm: calc(var(--radius) * 0.6);
@@ -86,6 +89,11 @@
     --level-4: #FFC800;
     --level-8: #FF6309;
     --level-10: #FE1F00;
+    /* The families of highlight types: multi-kills in a lighter REC red (the colour of a kill), clutches in violet (amber
+       is the T side's), the special kinds in teal. They colour the tags of the types and the bars of the kinds. */
+    --hl-multi: #FF5B4F;
+    --hl-clutch: #B79BFF;
+    --hl-special: #3FD0C9;
     --side-ct: #7CAEFF;
     --side-t: #F1B550;
     /* Not in the spec table: text on those surfaces reads as --foreground. */
@@ -192,6 +200,17 @@
     box-shadow: inset 3px 0 0 var(--result);
 }
 
+/* A statistics tile whose figure is good or bad news: a 2px line along its top edge and a tint that fades out
+   downwards, in the colour the tile says with `[--tone:var(--positive)]` (or `--negative`). */
+@utility tone-edge {
+    background-image: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--tone) 8%, transparent) 0%,
+        transparent 60%
+    );
+    box-shadow: inset 0 2px 0 var(--tone);
+}
+
 /* What lies over a map's scenery. The picture is there to be seen, so it is veiled only as far as the composition
    asks, and the texts in front of it are secured where they stand: a band behind the top bar, a panel under the
    landing page's sample, a fill under a tag, a scrim behind a block of text. */
@@ -280,6 +299,18 @@
         color-mix(in srgb, var(--background) 55%, transparent) 50%,
         color-mix(in srgb, var(--background) 92%, transparent) 82%,
         color-mix(in srgb, var(--background) 92%, transparent) 100%
+    );
+}
+
+/* Over the strip of scenery at the top of a highlight card, in the card's colour: light at the top, where the picture is
+   to be seen, and nearly closed at the bottom, where the strip goes over into the card. The tag and the duration on
+   the strip have fills of their own. */
+@utility scenery-veil-card {
+    background-image: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--card) 35%, transparent) 0%,
+        color-mix(in srgb, var(--card) 55%, transparent) 50%,
+        color-mix(in srgb, var(--card) 90%, transparent) 100%
     );
 }
 
