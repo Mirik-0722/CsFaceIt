@@ -85,7 +85,7 @@ interface Backend {
    */
   clips: ClipResponse[]
   recorder: RecorderStatusResponse
-  /** The signed-in visitor; `null`: nobody is signed in (the backend answers 401 UNAUTHENTICATED). */
+  /** The signed-in visitor; `null`: nobody is signed in (the backend answers 204 No Content). */
   me: MeResponse | null
   /** Which ways of signing in the backend has turned on. */
   providers: AuthProvidersResponse
@@ -563,7 +563,7 @@ function answersFor(backend: Backend): Map<string, Reply> {
       'GET /api/v1/auth/me',
       backend.me
         ? { body: backend.me }
-        : { status: 401, body: { code: 'UNAUTHENTICATED', message: 'Not signed in' } },
+        : { status: 204, body: undefined },
     ],
     ['GET /api/v1/auth/providers', { body: backend.providers }],
     ...backend.clips.map((clip): [string, Reply] => {

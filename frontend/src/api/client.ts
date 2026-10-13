@@ -57,14 +57,18 @@ async function send(url: string, init: RequestInit): Promise<Response> {
   return res
 }
 
-/** Sends the request and returns the parsed JSON body; every failure is an {@link ApiError}. */
-async function request<T>(url: string, init: RequestInit): Promise<T> {
-  const res = await send(url, init)
+/** Reads the JSON body of a successful response; a body that is not JSON is an {@link ApiError}. */
+async function parseJson<T>(res: Response): Promise<T> {
   try {
     return (await res.json()) as T
   } catch {
     throw new ApiError(res.status, 'UNKNOWN', 'Response is not valid JSON')
   }
+}
+
+/** Sends the request and returns the parsed JSON body; every failure is an {@link ApiError}. */
+async function request<T>(url: string, init: RequestInit): Promise<T> {
+  return parseJson<T>(await send(url, init))
 }
 
 /**
@@ -74,6 +78,15 @@ async function request<T>(url: string, init: RequestInit): Promise<T> {
  */
 export async function apiGet<T>(path: string, params?: Record<string, string | number>): Promise<T> {
   return request<T>(buildUrl(path, params), { headers: { Accept: 'application/json' } })
+}
+
+/**
+ * GETs like {@link apiGet}, for an endpoint whose answer may be "nothing to show" by design: `204 No Content` (no body)
+ * is `null`, where {@link apiGet} would call the empty body invalid JSON. Every other failure is an {@link ApiError}.
+ */
+export async function apiGetOrNull<T>(path: string): Promise<T | null> {
+  const res = await send(buildUrl(path), { headers: { Accept: 'application/json' } })
+  return res.status === 204 ? null : parseJson<T>(res)
 }
 
 interface PostOptions {

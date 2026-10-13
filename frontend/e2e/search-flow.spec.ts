@@ -36,12 +36,12 @@ const API_RESPONSES = new Map<string, unknown>([
   [`GET /api/v1/matches/${WON_MATCH_ID}/clips`, []],
   ['GET /api/v1/recorder/status', recorderStatusFixture],
   // The top bar asks who is signed in (nobody: see API_STATUS), the hero which ways of signing in there are.
-  ['GET /api/v1/auth/me', { code: 'UNAUTHENTICATED', message: 'Not signed in' }],
+  ['GET /api/v1/auth/me', null],
   ['GET /api/v1/auth/providers', { steam: true, faceit: false }],
 ])
 
 /** The status of an answer when it is not 200. */
-const API_STATUS = new Map<string, number>([['GET /api/v1/auth/me', 401]])
+const API_STATUS = new Map<string, number>([['GET /api/v1/auth/me', 204]])
 
 const test = base.extend<{ api: { served: Set<string> } }>({
   // Answers the API from fixtures. A request without a fixture is aborted and fails the test once it has finished, so
@@ -57,7 +57,9 @@ const test = base.extend<{ api: { served: Set<string> } }>({
         const key = `${route.request().method()} ${url.pathname}${url.search}`
         if (API_RESPONSES.has(key)) {
           served.add(key)
-          await route.fulfill({ status: API_STATUS.get(key) ?? 200, json: API_RESPONSES.get(key) })
+          const status = API_STATUS.get(key) ?? 200
+          // A 204 has no body, so there is no JSON to send with it.
+          await route.fulfill(status === 204 ? { status } : { status, json: API_RESPONSES.get(key) })
         } else {
           unmocked.push(key)
           await route.abort()

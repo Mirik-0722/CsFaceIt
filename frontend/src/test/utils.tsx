@@ -26,14 +26,14 @@ export function renderWithProviders(ui: ReactElement, { route = '/', path = '*' 
   )
 }
 
-/** A canned answer: the JSON `body` and the HTTP `status` (200 unless given). */
+/** A canned answer: the JSON `body` and the HTTP `status` (200 unless given). A 204 has no body, whatever `body` is. */
 export interface MockReply {
   body: unknown
   status?: number
 }
 
 function toResponse({ body, status = 200 }: MockReply): Response {
-  return new Response(JSON.stringify(body), { status })
+  return new Response(status === 204 ? null : JSON.stringify(body), { status })
 }
 
 /**

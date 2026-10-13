@@ -5,7 +5,6 @@ import io.csfaceit.backend.auth.dto.MeResponse;
 import io.csfaceit.backend.auth.dto.ProvidersResponse;
 import io.csfaceit.backend.common.api.BadRequestException;
 import io.csfaceit.backend.common.api.NotFoundException;
-import io.csfaceit.backend.common.api.UnauthenticatedException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import org.slf4j.Logger;
@@ -127,17 +126,19 @@ public class AuthController {
     }
 
     /**
-     * The visitor the request's session cookie belongs to, or 401 {@code UNAUTHENTICATED} when it has none that is
-     * live. It is the cookie that is asked, not what else the request is authenticated as: the admin key does not turn
-     * a signed-in visitor into a signed-out one (see {@link SessionAuthFilter}).
+     * The visitor the request's session cookie belongs to, or 204 No Content (no body) when it has none that is live. A
+     * visitor who is not signed in is the common case, not an error: every page asks this once, and a 401 would make
+     * the browser print a failed request in the console of every visitor. It is the cookie that is asked, not what else
+     * the request is authenticated as: the admin key does not turn a signed-in visitor into a signed-out one (see
+     * {@link SessionAuthFilter}).
      */
     @GetMapping("/me")
-    public MeResponse me(
+    public ResponseEntity<MeResponse> me(
             @RequestAttribute(name = SessionAuthFilter.USER_ATTRIBUTE, required = false) SignedInUser user) {
         if (user == null) {
-            throw new UnauthenticatedException("Not signed in");
+            return ResponseEntity.noContent().build();
         }
-        return MeResponse.of(user);
+        return ResponseEntity.ok(MeResponse.of(user));
     }
 
     /** Ends the session of the request's cookie, if it has one, and clears the cookie. 204 either way. */

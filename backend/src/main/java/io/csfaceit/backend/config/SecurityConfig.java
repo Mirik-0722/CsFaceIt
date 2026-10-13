@@ -64,7 +64,7 @@ public class SecurityConfig {
     private static final String[] SIGN_IN_PATHS = {"/api/v1/auth/steam/**", "/api/v1/auth/faceit/**",
             "/api/v1/auth/providers"};
 
-    /** Who is signed in. The controller answers a visitor without a session with 401 {@code UNAUTHENTICATED}. */
+    /** Who is signed in. The controller answers a visitor without a session with 204 No Content. */
     private static final String ME_PATH = "/api/v1/auth/me";
 
     /** Signing out. The controller answers 204 whether or not there was a session. */

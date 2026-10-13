@@ -1,29 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { AuthProvider, AuthProvidersResponse, MeResponse } from './authTypes'
-import { ApiError, apiGet } from './client'
+import { ApiError, apiGet, apiGetOrNull } from './client'
 
 export type { AuthProvider, AuthProvidersResponse, MeResponse, UserRole } from './authTypes'
 
 const ME_KEY = ['auth', 'me'] as const
 
 /**
- * Who is signed in: the visitor, or `null` for one who is not (the backend answers 401, which is a state of the page
- * and not an error). It is not retried, so the page knows within one round trip which way to draw itself; a failure
- * of any other kind leaves `data` undefined and the page draws itself as for a visitor who is not signed in.
+ * Who is signed in: the visitor, or `null` for one who is not (the backend answers 204 No Content, which is a state of
+ * the page and not an error, and which leaves no failed request in the browser's console). It is not retried, so the
+ * page knows within one round trip which way to draw itself; a failure of any kind leaves `data` undefined and the
+ * page draws itself as for a visitor who is not signed in.
  */
 export function useMe() {
   return useQuery<MeResponse | null, ApiError>({
     queryKey: ME_KEY,
-    queryFn: async () => {
-      try {
-        return await apiGet<MeResponse>('/auth/me')
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 401) {
-          return null
-        }
-        throw error
-      }
-    },
+    queryFn: () => apiGetOrNull<MeResponse>('/auth/me'),
     retry: false,
     staleTime: 60_000,
   })

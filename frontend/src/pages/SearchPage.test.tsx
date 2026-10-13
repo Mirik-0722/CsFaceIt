@@ -17,7 +17,7 @@ import SearchPage from './SearchPage'
 function answerSignInRequests<T extends (url: string, init?: RequestInit) => unknown>(fetchMock: T): T {
   vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
     if (url === '/api/v1/auth/me') {
-      return Promise.resolve(new Response(JSON.stringify({ code: 'UNAUTHENTICATED', message: 'x' }), { status: 401 }))
+      return Promise.resolve(new Response(null, { status: 204 }))
     }
     if (url === '/api/v1/auth/providers') {
       return Promise.resolve(new Response(JSON.stringify({ steam: true, faceit: false })))

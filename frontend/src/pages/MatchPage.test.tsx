@@ -8,7 +8,7 @@ import MatchPage from './MatchPage'
 // it sets up itself.
 function mockFetchRoutes(routes: Parameters<typeof mockRoutes>[0]) {
   const extra: Parameters<typeof mockRoutes>[0] = {
-    '/api/v1/auth/me': { body: { code: 'UNAUTHENTICATED', message: 'x' }, status: 401 },
+    '/api/v1/auth/me': { body: null, status: 204 },
   }
   for (const id of ['m1', 'a%20b']) {
     extra[`/api/v1/matches/${id}/demo`] = { body: { code: 'DEMO_NOT_FOUND', message: 'x' }, status: 404 }
