@@ -115,10 +115,10 @@ Then edit `.env`:
 | `DB_URL` | JDBC URL of PostgreSQL. | `jdbc:postgresql://localhost:5432/csfaceit` |
 | `DB_USER`, `DB_PASSWORD` | PostgreSQL credentials; the `postgres` service is created with them. | `csfaceit` / `csfaceit` |
 | `REDIS_HOST`, `REDIS_PORT` | Redis address. | `localhost` / `6379` |
-| `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to call the API. | `http://localhost:5173` (the Vite dev server) |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to call the API. They are also the **known origins** of the site: a visitor can sign in at one of them and at no other, and a write that carries the session cookie is accepted only from one of them (see [Signing in](#signing-in)). | `http://localhost:5173` (the Vite dev server) |
 | `WEB_PORT` | Host port the web UI is published on when running with Docker Compose. | `3000` |
-| `PUBLIC_ORIGIN` | The browser origin the backend allows in the Compose stack (scheme and host, plus the port when it is not the default one), such as `https://example.com`. Set it when a proxy of your own in front of the web port terminates HTTPS; without it the browser's writes (uploads, analyses, clip orders) are refused with `403` (see [Deploying on a server](#deploying-on-a-server)). Not needed over plain HTTP on the web port, and not used with `docker-compose.prod.yml`, which allows `https://${DOMAIN}`. Commented out in `.env.example`. | `http://localhost:${WEB_PORT}` |
-| `DOMAIN` | Only with `docker-compose.prod.yml`: the host name of the server, such as `example.com`, without `https://`. Caddy gets the certificate for it and the backend allows `https://${DOMAIN}`. **Required** there: the stack does not start without it. Its DNS `A` record must point at the server. Commented out in `.env.example`. | none |
+| `PUBLIC_ORIGIN` | The origin the site is reached at when it is none of the origins above (scheme and host, plus the port when it is not the default one, no path), such as `http://203.0.113.5:3000` or `https://example.com`. It is **added** to the known origins, so the stack keeps working at the localhost ones. Set it whenever the stack is reached by the address of a server, by another name or through a tunnel: the sign-in is refused at an origin that is not known. It is also what a proxy of your own in front of the web port that terminates HTTPS needs, or the browser's writes (uploads, analyses, clip orders) are refused with `403` (see [Deploying on a server](#deploying-on-a-server)). With `docker-compose.prod.yml` and `DOMAIN=:80` it is **required**, as `http://<address of the server>`. Commented out in `.env.example`. | none (the known origins are `http://localhost:${WEB_PORT}` and `http://127.0.0.1:${WEB_PORT}`) |
+| `DOMAIN` | Only with `docker-compose.prod.yml`: the host name of the server, such as `example.com`, without `https://`. Caddy gets the certificate for it and the backend knows `https://${DOMAIN}` as its origin. **Required** there: the stack does not start without it. Its DNS `A` record must point at the server. Commented out in `.env.example`. | none |
 | `RABBITMQ_HOST`, `RABBITMQ_PORT` | RabbitMQ address (dev mode; Compose points the backend at the `rabbitmq` service). | `localhost` / `5672` |
 | `RABBITMQ_USER`, `RABBITMQ_PASSWORD` | RabbitMQ credentials; the `rabbitmq` service is created with them. | `guest` / `guest` |
 | `STORAGE_TYPE` | Where demo files are kept: `local` (files under `STORAGE_LOCAL_DIR`) or `minio`. Compose always runs the backend with `minio`. | `local` |
@@ -139,9 +139,9 @@ Then edit `.env`:
 `DB_URL`, `REDIS_HOST`, `REDIS_PORT`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `STORAGE_TYPE`, `STORAGE_LOCAL_DIR`,
 `MINIO_ENDPOINT` and `CORS_ALLOWED_ORIGINS` describe a backend running on your machine (dev mode). Inside Docker
 Compose they are replaced for the backend container: it connects to the `postgres`, `redis`, `rabbitmq` and `minio`
-services, stores demos in MinIO and allows the origin `http://localhost:${WEB_PORT}` (`PUBLIC_ORIGIN` when that is set,
-`https://${DOMAIN}` with `docker-compose.prod.yml`). The parser's own settings
-(`AMQP_URL`, `DATABASE_URL`, `S3_*`) are put together by Compose from the variables above; see
+services, stores demos in MinIO and knows the origins `http://localhost:${WEB_PORT}` and `http://127.0.0.1:${WEB_PORT}`
+(with `PUBLIC_ORIGIN` added when that is set; `https://${DOMAIN}` instead of the two, with `docker-compose.prod.yml`).
+The parser's own settings (`AMQP_URL`, `DATABASE_URL`, `S3_*`) are put together by Compose from the variables above; see
 [`parser/README.md`](parser/README.md).
 
 ## Run with Docker Compose
@@ -282,8 +282,8 @@ one and the backend can no longer log in (see [Operational notes](#operational-n
 gets and renews by itself, and passes every request to the Nginx of the stack without limiting the size of a body or
 the time of a transfer; the certificates are kept in the volume `caddy_data`. It also takes the web port off the
 network (it stays on `127.0.0.1:3000` for a look from the server itself), makes `DOMAIN` and `APP_API_KEY` required,
-has the backend allow `https://example.com` as its origin, and gives every service `restart: unless-stopped`, so that
-the stack comes back after a reboot of the server.
+has the backend know `https://example.com` as its origin (the one it serves the sign-in at, see [Signing in](#signing-in)),
+and gives every service `restart: unless-stopped`, so that the stack comes back after a reboot of the server.
 
 **Keep the `COMPOSE_FILE` line.** A `docker compose` command that does not see both files (the line removed, or
 `-f docker-compose.yml` typed by hand) starts the stack without the override: the web port is published on all
@@ -297,19 +297,29 @@ On a server, use the production override here too, with a port in the place of t
 
 ```bash
 DOMAIN=:80
+PUBLIC_ORIGIN=http://203.0.113.5
 COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
 ```
+
+`PUBLIC_ORIGIN` is **required** in this way and is the address of the server as the browser shows it, with `http://` and
+no path (and `:<port>` when it is not 80): the backend serves the sign-in only at the origins it knows, and with
+`DOMAIN=:80` the only origin it could be given from `DOMAIN` is no origin at all (the log of the backend warns about
+`https://:80` at start, and that is expected). Without it nobody can sign in: the start of the sign-in is answered with a
+redirect to `/?login=failed`, and the log has the line `Sign-in with Steam refused: the origin http://… is not a known
+origin of this site`, which names the origin to put in `PUBLIC_ORIGIN`. It must be the address people type: the same
+server under another name is another origin, and gets the same refusal.
 
 Then `docker compose up -d --build --wait`, and open `http://<address of the server>`. With `:80` Caddy serves plain
 HTTP on port 80 under whatever name or address the server is reached by, and asks for no certificate. The rest is as
 in way A: only Caddy listens on the network, `APP_API_KEY` is required, and every service comes back after a reboot.
 The check of step 4 works here as well, with `http://<address of the server>` in both places. When you have a domain,
-point it at the server (way A, step 1), change `DOMAIN` to it and run the same `up` again.
+point it at the server (way A, step 1), change `DOMAIN` to it, remove `PUBLIC_ORIGIN` and run the same `up` again.
 
 Without the override, a plain `docker compose up -d --build --wait` (no `COMPOSE_FILE` line) is the stack of
 [Run with Docker Compose](#run-with-docker-compose): the site is at `http://<address of the server>:3000` (the port is
 `WEB_PORT`; open it in the firewall of your provider if it has one), and most services do not start again by
-themselves after a reboot.
+themselves after a reboot. There too the sign-in needs `PUBLIC_ORIGIN=http://<address of the server>:3000`: the stack
+knows `localhost` and `127.0.0.1` and nothing else by itself.
 
 Either way everything works over plain HTTP because the page and the API are one origin. **The admin key then travels
 unencrypted**: the page sends it in a header with every upload, analysis and clip order, and anyone on the way between
@@ -320,8 +330,10 @@ the move to HTTPS visitors sign in again.
 
 If a proxy of your own terminates HTTPS in front of the web port (Cloudflare, or an Nginx or Traefik you run), set
 `PUBLIC_ORIGIN=https://example.com`, the address the browser shows. Without it the page loads and the reads work, but
-every upload, analysis and clip order is refused with `403`: the browser sends `Origin: https://example.com` with a
-write, the backend sees plain `http` behind the Nginx of the stack and takes the write for one from another site.
+nobody can sign in, and every upload, analysis and clip order is refused with `403`: the browser sends
+`Origin: https://example.com` with a write, the backend sees plain `http` behind the Nginx of the stack and takes the
+write for one from another site. The proxy has to pass the `Host` header on as the browser sent it and set
+`X-Forwarded-Proto: https`, or the origin the backend works out is not the one it was told.
 
 ### Updating, logs and backups
 
@@ -460,8 +472,9 @@ cd frontend && SHOTS=1 npx playwright test e2e/shots.spec.ts
 Base URL: <http://localhost:3000> with Docker Compose, <http://localhost:8080> in dev mode. Everything returns JSON,
 and errors have the shape `{"code": "...", "message": "..."}`. The player and match endpoints below are `GET` and open;
 the four [demo endpoints](#demo-pipeline) and the [clip endpoints](#video-clips) are described in their own sections,
-and the requests that change something (`POST`, `DELETE`) need the `X-API-Key` header, signing out excepted. The requests
-about who is signed in are [their own section](#signing-in).
+and the requests that change something (`POST`, `DELETE`) need the `X-API-Key` header, signing out excepted (which has to come
+from the site itself, see [Signing in](#signing-in)). The requests about who is signed in are
+[their own section](#signing-in).
 
 | Endpoint | Description |
 | --- | --- |
@@ -498,6 +511,7 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 400 | `VALIDATION_ERROR` | A nickname, id, highlight `type` or paging parameter is malformed; for the upload also a bad file name, an empty or corrupt file, or a multipart body that is malformed or was cut off. |
 | 401 | `UNAUTHORIZED` | A protected request is missing a valid `X-API-Key` header; a request to the recorder's API (`/api/worker/**`) a valid `X-Worker-Token` header. |
 | 403 | `FORBIDDEN` | The request has a valid credential that its path does not accept: the admin key on the recorder's API, a session on a request that needs the admin key. |
+| 403 | `CROSS_SITE_REQUEST` | A write (not `GET`, `HEAD` or `OPTIONS`) carries the session cookie and not the admin key, and its `Origin` header is missing or is not one of the known origins of the site, signing out included (an `Origin` of another host is answered `403` `Invalid CORS request` by the CORS filter first; see [Writes with the session cookie](#writes-with-the-session-cookie)). |
 | 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND`, `DEMO_NOT_FOUND` | FACEIT does not know the player or match, or the match has no demo record yet. The request for the compilation of a player's kills does not ask FACEIT: there the first two say that the database has no such match or player; see [Video clips](#video-clips). |
 | 404 | `AUTH_PROVIDER_DISABLED` | The sign-in with FACEIT was asked for; it is not written yet (see [Signing in](#signing-in)). |
 | 404 | `HIGHLIGHT_NOT_FOUND`, `CLIP_NOT_FOUND` | There is no such highlight (or its demo is not `ANALYZED`) or clip; see [Video clips](#video-clips). |
@@ -524,16 +538,18 @@ API key and no registration. The site then looks for the visitor's FACEIT player
 Nothing has to be signed in to read: every read of the API stays open. A session **identifies** the visitor and nothing
 more. Uploading and analyzing a demo and ordering and deleting a clip still take the admin key (`X-API-Key`), whoever is
 signed in, and so does everything else that is not a read; the recorder's API still takes the worker token and ignores
-the cookies. Signing in with FACEIT itself (OAuth) is a later step.
+the cookies. A write that rides on the session cookie must come from the site itself (see [Writes with the session
+cookie](#writes-with-the-session-cookie)), and the sign-in is served at the [known origins](#where-the-address-comes-from)
+only. Signing in with FACEIT itself (OAuth) is a later step.
 
 | Endpoint | What it does |
 | --- | --- |
 | `GET /api/v1/auth/providers` | `{"steam": true, "faceit": false}`: which ways of signing in this deployment offers. `faceit` is `false` until the sign-in with FACEIT is written, even when `FACEIT_OAUTH_CLIENT_ID` is set; it will be true only while that is set. |
-| `GET /api/v1/auth/steam/start?returnTo=/clips` | `302` to Steam's login page, and the cookie `csf_login`. `returnTo` is the path of the site to come back to. |
+| `GET /api/v1/auth/steam/start?returnTo=/clips` | `302` to Steam's login page, and the cookie `csf_login`. `returnTo` is the path of the site to come back to. At an origin that is not a known one: `302` to `/?login=failed`, no cookie, and a `WARN` that names the origin. |
 | `GET /api/v1/auth/steam/callback?state=...&openid....` | Where Steam sends the visitor back; nothing calls it by hand. On success `302` to the `returnTo` of the start, with the cookie `csf_session`. On any failure `302` to `/?login=failed` and no session. `csf_login` is spent either way. |
 | `GET /api/v1/auth/faceit/start`, `GET /api/v1/auth/faceit/callback` | `404` `AUTH_PROVIDER_DISABLED`: the sign-in with FACEIT is not written yet. |
 | `GET /api/v1/auth/me` | `200` with who is signed in, `204` with no body without a session. A visitor who is not signed in is the common case and no error: every page asks this once, and a `401` would make the browser print a failed request in the console of every visitor. |
-| `POST /api/v1/auth/logout` | `204`. The session is deleted from the database and its cookie cleared; the old cookie signs nobody in any more. `204` also when there was no session, and no admin key is needed. |
+| `POST /api/v1/auth/logout` | `204`. The session is deleted from the database and its cookie cleared; the old cookie signs nobody in any more. `204` also when there was no session, and no admin key is needed. With a session cookie it needs an `Origin` header that is a known origin, like any write: `403` `CROSS_SITE_REQUEST` without one (a browser always sends it). |
 
 ```json
 {"id": 1, "nickname": "s1mple", "avatarUrl": "https://assets.example/avatars/s1mple.jpg", "role": "USER",
@@ -546,11 +562,16 @@ linked; then `nickname` is `Steam ` and the last six digits of the SteamID. `rol
 ### The two cookies
 
 Both are `HttpOnly` and `SameSite=Lax`, and `Secure` when the browser is on HTTPS (see "Where the address comes from"
-below). A page cannot read them, and the browser does not send them with a request made from another site.
+below). A page cannot read them, and the browser does not send them with a request made from another site. The
+`verifier` is 32 random bytes as URL-safe Base64 and the `state` that travels in the address Steam sends the visitor back
+to is its SHA-256 (also URL-safe Base64, without padding): the callback works the hash out from the cookie and compares it
+with the `state` of the address. The address is seen by more than the browser (the access log of a proxy), and the hash
+cannot be turned back into the verifier, so nobody who sees the address can rebuild the cookie; the verifier itself is in
+no address, no log line and no answer.
 
 | Cookie | Holds | Lasts | Path |
 | --- | --- | --- | --- |
-| `csf_login` | a random `state` and the path to return to | 10 minutes; spent by the callback | `/api/v1/auth` |
+| `csf_login` | a random `verifier` and the path to return to | 10 minutes; spent by the callback | `/api/v1/auth` |
 | `csf_session` | a random token, 32 bytes as URL-safe Base64 | 30 days from the sign-in; use does not extend it | `/` |
 
 The path to return to goes only to a path of the site: it has to start with `/` and not with `//`, hold no backslash and
@@ -561,10 +582,13 @@ nothing at all) becomes `/`.
 
 Steam sends the visitor back to the callback with its answer in the address, so the answer is only as good as the checks
 made of it. Every failure ends in `302` to `/?login=failed`, without a session, with one `WARN` line in the log that
-names the reason and quotes no value of the request. The checks, in order:
+names the reason and quotes no value of the request (the origin of a request that is not a known one is the one thing
+named, a host name being no secret). Before any of them, the request must have been made at a known origin (see "Where the
+address comes from"); at any other the answer is not looked at. The checks, in order:
 
-1. The `state` of the address equals the one in the `csf_login` cookie of this browser. An address carrying somebody
-   else's answer, given to a visitor, therefore signs nobody in as that somebody.
+1. The `state` of the address is the SHA-256 of the `verifier` in the `csf_login` cookie of this browser, worked out here
+   and compared in constant time. An address carrying somebody else's answer, given to a visitor, therefore signs nobody in
+   as that somebody, and the address alone is not enough to rebuild the cookie.
 2. `openid.mode` is `id_res` (a visitor who gives up at Steam comes back with `cancel`), and no `openid.*` parameter is
    there twice.
 3. `openid.return_to` is the address this request would have been given: this site's callback, on the origin of this
@@ -572,25 +596,70 @@ names the reason and quotes no value of the request. The checks, in order:
 4. `openid.op_endpoint` is the login address of the settings.
 5. `openid.claimed_id` is exactly `https://steamcommunity.com/openid/id/` and 17 digits. That is Steam's own pattern and it
    stays so in every environment.
-6. Steam confirms the answer: every `openid.*` parameter is posted back to the verification address of the settings with
+6. `openid.identity` is `openid.claimed_id`.
+7. `openid.signed`, the list of the fields Steam's signature covers, names `claimed_id`, `identity`, `return_to`,
+   `op_endpoint` and `response_nonce`. A field that is not in the list could have been put there by anybody on the way, and
+   these are the ones the checks above rely on.
+8. `openid.response_nonce` starts with a time (`YYYY-MM-DDThh:mm:ssZ`, as OpenID 2.0 asks) that is not more than 5 minutes
+   old and not more than 1 minute ahead of the clock of the server: an answer is for the moment of the sign-in, and one that
+   was kept and is shown again later is refused. A nonce that does not start with a time is refused too.
+9. Steam confirms the answer: every `openid.*` parameter is posted back to the verification address of the settings with
    `openid.mode=check_authentication`, and the reply must hold the line `is_valid:true`. The wait is short; a Steam that
    does not answer is a failed sign-in and not an error of the site.
 
 ### Where the address comes from
 
 The address Steam is told to send the visitor back to (`openid.return_to`, and the `openid.realm` it shows) is **the origin
-the browser used**, taken from the request and from no setting: the scheme from `X-Forwarded-Proto` when it says `http` or
-`https`, else the request's own, and the host and port from the `Host` header. That is because one image is reached through
-a domain over HTTPS, through a bare address over HTTP and through `localhost`. The Caddy of `docker-compose.prod.yml` keeps
-the `Host` and sets `X-Forwarded-Proto: https`; the Nginx of the stack passes both on as they came, and fills in
-`X-Forwarded-Proto` with its own scheme only when the request has none. A proxy of your own in front has to set
-`X-Forwarded-Proto` as well, or the visitors of an HTTPS site are sent back to `http://`. The session cookie is `Secure`
+the browser used**, worked out from the request: the scheme from `X-Forwarded-Proto` when it says `http` or `https`, else
+the request's own, and the host and port from the `Host` header. That is because one image is reached through a domain over
+HTTPS, through a bare address over HTTP and through `localhost`. But the origin a request names is only a candidate: it is
+the site's own **only if it is one of the known origins**, and nothing a request says can add to them. Without that a
+foreign name that points at the server would be served as the site and would get a session cookie for itself.
+
+The known origins are `CORS_ALLOWED_ORIGINS` and `PUBLIC_ORIGIN` when that is set (`app.cors.allowed-origins` and
+`app.public-origin`). The letters of the host may be in any case, a trailing slash is ignored, and the default port may be
+left out or written out (`http://example.com:80` is `http://example.com`); an entry that is not an origin never matches and
+is warned about when the backend starts. A request at an origin that is not known is not served: the start of the sign-in
+answers `302` to `/?login=failed` (no cookie) and so does the callback, each with a `WARN` that names the origin. What
+the origins are in each setup, with nothing set:
+
+| Setup | Known origins |
+| --- | --- |
+| `docker compose up` (and the fake-FACEIT stack), web port `WEB_PORT` | `http://localhost:${WEB_PORT}` and `http://127.0.0.1:${WEB_PORT}` (3000 unless changed) |
+| the same with `PUBLIC_ORIGIN=…` | the two above and `PUBLIC_ORIGIN` |
+| `docker-compose.prod.yml` with a domain | `https://${DOMAIN}` (and `PUBLIC_ORIGIN` when that is set) |
+| `docker-compose.prod.yml` with `DOMAIN=:80` | none, until `PUBLIC_ORIGIN=http://<address of the server>` is set |
+| dev mode (the Vite dev server on 5173, the backend on the host) | `http://localhost:5173`, the default of `CORS_ALLOWED_ORIGINS` |
+
+The Caddy of `docker-compose.prod.yml` keeps the `Host` and sets `X-Forwarded-Proto: https`; the Nginx of the stack passes
+both on as they came, and fills in `X-Forwarded-Proto` with its own scheme only when the request has none. A proxy of your
+own in front has to set `X-Forwarded-Proto` as well, or the visitors of an HTTPS site are sent back to `http://` (and the
+origin the backend works out, `http://example.com`, is not the known `https://example.com`). The session cookie is `Secure`
 exactly when that scheme is `https`, and so is `csf_login`. In dev mode (Vite) the proxy of `vite.config.ts` keeps the
-`Host`, so the callback comes back to the dev server.
+`Host`, so the callback comes back to the dev server; the backend's own address (`http://localhost:8080`) is not one of the
+known origins, so the sign-in is for the dev server's address.
+
+### Writes with the session cookie
+
+The session cookie is `SameSite=Lax`, so the browser does not send it with a form or a script of another site. A rule
+stands behind that for what the attribute does not cover: a request that carries a `csf_session` cookie, is **not**
+authenticated by the admin key or the worker token and has a method other than `GET`, `HEAD` or `OPTIONS` is answered
+`403` with the code `CROSS_SITE_REQUEST` unless its `Origin` header is one of the known origins. A request with no
+`Origin` is refused too, and so is signing out (`POST /api/v1/auth/logout`): a browser names its origin in every write, so
+nothing the site does is affected. The rule looks for the cookie and does not check it, so a request with a stale cookie
+is refused the same way and the answer says nothing about whether a token was live. A request with the admin key is not
+subject to it (the key wins over a cookie), nor is the recorder's API, which ignores cookies altogether. A request from a
+page of another origin than the host it is sent to (a foreign `Origin`, `null` included) is answered `403` by the CORS
+filter, which comes first and says `Invalid CORS request` in plain text instead of this code, unless that origin is in the
+CORS list; so `CROSS_SITE_REQUEST` is what a request with no `Origin`, or with an `Origin` that is the host it is sent to
+but not a known origin, gets. CORS itself is unchanged. The rule gives a session no authority: a session still cannot write anything it could
+not write before.
 
 ### What is stored
 
-The migration `V5__users.sql` adds two tables.
+The migration `V5__users.sql` adds two tables (and `V8__session_authority.sql` the places for what comes after: an index on
+`user_sessions (user_id)`, `clips.requested_by` (who ordered a clip), the table `user_actions` (what a user did, for limits
+that are to come) and `users.last_seen_at` and `users.faceit_synced_at`; nothing uses them yet).
 
 - `users`: `steam_id` and `faceit_id` (each unique; at least one is set), `player_id` (the row of the FACEIT player in
   `players`, once found), `nickname`, `avatar_url`, `role`, `created_at` and `last_login_at`.
@@ -599,17 +668,30 @@ The migration `V5__users.sql` adds two tables.
   in, so no job is needed.
 
 A session cookie that is unknown, expired or malformed is simply ignored: the request is anonymous, and a public page never
-answers `401` because of a stale cookie (`GET /api/v1/auth/me` answers it `204`). A request that carries both a session
+answers `401` because of a stale cookie (`GET /api/v1/auth/me` answers it `204`); only a write from outside the site is
+refused for carrying one (see "Writes with the session cookie"). A request that carries both a session
 cookie and the admin key is the admin's for every rule, and `GET /api/v1/auth/me` still answers for the cookie. Signing in again ends the session the browser had.
 
 ### The FACEIT player
 
 After Steam has confirmed the visitor, the site asks FACEIT for the CS2 player of that SteamID
-(`GET /players?game=cs2&game_player_id=<SteamID>`). When there is one, the user gets its id, nickname and avatar, and the
-site's row for the player is made if it is missing, so that `playerId` of `/api/v1/auth/me` opens the player's page. A SteamID
-that FACEIT does not know, a FACEIT that fails or does not answer, and a FACEIT player that another user is linked to already
-all leave the visitor **signed in, without a link**; it is tried again at the next sign-in, and a link that exists is never
-removed by a lookup that fails or finds nothing. No call to Steam or FACEIT is made inside a database transaction.
+(`GET /players?game=cs2&game_player_id=<SteamID>`) and brings the user's link in line with the answer. The visitor is
+signed in whatever FACEIT says; FACEIT only decides what the user is linked to:
+
+- **A player is found:** the user gets its id, nickname and avatar, and the site's row for the player is made if it is
+  missing, so that `playerId` of `/api/v1/auth/me` opens the player's page. A FACEIT player is linked to one user at most
+  and **the latest proof wins**: when another user holds the player (the FACEIT account moved to another Steam account),
+  that user is unlinked first (their `playerId` is `null` again and their nickname is `Steam ` and the last six digits of
+  the SteamID), in the same transaction, and this one is linked. A `WARN` in the log names the two users.
+- **FACEIT says for certain that there is no such player** (a `404` for the SteamID): a link the user had is taken away,
+  because it is no longer true; a user without a link stays as they are.
+- **FACEIT cannot say** (it is down, times out, answers something unusable, or an answer with no id or no nickname):
+  nothing changes. A link that exists stays, one that does not is looked for again at the next sign-in.
+- **Two sign-ins take the same player at the same moment:** one of the writes fails on the unique index of
+  `users.faceit_id`; the step is repeated once, and if it fails again the user stays as they were, signed in and not
+  linked. No sign-in ends in a `500` for this.
+
+No call to Steam or FACEIT is made inside a database transaction.
 
 ### Sign-in settings
 
@@ -620,6 +702,8 @@ removed by a lookup that fails or finds nothing. No call to Steam or FACEIT is m
 | `auth.steam.verify-url` | `AUTH_STEAM_VERIFY_URL` | the same | Where the backend posts the answer back to have it confirmed. |
 | `auth.faceit.client-id`, `auth.faceit.client-secret` | `FACEIT_OAUTH_CLIENT_ID`, `FACEIT_OAUTH_CLIENT_SECRET` | empty | The FACEIT OAuth application. Neither is logged. Read, but not used until the sign-in with FACEIT is written (`/auth/providers` answers `faceit: false`). |
 | `auth.session-lifetime` | none | `30d` | How long a session lasts. |
+| `app.cors.allowed-origins` | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | The origins allowed to call the API from a browser, and the first part of the known origins of the site (see "Where the address comes from"). |
+| `app.public-origin` | `PUBLIC_ORIGIN` | empty | The second part of the known origins: the origin the site is reached at when it is none of the above. |
 
 Only the stack without a FACEIT key changes the two Steam addresses (they are two settings because the browser and the
 backend reach its fake Steam at different addresses). A deployment leaves them alone and signs in with the real Steam.
@@ -639,8 +723,9 @@ CALLBACK=$(curl -sS -o /dev/null -w '%{redirect_url}' "$LOGIN")
 curl -sS -b jar.txt -c jar.txt -o /dev/null -w '%{http_code} %{redirect_url}\n' "$CALLBACK"
 # 4. Who is signed in:
 curl -sS -b jar.txt http://localhost:3000/api/v1/auth/me
-# 5. Sign out (no admin key needed):
-curl -sS -b jar.txt -c jar.txt -X POST -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/v1/auth/logout
+# 5. Sign out (no admin key needed). A write that carries the session cookie has to name a known origin, which a browser
+#    does by itself and curl does not: without the Origin header this answers 403 CROSS_SITE_REQUEST.
+curl -sS -b jar.txt -c jar.txt -X POST -H 'Origin: http://localhost:3000' -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/v1/auth/logout
 # 6. The cookie is no session any more: /me answers 204, with no body (so does a request with no cookie at all):
 curl -sS -b jar.txt -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/v1/auth/me
 ```

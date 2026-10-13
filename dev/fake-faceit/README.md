@@ -97,8 +97,18 @@ is sent to (the published port: `http://localhost:8089/steam/openid/login`), and
 
 | Request | Answer |
 | --- | --- |
-| `GET /steam/openid/login?openid.mode=checkid_setup&openid.return_to=...` | A 302 straight back to `openid.return_to`, with a complete positive answer for the SteamID `76561198000000001`: `openid.mode=id_res`, `openid.op_endpoint` the address of this very request, `openid.claimed_id` and `openid.identity` `https://steamcommunity.com/openid/id/76561198000000001`, the `return_to` that was asked for, and a nonce, a handle, a list of signed fields and a signature that mean nothing. There is no login page, no password and no choice of account. |
+| `GET /steam/openid/login?openid.mode=checkid_setup&openid.return_to=...` | A 302 straight back to `openid.return_to`, with a complete positive answer for the SteamID `76561198000000001`: `openid.mode=id_res`, `openid.op_endpoint` the address of this very request, `openid.claimed_id` and `openid.identity` `https://steamcommunity.com/openid/id/76561198000000001`, the `return_to` that was asked for, a nonce that starts with the time of the request, a handle, the `openid.signed` list of the real Steam (`signed,op_endpoint,claimed_id,identity,return_to,response_nonce,assoc_handle`) and a signature that means nothing. There is no login page, no password and no choice of account. |
 | `POST /steam/openid/login` with `openid.mode=check_authentication` | `is_valid:true`, for every answer, whatever it holds. |
+
+The backend does not take the nonce and the list on trust: it refuses an answer whose `openid.response_nonce` starts with a time
+that is more than 5 minutes old or more than a minute ahead of its clock, one whose `openid.signed` does not list `claimed_id`,
+`identity`, `return_to`, `op_endpoint` and `response_nonce`, and one whose `openid.identity` is not its `openid.claimed_id`. That
+is why the stub does not send a fixed nonce: the time in it is filled in by WireMock's response templating (the `now` helper, in UTC,
+as `YYYY-MM-DDThh:mm:ssZ` like Steam's own) every time the stub answers, and a fixed one would be refused as an old answer. The
+templating is on for this stub only (`"transformers": ["response-template"]`), not for the server. To see a refusal, change the
+`openid.response_nonce` of the callback address to an old time, remove `claimed_id` from `openid.signed`, or make `openid.identity`
+another account's before calling it: the visitor lands on `/?login=failed` and the backend log has the reason. The fake still
+confirms whatever it is shown, so these are the backend's own checks.
 
 SteamID `76561198000000001` is the `game_player_id` of the player `s1mple` (see above), so signing in links the visitor to
 `s1mple`. To try a visitor FACEIT does not know, or a FACEIT that fails, begin a sign-in as usual, take the callback address
