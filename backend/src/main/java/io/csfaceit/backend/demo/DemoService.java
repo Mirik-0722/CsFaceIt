@@ -11,8 +11,10 @@ import io.csfaceit.backend.demo.dto.DemoResponse;
 import io.csfaceit.backend.faceit.FaceitGateway;
 import io.csfaceit.backend.faceit.FaceitNotFoundException;
 import io.csfaceit.backend.faceit.dto.FaceitMatch;
+import io.csfaceit.backend.match.DemoScoreboard;
 import io.csfaceit.backend.match.MatchRepository;
 import io.csfaceit.backend.match.MatchService;
+import io.csfaceit.backend.match.MatchSource;
 import io.csfaceit.backend.messaging.DemoImportWorker;
 import io.csfaceit.backend.messaging.DemoMessages;
 import io.csfaceit.backend.messaging.DemoMessages.DemoImportRequested;
@@ -29,6 +31,7 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.zip.ZipException;
@@ -53,6 +56,11 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
  * answer for the match (the cached gateway). When FACEIT cannot be asked and has no cached answer, the request of a
  * user fails with the answer of a FACEIT that is unavailable, before anything is stored: a roster that cannot be read
  * lets nobody in.
+ *
+ * <p>A matchmaking match ({@code mm-<id>}, {@link MatchSource#MATCHMAKING}) is never asked of FACEIT: it has to be
+ * stored already, its members are its owner and the players of its parsed demo
+ * ({@link Access#requireMatchmakingMember}), it has no roster to map and no FACEIT demo address, so only a link or an
+ * upload brings its demo.
  *
  * <p>A user does so much per day ({@link UsageService}): an import and a request for a missing analysis count as
  * {@link UsageKind#DEMO_IMPORT}, an upload as {@link UsageKind#DEMO_UPLOAD} (the controller takes that place, before
@@ -86,13 +94,15 @@ public class DemoService {
     private final FaceitDownloadsApi downloadsApi;
     private final LinkGuard linkGuard;
     private final PastedLinks pastedLinks;
+    private final DemoScoreboard scoreboard;
 
     public DemoService(MatchService matchService, MatchRepository matches, DemoRepository demos,
                        DemoPersistence persistence, AmqpTemplate amqp, FaceitGateway faceit,
                        RosterSteamIdMapper rosterSteamIds, StorageService storage, DemoStoredPublisher storedPublisher,
                        DemoUploadProperties uploadProperties, DemoMetrics metrics, Access access,
                        UsageService usage, FaceitDownloadsApi downloadsApi, LinkGuard linkGuard,
-                       PastedLinks pastedLinks) {
+                       PastedLinks pastedLinks, DemoScoreboard scoreboard) {
+        this.scoreboard = scoreboard;
         this.matchService = matchService;
         this.matches = matches;
         this.demos = demos;
@@ -163,9 +173,11 @@ public class DemoService {
         if (link != null) {
             checkLink(faceitMatchId, link, actor);
         }
-        String demoUrl = matchService.getMatch(faceitMatchId).demoUrl();
+        // A matchmaking match has no FACEIT demo address and no FACEIT roster: only a link brings its demo.
+        boolean matchmaking = MatchSource.isMatchmaking(faceitMatchId);
+        String demoUrl = matchmaking ? null : matchService.getMatch(faceitMatchId).demoUrl();
         boolean demoUrlAvailable = link != null || (demoUrl != null && !demoUrl.isBlank());
-        long matchRowId = mapRosterSteamIds(faceitMatchId);
+        long matchRowId = matchmaking ? matchmakingRowId(faceitMatchId) : mapRosterSteamIds(faceitMatchId);
 
         // The place this request takes, if it queues something. A repeat of the step after a lost race starts from a
         // transaction that was rolled back, and the place it had taken with it.
@@ -278,8 +290,13 @@ public class DemoService {
      */
     public DemoResponse upload(Actor actor, String faceitMatchId, InputStream content, Runnable stored) {
         requireUploadAllowed(actor, faceitMatchId);
-        matchService.getMatch(faceitMatchId);
-        long matchRowId = mapRosterSteamIds(faceitMatchId);
+        long matchRowId;
+        if (MatchSource.isMatchmaking(faceitMatchId)) {
+            matchRowId = matchmakingRowId(faceitMatchId);
+        } else {
+            matchService.getMatch(faceitMatchId);
+            matchRowId = mapRosterSteamIds(faceitMatchId);
+        }
 
         String storageKey = DemoImportWorker.storageKey(faceitMatchId);
         storeUpload(content, storageKey, () -> requireDemoReplaceable(actor, faceitMatchId));
@@ -383,7 +400,33 @@ public class DemoService {
      * @throws io.csfaceit.backend.faceit.FaceitUnavailableException FACEIT cannot be asked and has no cached answer
      */
     private void requireMember(Actor actor, String faceitMatchId) {
+        if (MatchSource.isMatchmaking(faceitMatchId)) {
+            requireMatchmakingMember(actor, faceitMatchId);
+            return;
+        }
         access.requireMatchMember(actor, () -> roster(faceitMatchId));
+    }
+
+    /**
+     * The rule of {@link Access#requireMatchmakingMember} for a matchmaking match, from the database alone: its owner,
+     * and once its demo is parsed the SteamIDs of the demo's players. A match the database does not know is not found
+     * (the key and an administrator learn that from the step after this one).
+     */
+    private void requireMatchmakingMember(Actor actor, String matchId) {
+        if (actor.unlimited()) {
+            return;
+        }
+        DemoScoreboard.StoredMatch match = scoreboard.find(matchId)
+                .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND, "Match not found: " + matchId));
+        access.requireMatchmakingMember(actor, match.ownerUserId(),
+                () -> match.parsed() ? scoreboard.steamIds(match.id()) : Set.of());
+    }
+
+    /** The row of a stored matchmaking match, which only the database knows. */
+    private long matchmakingRowId(String matchId) {
+        return matches.findByFaceitMatchId(matchId)
+                .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND, "Match not found: " + matchId))
+                .getId();
     }
 
     private FaceitMatch roster(String faceitMatchId) {

@@ -68,9 +68,29 @@ public class SignInService {
         User user = recordSignIn(steamId, role, clock.instant());
 
         user = updateFaceitLink(user, steamId);
+        if (user.getPlayer() != null) {
+            giveSteamIdToPlayer(user, steamId);
+        }
         log.info("User {} signed in with Steam ({})", user.getId(),
                 user.getFaceitId() == null ? "no FACEIT player linked" : "FACEIT player linked");
         return user;
+    }
+
+    /**
+     * Writes the visitor's SteamID onto their linked FACEIT player, so that the parser files their matchmaking kills
+     * under that one player and not under a second row {@code steam:<SteamID>}: one person, one row. The SteamID moves
+     * when another row had it (see {@link PlayerService#claimSteamId}). A write that loses a race is left for the next
+     * sign-in; it never stops this one.
+     */
+    private void giveSteamIdToPlayer(User user, String steamId) {
+        try {
+            if (players.claimSteamId(user.getPlayer().getId(), steamId)) {
+                log.info("Gave the SteamID of user {} to their FACEIT player", user.getId());
+            }
+        } catch (DataIntegrityViolationException e) {
+            log.warn("Could not give the SteamID of user {} to their FACEIT player ({}); trying again at the next "
+                    + "sign-in", user.getId(), e.getClass().getSimpleName());
+        }
     }
 
     /** The write of the sign-in; repeated once if it loses the race to create the same user. */

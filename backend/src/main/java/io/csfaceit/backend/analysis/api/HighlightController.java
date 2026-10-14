@@ -2,8 +2,8 @@ package io.csfaceit.backend.analysis.api;
 
 import static io.csfaceit.backend.match.MatchController.MATCH_ID_MESSAGE;
 import static io.csfaceit.backend.match.MatchController.MATCH_ID_PATTERN;
-import static io.csfaceit.backend.player.PlayerController.PLAYER_ID_MESSAGE;
-import static io.csfaceit.backend.player.PlayerController.PLAYER_ID_PATTERN;
+import static io.csfaceit.backend.player.PlayerController.ANY_PLAYER_ID_MESSAGE;
+import static io.csfaceit.backend.player.PlayerController.ANY_PLAYER_ID_PATTERN;
 
 import io.csfaceit.backend.analysis.api.dto.HighlightPageResponse;
 import io.csfaceit.backend.analysis.api.dto.HighlightResponse;
@@ -42,14 +42,14 @@ public class HighlightController {
     public List<HighlightResponse> getMatchHighlights(
             @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId,
             @RequestParam(required = false) HighlightType type,
-            @RequestParam(required = false) @Pattern(regexp = PLAYER_ID_PATTERN, message = PLAYER_ID_MESSAGE)
+            @RequestParam(required = false) @Pattern(regexp = ANY_PLAYER_ID_PATTERN, message = ANY_PLAYER_ID_MESSAGE)
             String playerId) {
         return highlights.forMatch(matchId, type, playerId);
     }
 
     @GetMapping("/players/{playerId}/highlights")
     public HighlightPageResponse getPlayerHighlights(
-            @PathVariable @Pattern(regexp = PLAYER_ID_PATTERN, message = PLAYER_ID_MESSAGE) String playerId,
+            @PathVariable @Pattern(regexp = ANY_PLAYER_ID_PATTERN, message = ANY_PLAYER_ID_MESSAGE) String playerId,
             @RequestParam(required = false) HighlightType type,
             @RequestParam(defaultValue = "0") @Min(0) @Max(MAX_OFFSET) int offset,
             @RequestParam(defaultValue = "50") @Min(1) @Max(MAX_LIMIT) int limit) {

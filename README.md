@@ -483,16 +483,16 @@ from the site itself, see [Signing in](#signing-in)). The requests about who is 
 | Endpoint | Description |
 | --- | --- |
 | `GET /api/v1/players?nickname=` | Find a player by FACEIT nickname (2-32 letters, digits, `_` or `-`). |
-| `GET /api/v1/players/{playerId}` | Player profile: nickname, avatar, country, ELO and level. |
+| `GET /api/v1/players/{playerId}` | Player profile: nickname, avatar, country, ELO and level. A player known only from demos (`steam:<SteamID>`) is answered from the database, without avatar or country. |
 | `GET /api/v1/players/{playerId}/history?offset=0&limit=20` | A page of the player's matches (`offset` 0-1000, `limit` 1-100). |
-| `GET /api/v1/matches/{matchId}` | Match details: map, status, times, teams and winner. |
+| `GET /api/v1/matches/{matchId}` | Match details: map, status, times, teams, winner and `source` (`FACEIT` or `MATCHMAKING`, see [Matchmaking matches](#matchmaking-matches)). |
 | `GET /api/v1/matches/{matchId}/stats` | Per-team, per-player stats of a match. |
 | `GET /api/v1/matches/{matchId}/highlights?type=&playerId=` | The highlights the analysis found in the match's demo (see [Highlights and statistics](#highlights-and-statistics)). |
 | `GET /api/v1/matches/{matchId}/breakdown` | The rounds of the match's analyzed demo with the side that won each and the players who played it on that side, and the KAST, entry kills, trade kills and clutches the analysis computed for each player (see [Highlights and statistics](#highlights-and-statistics)). |
 | `GET /api/v1/players/{playerId}/highlights?type=&offset=0&limit=50` | A page of the player's highlights over all his analyzed matches, the newest match first (`offset` 0-10000, `limit` 1-100). |
 | `GET /api/v1/players/{playerId}/stats` | The player's statistics over the matches the backend has stored: K/D, HS%, ADR, KAST, entry and trade kills, clutch %, win rate. |
 | `GET /api/v1/players/{playerId}/overview` | The player's results by map (matches, wins, K/D, ADR) and his highlights by type, from the database only (see [Highlights and statistics](#highlights-and-statistics)). |
-| `GET /api/v1/players/{playerId}/matches?offset=0&limit=20` | The page of `/history` for the same `offset` (0-1000) and `limit` (1-100), each match with what the backend has stored of it: map, the player's kills, deaths, assists and ADR, the demo's status, his highlights by type and his clips by state. |
+| `GET /api/v1/players/{playerId}/matches?offset=0&limit=20&before=` | The page of `/history` for the same `offset` (0-1000) and `limit` (1-100), each match with what the backend has stored of it: map, the player's kills, deaths, assists and ADR, the demo's status, his highlights by type, his clips by state and its `source`; the same person's matchmaking matches of the page's stretch of time are merged in by start (`before`: see [Matchmaking matches](#matchmaking-matches)). |
 
 ```bash
 curl "http://localhost:3000/api/v1/players?nickname=s1mple"
@@ -534,6 +534,50 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 
 FACEIT responses are cached in Redis (player profile 5 minutes, match history 2 minutes, finished match 24 hours),
 and an expired copy is served when FACEIT is down.
+
+### Matchmaking matches
+
+A Valve matchmaking match (Premier, Competitive, Wingman) has no FACEIT data at all: it exists from its demo alone. Its
+id is `mm-<Valve match id>` (in the same place as a FACEIT match id), the `matches` row has `source` `MATCHMAKING`, the
+match sharing code it was found by and the user who brought it in (its owner). FACEIT is never asked about such a match
+or about a player known only from demos:
+
+- `GET /api/v1/matches/mm-…` answers from the database: the map and times of the row, `status` `FINISHED`,
+  `demoUrl` `null`; the teams are the sides of the demo's first round, `faction1` the team that started on CT (named
+  `CT`) and `faction2` the one that started on T (named `T`), empty until the demo is parsed; a player who joined later
+  is in the team whose side he played in his first round; `winner` is the team that won more rounds (`null` on a draw).
+- `GET /api/v1/matches/mm-…/stats` is the analysis' rows by team, the score is the rounds each team won
+  (`rounds.winner_side` against the team's side in that round, which follows half time and overtime), `kdRatio` is
+  kills over deaths (deaths at least 1) and `krRatio` kills over the match's rounds. Before the analysis the teams have
+  no players.
+- The breakdown, the highlights, the editor and the clips read the database for every match already.
+- Who may act on it (a session): its owner always; once its demo is parsed, also a user whose SteamID is among the
+  demo's players (`403 NOT_IN_MATCH` otherwise). No FACEIT link is needed. A clip may be ordered for `steam:<own
+  SteamID>` as for one's own FACEIT player.
+- The wrong-demo check of the analysis: the owner's SteamID has to be among the demo's players, or the demo is `FAILED`
+  with `WRONG_MATCH`; a match without an owner is not checked.
+- The player endpoints that read the database (`/players/{playerId}`, `/overview`, `/matches`, `/stats`,
+  `/highlights`, `/clips`) take `steam:<SteamID>` as `playerId` (1 to 20 digits); `/history` stays FACEIT's.
+
+One person, one row: at every sign-in the visitor's SteamID is written onto their linked FACEIT player (taken from
+another row that held it: the latest proof wins), so the parser files their matchmaking kills under that one player.
+A placeholder row `steam:<SteamID>` made before that keeps its earlier matches; nothing is merged.
+
+The list of matches: for a FACEIT player `GET /api/v1/players/{playerId}/matches` is FACEIT's page as before, and the
+same person's matchmaking matches (his row is among the demo's players, or a user who is him brought the match in) are
+merged in by start, each with `source` `MATCHMAKING`. Which ones: those that started before `before` (the start of the
+last row of the page before, as that page answered it; now for the first page) and no earlier than the last line of
+this page. A page shorter than `limit` is the last, and takes every older one. A later page asked without `before`
+gets none, so that nothing is listed twice. A matchmaking match whose start is not known is placed at the moment its
+demo arrived. For a `steam:<SteamID>` player the whole list comes from the database, paged by `offset` and `limit`
+(`before` is not needed). A matchmaking row's `score` is keyed by `faction1`/`faction2` like FACEIT's, empty before
+the parse, and its `result` follows the rounds his team won.
+
+```bash
+curl "http://localhost:3000/api/v1/matches/mm-3000000000000000001"
+curl "http://localhost:3000/api/v1/players/steam:76561190000000042/matches"
+curl "http://localhost:3000/api/v1/players/<playerId>/matches?offset=20&limit=20&before=2026-10-01T18:00:00Z"
+```
 
 Operational endpoints (`/actuator/health`, `/actuator/prometheus`) are served by the backend on port 8080 and are
 only reachable directly in dev mode, not through Nginx. In the Compose stack Prometheus reads them over the internal
@@ -717,10 +761,12 @@ What a `USER` may ask for without the key, and when:
   in one of the two teams. When FACEIT cannot be asked and has no cached answer, the request is refused with
   `502 FACEIT_UNAVAILABLE`: a roster that cannot be read lets nobody in. The roster is checked before anything is stored,
   so a refused upload leaves no file and a refused import no match. The key and an administrator are not checked, and
-  cost no call for it.
-- **Their own player** is the FACEIT player linked to the user at the sign-in (`playerId` of `/api/v1/auth/me`). A user
-  with none (`403 FACEIT_NOT_LINKED`) can bring no demo and order no clip; a player known from a demo only
-  (`steam:<SteamID>`) is nobody's own. Deleting and retrying their own clips needs no link.
+  cost no call for it. A matchmaking match (`mm-…`) has no FACEIT roster: its owner and, once its demo is parsed, the
+  users whose SteamID is among the demo's players are its members (see [Matchmaking matches](#matchmaking-matches)).
+- **Their own player** is the FACEIT player linked to the user at the sign-in (`playerId` of `/api/v1/auth/me`), or the
+  player known from demos only whose id is `steam:` and the user's own SteamID. A user with neither
+  (`403 FACEIT_NOT_LINKED`) can bring no FACEIT demo and order no clip; another `steam:<SteamID>` is not theirs.
+  Deleting and retrying their own clips needs no link.
 - **Their own clip** is one their session ordered: the clip records the user (`clips.requested_by`). A clip ordered with
   the admin key records nobody, also when a session cookie came with the key, and so do the clips made before this was
   recorded; only the key and an administrator delete or retry those. Asking again for a clip that exists answers with it
@@ -1307,11 +1353,10 @@ ticks. Until a new analysis has run, a match whose demo is in any other status, 
 the match endpoint (two empty lists on the breakdown of the match) and adds nothing to the page of a player. The
 statistics endpoint is not affected.
 
-A `type` that is not one of the highlight types, an `offset` or `limit` out of range and a `playerId` that is not made of
-letters, digits and `-` are a `400 VALIDATION_ERROR`. A player known only from a demo has the id `steam:<SteamID>`, whose
-colon that rule does not allow: as a path variable and as `?playerId=steam:...` of the match endpoint such an id is a
-`400` too, so this player cannot be asked for by id. His highlights are in the list of the match without that filter:
-the `playerId` of each of its items is the `steam:` id.
+A `type` that is not one of the highlight types, an `offset` or `limit` out of range and a `playerId` that is neither made
+of letters, digits and `-` nor `steam:<SteamID>` (1 to 20 digits) are a `400 VALIDATION_ERROR`. A player known only from
+a demo has the id `steam:<SteamID>`, and is asked for by it like any other, as a path variable and as
+`?playerId=steam:...` of the match endpoint.
 
 A highlight, here a `K3` (the player's id is shortened):
 
@@ -1391,7 +1436,8 @@ whole page (three statements, whatever `limit` is).
   type, as
   above; empty list) and `clips`: `{"done": 1, "active": 1, "failed": 0}`, the clips of the match that follow the
   player, `active` being every clip that is neither `DONE` nor `FAILED` (waiting in the queue, being recorded, encoded
-  or uploaded).
+  or uploaded), and `source` (`FACEIT` or `MATCHMAKING`). The person's matchmaking matches are merged in by start, and
+  a `steam:<SteamID>` player's list is the database's alone (see [Matchmaking matches](#matchmaking-matches)).
 
 **The breakdown of a match.** `GET /api/v1/matches/{matchId}/breakdown` serves the scoreboard of the match page: who won
 each round, and the numbers the analysis computed for each player. It reads the database only, with two statements on one
@@ -1636,7 +1682,7 @@ Besides `200`, `201` and `204`, the requests above are answered with:
 
 | Status | `code` | When |
 | --- | --- | --- |
-| 400 | `VALIDATION_ERROR` | The `quality` is not `"720p"` or `"1080p"`, the body cannot be read, the `playerId` of a compilation is missing or is neither a FACEIT player id nor `steam:<SteamID>`, or an id or paging parameter is malformed. A player known only from a demo has the id `steam:<SteamID>`, whose colon the id rule does not allow, so `GET /api/v1/players/{playerId}/clips` cannot name him (as for his highlights); his clips are in the list of the match. |
+| 400 | `VALIDATION_ERROR` | The `quality` is not `"720p"` or `"1080p"`, the body cannot be read, the `playerId` of a compilation is missing or is neither a FACEIT player id nor `steam:<SteamID>`, or an id or paging parameter is malformed. A player known only from a demo has the id `steam:<SteamID>`, which `GET /api/v1/players/{playerId}/clips` takes too (as his highlights do). |
 | 401 | `UNAUTHORIZED` | The `POST` or the `DELETE` has neither a valid `X-API-Key` header nor a live session. |
 | 403 | `FACEIT_NOT_LINKED`, `NOT_YOUR_PLAYER` | A signed-in player ordered a clip while no FACEIT player is linked to them, or for a player who is not their own. |
 | 403 | `NOT_YOUR_CLIP` | A signed-in player asked to delete or retry a clip they did not order (a clip ordered with the admin key is nobody's). |

@@ -130,7 +130,8 @@ public class MatchService {
                 .toList();
         String demoUrl = match.demoUrl() == null || match.demoUrl().isEmpty() ? null : match.demoUrl().get(0);
         String winner = match.results() == null ? null : match.results().winner();
-        return new MatchResponse(matchId, mapName, match.status(), startedAt, finishedAt, demoUrl, teams, winner);
+        return new MatchResponse(matchId, mapName, match.status(), startedAt, finishedAt, demoUrl, teams, winner,
+                MatchSource.FACEIT);
     }
 
     private static TeamResponse toTeamResponse(String factionId, FaceitMatchTeam team) {

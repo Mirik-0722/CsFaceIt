@@ -2,8 +2,8 @@ package io.csfaceit.backend.clip;
 
 import static io.csfaceit.backend.match.MatchController.MATCH_ID_MESSAGE;
 import static io.csfaceit.backend.match.MatchController.MATCH_ID_PATTERN;
-import static io.csfaceit.backend.player.PlayerController.PLAYER_ID_MESSAGE;
-import static io.csfaceit.backend.player.PlayerController.PLAYER_ID_PATTERN;
+import static io.csfaceit.backend.player.PlayerController.ANY_PLAYER_ID_MESSAGE;
+import static io.csfaceit.backend.player.PlayerController.ANY_PLAYER_ID_PATTERN;
 
 import io.csfaceit.backend.auth.Access;
 import io.csfaceit.backend.clip.ClipService.ClipCreation;
@@ -131,7 +131,7 @@ public class ClipController {
 
     @GetMapping("/players/{playerId}/clips")
     public ClipPageResponse getPlayerClips(
-            @PathVariable @Pattern(regexp = PLAYER_ID_PATTERN, message = PLAYER_ID_MESSAGE) String playerId,
+            @PathVariable @Pattern(regexp = ANY_PLAYER_ID_PATTERN, message = ANY_PLAYER_ID_MESSAGE) String playerId,
             @RequestParam(defaultValue = "0") @Min(0) @Max(MAX_OFFSET) int offset,
             @RequestParam(defaultValue = "20") @Min(1) @Max(MAX_LIMIT) int limit) {
         return queries.forPlayer(playerId, offset, limit, access.viewerId());

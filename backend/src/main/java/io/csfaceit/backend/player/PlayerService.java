@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class PlayerService {
@@ -55,8 +56,15 @@ public class PlayerService {
         return toResponse(found);
     }
 
-    /** Loads the player's profile from FACEIT by id and stores the fresh nickname, elo and level. */
+    /**
+     * Loads the player's profile from FACEIT by id and stores the fresh nickname, elo and level. A player known only
+     * from demos ({@code steam:<SteamID>}, a matchmaking player) is answered from the database alone: FACEIT has no
+     * profile for that id. See {@link #getFromDatabase}.
+     */
     public PlayerResponse getById(String playerId) {
+        if (isSteamPlayerId(playerId)) {
+            return getFromDatabase(playerId);
+        }
         FaceitPlayer found;
         try {
             found = faceit.getPlayer(playerId);
@@ -157,6 +165,58 @@ public class PlayerService {
         player.setSteamId(steamId);
         players.save(player);
         return true;
+    }
+
+    /**
+     * Makes {@code steamId} the SteamID of the player row, at sign-in, where the visitor has just proved with Steam that
+     * the SteamID is theirs and FACEIT that the player is: from then on the parser files the visitor's matchmaking kills
+     * under this row, not under a second one of their own ({@code steam:<SteamID>}). Unlike {@link #assignSteamId} the
+     * latest proof wins over a real player too (a Steam account that moved to another FACEIT account), like the FACEIT
+     * link itself does: the other row loses the SteamID. Statistics a placeholder row {@code steam:<SteamID>} holds
+     * already stay on it; nothing is merged here.
+     *
+     * <p>One transaction of its own. A concurrent write of the same SteamID fails the unique index and reaches the
+     * caller.
+     *
+     * @return whether the row's SteamID changed
+     */
+    @Transactional
+    public boolean claimSteamId(long playerRowId, String steamId) {
+        Player player = players.findById(playerRowId).orElse(null);
+        if (player == null || steamId.equals(player.getSteamId())) {
+            return false;
+        }
+        Player holder = players.findBySteamId(steamId).orElse(null);
+        if (holder != null && !holder.getId().equals(player.getId())) {
+            log.info("SteamID {} moves from player {} to player {}, who signed in with it", SteamIds.mask(steamId),
+                    SteamIds.maskPlayerId(holder.getFaceitId()), SteamIds.maskPlayerId(player.getFaceitId()));
+            holder.setSteamId(null);
+            // The unique index must be free before the same value is written to the other row.
+            players.saveAndFlush(holder);
+        }
+        player.setSteamId(steamId);
+        players.save(player);
+        return true;
+    }
+
+    /** Whether the id names a player known only from demos: {@code steam:<SteamID>}. */
+    public static boolean isSteamPlayerId(String playerId) {
+        return playerId != null && playerId.startsWith(STEAM_PLACEHOLDER_PREFIX);
+    }
+
+    /**
+     * The profile of a player known from demos, from the database: the row {@code steam:<SteamID>} the parser made, or,
+     * when there is none, the row that carries the SteamID (a FACEIT player who signed in; the answer then names that
+     * player's id). Elo and level are what the row has; there is no avatar or country.
+     *
+     * @throws NotFoundException {@code PLAYER_NOT_FOUND}: no row has the id or the SteamID
+     */
+    private PlayerResponse getFromDatabase(String playerId) {
+        String steamId = playerId.substring(STEAM_PLACEHOLDER_PREFIX.length());
+        Player row = players.findByFaceitId(playerId)
+                .or(() -> players.findBySteamId(steamId))
+                .orElseThrow(() -> playerNotFound(playerId));
+        return new PlayerResponse(row.getFaceitId(), row.getNickname(), null, null, row.getElo(), row.getLevel());
     }
 
     private static PlayerResponse toResponse(FaceitPlayer profile) {

@@ -25,6 +25,13 @@ public class PlayerController {
     public static final String PLAYER_ID_MESSAGE = "must be 1-64 characters: letters, digits or '-'";
 
     /**
+     * What the endpoints that answer from the database accept: a FACEIT id, or {@code steam:} and a SteamID for a player
+     * known only from demos (a matchmaking player). Such an id never reaches FACEIT or a Redis key.
+     */
+    public static final String ANY_PLAYER_ID_PATTERN = PLAYER_ID_PATTERN + "|^steam:[0-9]{1,20}$";
+    public static final String ANY_PLAYER_ID_MESSAGE = PLAYER_ID_MESSAGE + ", or steam:<SteamID>";
+
+    /**
      * FACEIT rejects a history offset above 1000 with a 400, which would otherwise surface as a 502. Public because
      * the list of matches, which is a page of the history, checks its {@code offset} against the same limit.
      */
@@ -42,9 +49,10 @@ public class PlayerController {
         return service.findByNickname(nickname);
     }
 
+    /** {@code steam:<SteamID>} is answered from the database (see {@link PlayerService#getById}). */
     @GetMapping("/{playerId}")
     public PlayerResponse getById(
-            @PathVariable @Pattern(regexp = PLAYER_ID_PATTERN, message = PLAYER_ID_MESSAGE) String playerId) {
+            @PathVariable @Pattern(regexp = ANY_PLAYER_ID_PATTERN, message = ANY_PLAYER_ID_MESSAGE) String playerId) {
         return service.getById(playerId);
     }
 

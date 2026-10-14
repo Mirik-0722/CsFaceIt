@@ -19,20 +19,23 @@ public class MatchController {
     public static final String MATCH_ID_MESSAGE = "must be 1-64 characters: letters, digits or '-'";
 
     private final MatchService service;
+    private final DemoScoreboard scoreboard;
 
-    public MatchController(MatchService service) {
+    public MatchController(MatchService service, DemoScoreboard scoreboard) {
         this.service = service;
+        this.scoreboard = scoreboard;
     }
 
+    /** A matchmaking match ({@code mm-<id>}) is answered from the database; FACEIT is asked for the others only. */
     @GetMapping("/{matchId}")
     public MatchResponse getMatch(
             @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId) {
-        return service.getMatch(matchId);
+        return MatchSource.isMatchmaking(matchId) ? scoreboard.match(matchId) : service.getMatch(matchId);
     }
 
     @GetMapping("/{matchId}/stats")
     public MatchStatsResponse getStats(
             @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId) {
-        return service.getStats(matchId);
+        return MatchSource.isMatchmaking(matchId) ? scoreboard.stats(matchId) : service.getStats(matchId);
     }
 }

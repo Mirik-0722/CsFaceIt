@@ -1,7 +1,7 @@
 package io.csfaceit.backend.analysis.api;
 
-import static io.csfaceit.backend.player.PlayerController.PLAYER_ID_MESSAGE;
-import static io.csfaceit.backend.player.PlayerController.PLAYER_ID_PATTERN;
+import static io.csfaceit.backend.player.PlayerController.ANY_PLAYER_ID_MESSAGE;
+import static io.csfaceit.backend.player.PlayerController.ANY_PLAYER_ID_PATTERN;
 
 import io.csfaceit.backend.analysis.api.dto.PlayerAggregateStatsResponse;
 import jakarta.validation.constraints.Pattern;
@@ -28,7 +28,7 @@ public class PlayerStatsController {
 
     @GetMapping("/{playerId}/stats")
     public PlayerAggregateStatsResponse getStats(
-            @PathVariable @Pattern(regexp = PLAYER_ID_PATTERN, message = PLAYER_ID_MESSAGE) String playerId) {
+            @PathVariable @Pattern(regexp = ANY_PLAYER_ID_PATTERN, message = ANY_PLAYER_ID_MESSAGE) String playerId) {
         return stats.aggregate(playerId);
     }
 }
