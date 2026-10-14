@@ -27,6 +27,8 @@ interface ClipButtonProps {
    * then left out, since the order dialog would only refuse; what there is to follow or watch stays.
    */
   canOrder?: boolean
+  /** Added to the button that records and to "Watch" (a fill for an outline that stands on a picture). */
+  className?: string
 }
 
 /**
@@ -41,6 +43,7 @@ export default function ClipButton({
   variant = 'default',
   subject,
   canOrder = true,
+  className,
 }: ClipButtonProps) {
   const t = useT()
   // The name starts with the words on the control, so that it can still be asked for by what it shows.
@@ -50,7 +53,13 @@ export default function ClipButton({
       return null
     }
     return (
-      <Button type="button" variant={variant} aria-label={named(label ?? t.clip.record)} onClick={onOrder}>
+      <Button
+        type="button"
+        variant={variant}
+        aria-label={named(label ?? t.clip.record)}
+        onClick={onOrder}
+        className={className}
+      >
         <RecDot />
         {label ?? t.clip.record}
       </Button>
@@ -63,7 +72,7 @@ export default function ClipButton({
         <Link
           to={`/clips/${clip.id}`}
           aria-label={named(t.clip.watch)}
-          className={cn(buttonVariants({ variant: 'outline' }))}
+          className={cn(buttonVariants({ variant: 'outline' }), className)}
         >
           <svg viewBox="0 0 12 12" aria-hidden="true" className="size-3 fill-current">
             <path d="M3 1.5v9l7.5-4.5z" />

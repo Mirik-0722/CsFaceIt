@@ -47,24 +47,34 @@ interface StatsTableProps {
   viewerPlayerId?: string | null
 }
 
+// The left edge of a team's box in the colour of the side it started on (`CT → T` in its header says the same in
+// letters, so the colour is never the only sign).
+const SIDE_EDGE: Record<RoundSide, string> = {
+  CT: 'border-l-3 border-l-side-ct',
+  T: 'border-l-3 border-l-side-t',
+}
+
 /**
  * One team's scoreboard: the team name, its sides, a Winner badge and its score in the table header, then a row per
  * player, most kills first (players with equal kills keep the order the API gave them). `lost` dims the team that lost
- * a decided match: its score is `text-subtle` and its name `text-muted-foreground`, as in the match header. The share
- * of headshots is of the player's kills; a figure there is nothing to compute from is a dash.
+ * a decided match: its score is `text-subtle` and its name `text-muted-foreground`, as in the match header; the winner's
+ * header has a tint of the positive colour and its score is in it. The box's left edge is in the colour of the side the
+ * team started on, when the demo tells it. The visitor's own row has a line at its left edge. K/D is in the positive
+ * colour from 1.00 up and in the negative one below. The share of headshots is of the player's kills; a figure there is
+ * nothing to compute from is a dash.
  */
 export default function StatsTable({ team, lost = false, startSide, analysis, viewerPlayerId }: StatsTableProps) {
   const t = useT()
   const players = [...team.players].sort((a, b) => b.kills - a.kills)
   return (
-    <div className="@container border border-border bg-card">
+    <div className={cn('@container border border-border bg-card', startSide && SIDE_EDGE[startSide])}>
       {/* The shadcn Table puts the caption below the table (`caption-bottom`, inherited); the team header goes on
           top. The table is as wide as its cells need: when that is more than the box, the box scrolls. */}
       <Table className="caption-top">
         <TableCaption className="mt-0 text-left text-foreground">
           {/* As wide as the box, not as the table, and stuck to its left edge: the team name, its sides, the Winner
               badge and the score stay in view while the columns scroll under them. */}
-          <div className="sticky left-0 flex h-13 w-[100cqw] items-center gap-3 px-4">
+          <div className={cn('sticky left-0 flex h-13 w-[100cqw] items-center gap-3 px-4', team.win && 'win-tint')}>
             <h2 className={cn('min-w-0 truncate text-base font-semibold', lost && 'text-muted-foreground')}>
               {team.name ?? t.stats.team}
             </h2>
@@ -74,6 +84,7 @@ export default function StatsTable({ team, lost = false, startSide, analysis, vi
               className={cn(
                 'ml-auto font-mono text-[22px] leading-none font-semibold tabular-nums',
                 lost && 'text-subtle',
+                team.win && 'text-positive',
               )}
             >
               <span className="sr-only">{t.stats.score}</span> {team.score}
@@ -117,7 +128,7 @@ export default function StatsTable({ team, lost = false, startSide, analysis, vi
               const figures = analysis?.get(player.playerId)
               return (
                 <TableRow key={player.playerId} className={isViewer ? 'bg-secondary' : 'bg-card'}>
-                  <TableCell className={cn(STICKY, 'px-4 py-0')}>
+                  <TableCell className={cn(STICKY, 'px-4 py-0', isViewer && 'shadow-[inset_2px_0_0_var(--foreground)]')}>
                     {/* The outline is drawn inside the link: the last row ends at the edge of the scrolling box, which
                         would cut an outline drawn around it. The 8px of padding (taken back by the negative margin)
                         keep that inset outline off the letters, and `min-w-11` keeps a short nickname a 44px target. */}
@@ -140,7 +151,10 @@ export default function StatsTable({ team, lost = false, startSide, analysis, vi
                   <TableCell className={cn(NUMBER_CELL, 'font-semibold')}>{player.kills}</TableCell>
                   <TableCell className={cn(NUMBER_CELL, 'text-muted-foreground')}>{player.deaths}</TableCell>
                   <TableCell className={cn(NUMBER_CELL, 'text-muted-foreground')}>{player.assists}</TableCell>
-                  <TableCell className={cn(NUMBER_CELL, player.kdRatio < 1 && 'text-muted-foreground')}>
+                  {/* Judged as it is written: 0.996 is written "1.00" and is good news. */}
+                  <TableCell
+                    className={cn(NUMBER_CELL, Number(player.kdRatio.toFixed(2)) >= 1 ? 'text-positive' : 'text-negative')}
+                  >
                     {player.kdRatio.toFixed(2)}
                   </TableCell>
                   <TableCell className={NUMBER_CELL}>{player.adr.toFixed(1)}</TableCell>

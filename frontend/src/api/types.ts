@@ -187,7 +187,10 @@ export interface PlayerAggregateStatsResponse {
   clutchWins: number
 }
 
-/** What a clip shows: one highlight, or every kill of a player in a match. */
+/**
+ * What a clip shows: one highlight, every kill of a player in a match, or a montage: the pieces of a match the player
+ * chose in the montage editor, in the order chosen.
+ */
 export type ClipKind = 'HIGHLIGHT' | 'COMPILATION' | 'MONTAGE'
 
 /** Where a clip is on its way to a video file. `DONE` and `FAILED` are final. */
@@ -195,12 +198,32 @@ export type ClipStatus = 'QUEUED' | 'RECORDING' | 'ENCODING' | 'UPLOADING' | 'DO
 
 export type ClipQuality = '720p' | '1080p'
 
-/** One kill of a clip on the timeline of its video: `offsetMs` is where the kill is in the finished file. */
+/**
+ * One kill of a clip on the timeline of its video: `offsetMs` is where the kill is in the finished file. `wallbang` is
+ * left out by a backend that does not tell it yet.
+ */
 export interface ClipKill {
   offsetMs: number
   weapon: string
   headshot: boolean
+  wallbang?: boolean
   victimNickname: string
+}
+
+/** One piece of a montage, in ticks of the demo; a slow-motion piece plays at half speed. */
+export interface ClipMontageSegment {
+  startTick: number
+  endTick: number
+  slowMo: boolean
+}
+
+/** What a montage was ordered with: its title, its frame (`9:16` for a phone), the intro card, the music, the pieces. */
+export interface ClipMontage {
+  title: string | null
+  aspect: '16:9' | '9:16'
+  intro: boolean
+  musicTrack: string | null
+  segments: ClipMontageSegment[]
 }
 
 /**
@@ -243,7 +266,8 @@ export interface ClipResponse {
   expiresAt: string | null
   kills: ClipKill[]
   mine: boolean
-  montage?: { title: string|null; aspect: '16:9'|'9:16'; intro: boolean; musicTrack: string|null; segments: {startTick:number; endTick:number; slowMo:boolean}[] } | null
+  /** What a `MONTAGE` was ordered with; null for the other kinds, and absent from a backend that has no montages yet. */
+  montage?: ClipMontage | null
 }
 
 /** A page of clips, newest first; `offset` and `limit` echo the request. */

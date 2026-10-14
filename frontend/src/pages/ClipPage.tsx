@@ -1,4 +1,4 @@
-import { Download, Link2, RotateCcw } from 'lucide-react'
+import { Download, Link2, RotateCcw, Scissors } from 'lucide-react'
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useClip, useDeleteClip, useMatchClips, useMatchStats, usePlayer, useRetryClip } from '@/api/queries'
@@ -9,12 +9,13 @@ import PlayerAvatar from '@/components/PlayerAvatar'
 import RecorderBanner from '@/components/RecorderBanner'
 import StatusChip from '@/components/StatusChip'
 import ViewfinderFrame from '@/components/ViewfinderFrame'
+import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useT, type Messages } from '@/i18n'
 import { setAdminKey, useAdminKey } from '@/lib/adminKey'
 import { copyText } from '@/lib/clipboard'
-import { clipFailureText, clipLabel, formatBytes, frameLabel, qualityMark } from '@/lib/clips'
+import { clipFailureText, clipLabel, formatBytes, frameLabel, montageEditorPath, qualityMark } from '@/lib/clips'
 import { isFinished } from '@/lib/clipStatus'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate, formatDateTime } from '@/lib/formatDate'
@@ -244,9 +245,41 @@ function RetryControl({ clip, apiKey, onRefused }: ClipControlProps) {
   )
 }
 
+/** The headshot mark of the game's kill feed: a ring with a dot in it. */
+function HeadshotIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 14 14" className="size-3.5 shrink-0 text-rec">
+      <circle cx="7" cy="7" r="5.25" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="7" cy="7" r="1.75" fill="currentColor" />
+    </svg>
+  )
+}
+
+/** The wallbang mark: a wall, and the line of the shot that went through it. */
+function WallbangIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 14 14" className="size-3.5 shrink-0 text-hl-special">
+      <rect x="5.5" y="1.5" width="3" height="11" fill="currentColor" opacity="0.45" />
+      <path d="M1 7h12M10.5 4.5 13 7l-2.5 2.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  )
+}
+
+/** A mark of a kill at the right of its row: the game's sign and its word (a game term, the same in every language). */
+function KillMark({ icon, word }: { icon: ReactNode; word: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 font-mono text-[11px] tracking-[0.06em]">
+      {icon}
+      {word}
+    </span>
+  )
+}
+
 /**
- * The kills of the clip in the order of the video. In a finished clip a row is a button that takes the video to its
- * kill, which is what a click on a mark of the line under the video does.
+ * The kills of the clip in the order of the video (spec 3, the kill rows of the clip page): the moment, the victim,
+ * the weapon in a mono box, and at the right the headshot and wallbang marks, each a sign beside its word (the sign is
+ * decoration). A wallbang is marked only where the backend tells it. In a finished clip a row is a button that takes the
+ * video to its kill, which is what a click on a mark of the line under the video does.
  */
 function KillList({ kills, onSeek }: { kills: ClipKill[]; onSeek: ((offsetMs: number) => void) | undefined }) {
   const t = useT()
@@ -260,15 +293,19 @@ function KillList({ kills, onSeek }: { kills: ClipKill[]; onSeek: ((offsetMs: nu
         const row = (
           <>
             <span className="number-mono text-muted-foreground">{time}</span>
-            <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5">
-              <span className="min-w-0 truncate font-semibold">{kill.victimNickname}</span>
-              <span className="text-muted-foreground">{weaponName(kill.weapon, t)}</span>
+            <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="min-w-0 truncate text-sm font-semibold">{kill.victimNickname}</span>
+              <span className="inline-flex h-5.5 items-center border border-border px-1.5 font-mono text-xs text-muted-foreground">
+                {weaponName(kill.weapon, t)}
+              </span>
             </span>
-            {/* A game term, the same in every language. */}
-            <span className="font-mono text-[11px] tracking-[0.06em]">{kill.headshot && 'HEADSHOT'}</span>
+            <span className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+              {kill.headshot && <KillMark icon={<HeadshotIcon />} word="HEADSHOT" />}
+              {kill.wallbang && <KillMark icon={<WallbangIcon />} word="WALLBANG" />}
+            </span>
           </>
         )
-        const layout = 'grid min-h-11 w-full grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-4 text-left text-sm'
+        const layout = 'grid min-h-13 w-full grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-4 py-1.5 text-left text-sm'
         return (
           // Two kills can share a moment, so the position in the list is the key.
           <li key={index} className="border-b border-border">
@@ -531,6 +568,21 @@ function ClipByline({ clip }: { clip: ClipResponse }) {
   )
 }
 
+/**
+ * What marks a montage above its title (spec 3, the montage clip): the outlined tag `MONTAGE`, and in mono `9:16` for a
+ * montage cut for a phone and `INTRO` for one that starts with a title card.
+ */
+function MontageMarks({ clip }: { clip: ClipResponse }) {
+  const t = useT()
+  return (
+    <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] tracking-[0.08em] text-muted-foreground uppercase">
+      <Badge variant="outline">{t.lively.montage}</Badge>
+      {clip.montage?.aspect === '9:16' && <span>9:16</span>}
+      {clip.montage?.intro && <span>{t.lively.intro}</span>}
+    </p>
+  )
+}
+
 /** One clip: the video (or its state while there is none), what it shows, what can be done with it, and its facts. */
 function ClipView({ clip }: { clip: ClipResponse }) {
   const t = useT()
@@ -552,6 +604,7 @@ function ClipView({ clip }: { clip: ClipResponse }) {
   // the page says why.
   const [refusal, setRefusal] = useState<Refusal | null>(null)
   const ready = clip.status === 'DONE' && clip.videoUrl !== null
+  const montage = clip.kind === 'MONTAGE'
 
   useEffect(() => {
     if (copy === null) {
@@ -622,6 +675,7 @@ function ClipView({ clip }: { clip: ClipResponse }) {
           <ClipPlaceholder clip={clip} />
         )}
         <div className="flex flex-col gap-1 sm:gap-2.5">
+          {montage && <MontageMarks clip={clip} />}
           {/* The page's own title: the line about what the clip shows. */}
           <h1 className="text-[22px] leading-tight font-semibold tracking-[-0.02em] sm:text-[26px] sm:leading-[1.2]">
             {clipTitle(clip, t)}
@@ -660,6 +714,16 @@ function ClipView({ clip }: { clip: ClipResponse }) {
                     : t.clip.page.copyLink}
               </span>
             </Button>
+            {/* A montage was cut in the editor: the way back there, to cut another from the same kills. */}
+            {montage && (
+              <Link
+                to={montageEditorPath(clip.matchId, clip.playerId)}
+                className={cn(buttonVariants({ variant: 'outline' }), 'max-sm:h-12 max-sm:flex-1')}
+              >
+                <Scissors aria-hidden="true" />
+                {t.lively.openInEditor}
+              </Link>
+            )}
             {/* Only a failed clip can be ordered again (the backend answers 409 for any other). */}
             {manages && clip.status === 'FAILED' && (
               <RetryControl clip={clip} apiKey={adminKey} onRefused={setRefusal} />

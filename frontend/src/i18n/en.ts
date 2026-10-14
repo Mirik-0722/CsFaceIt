@@ -573,4 +573,20 @@ export const en = {
   language: {
     label: 'Language',
   },
+  // The third step of the lively style (plan 7, J1): the player's header, the rows of the profile's history, the
+  // montage clips and the way to the montage editor.
+  lively: {
+    // Before the map the player has played most, in the header; shown in upper case.
+    mainMap: 'Main map',
+    // What a row of the profile's history says of the player's figures, for those who hear it.
+    kda: (kills: number, deaths: number, assists: number) =>
+      `${kills} ${kills === 1 ? 'kill' : 'kills'}, ${deaths} ${deaths === 1 ? 'death' : 'deaths'}, ${assists} ${assists === 1 ? 'assist' : 'assists'}`,
+    // The name of a montage clip without a title of its own, and its tag (shown in upper case).
+    montage: 'Montage',
+    // The way from the compilation panel to the montage editor, and from a montage clip back to it.
+    buildMontage: 'Build a montage',
+    openInEditor: 'Open in the editor',
+    // The mark of a montage that starts with a title card; shown in upper case.
+    intro: 'Intro',
+  },
 }

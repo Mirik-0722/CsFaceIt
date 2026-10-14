@@ -16,3 +16,17 @@ export function mostPlayedScenery(maps: readonly MapOverview[]): string | null {
   }
   return best?.url ?? null
 }
+
+/**
+ * The map the player has played most, scenery or not (the header's "main map"); on a tie the one that comes first in
+ * `maps`. Null for a player without a stored match.
+ */
+export function mostPlayedMap(maps: readonly MapOverview[]): string | null {
+  let best: MapOverview | null = null
+  for (const map of maps) {
+    if (best === null || map.matches > best.matches) {
+      best = map
+    }
+  }
+  return best?.mapName ?? null
+}

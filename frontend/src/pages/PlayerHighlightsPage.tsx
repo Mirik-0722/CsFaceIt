@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
+import { usePlayerOverview } from '@/api/overview'
 import { usePlayer, usePlayerHighlights } from '@/api/queries'
 import HighlightList from '@/components/HighlightList'
 import PlayerHeader from '@/components/PlayerHeader'
@@ -8,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
 import { HIGHLIGHT_TYPES, highlightLabel, isHighlightType } from '@/lib/highlightLabels'
+import { mostPlayedMap, mostPlayedScenery } from '@/lib/mostPlayedScenery'
 import type { HighlightType } from '@/api/types'
 
 function PlayerHighlights({ playerId }: { playerId: string }) {
@@ -15,6 +17,10 @@ function PlayerHighlights({ playerId }: { playerId: string }) {
   const typeId = useId()
   const [type, setType] = useState<HighlightType | null>(null)
   const player = usePlayer(playerId)
+  // The header is the profile's: on the scenery of the player's most played map, with the main map in its third line.
+  const overview = usePlayerOverview(playerId)
+  const scenery = overview.data ? mostPlayedScenery(overview.data.maps) : null
+  const mainMap = overview.data ? mostPlayedMap(overview.data.maps) : null
   const highlights = usePlayerHighlights(playerId, type)
   // Offset paging can return the same highlight on two pages (each page is cached on its own), so keep the first.
   const items = highlights.data?.pages
@@ -27,17 +33,22 @@ function PlayerHighlights({ playerId }: { playerId: string }) {
     <>
       <div aria-live="polite">
         {player.isPending && (
-          <>
+          // As tall as the header's first row (see `ProfileHeader`), so that nothing moves when the player arrives.
+          <div className="flex h-30.5 flex-col sm:h-28.5">
             <p className="label-mono mb-2">{t.player.loading}</p>
-            <Skeleton className="h-20 w-full" />
-          </>
+            <Skeleton className="min-h-0 w-full flex-1" />
+          </div>
         )}
         {playerFailed && <p className="text-sm text-destructive">{errorMessage(player.error, t)}</p>}
-        {/* The card is the way back to the profile, as it is the way there on the search page. */}
+        {/* The nickname is the way back to the profile. */}
         {player.data && (
-          <Link to={`/players/${encodeURIComponent(playerId)}`} className="block">
-            <PlayerHeader player={player.data} />
-          </Link>
+          <PlayerHeader
+            player={player.data}
+            size="lg"
+            scenery={scenery}
+            mainMap={mainMap}
+            nameLink={`/players/${encodeURIComponent(playerId)}`}
+          />
         )}
       </div>
       {!playerFailed && (

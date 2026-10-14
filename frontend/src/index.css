@@ -211,6 +211,16 @@
     box-shadow: inset 0 2px 0 var(--tone);
 }
 
+/* The header of the team that won, on the scoreboard: a tint of the positive colour from the left that is gone at 60%
+   (the Winner badge says it in words). */
+@utility win-tint {
+    background-image: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--positive) 9%, transparent) 0%,
+        transparent 60%
+    );
+}
+
 /* What lies over a map's scenery. The picture is there to be seen, so it is veiled only as far as the composition
    asks, and the texts in front of it are secured where they stand: a band behind the top bar, a panel under the
    landing page's sample, a fill under a tag, a scrim behind a block of text. */

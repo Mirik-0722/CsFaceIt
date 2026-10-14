@@ -1,4 +1,5 @@
 import type { UseQueryResult } from '@tanstack/react-query'
+import { Scissors } from 'lucide-react'
 import { Fragment, type ReactNode, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMatchBreakdown } from '@/api/breakdown'
@@ -16,12 +17,12 @@ import RecorderBanner from '@/components/RecorderBanner'
 import RoundStrip from '@/components/RoundStrip'
 import StatsTable from '@/components/StatsTable'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useT } from '@/i18n'
 import { useAdminKey } from '@/lib/adminKey'
-import { clipFor, compilationFor } from '@/lib/clips'
+import { clipFor, compilationFor, montageEditorPath } from '@/lib/clips'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatClock, formatDate, formatMatchDay } from '@/lib/formatDate'
 import { hasLost } from '@/lib/hasLost'
@@ -452,6 +453,7 @@ function Compilation({ matchId, mapName, teams, onOrder }: CompilationProps) {
   const clips = useMatchClips(matchId)
   const orders = useOrderAccess()
   const [chosenId, setChosenId] = useState('')
+  const scenery = mapSceneryUrl(mapName)
   const status = demo.data?.status
   const players = [...(teams ?? []).flatMap((team) => team.players), ...(highlights.data ?? [])]
     .map(({ playerId, nickname }) => ({ playerId, nickname }))
@@ -467,13 +469,31 @@ function Compilation({ matchId, mapName, teams, onOrder }: CompilationProps) {
   const selectedId = chosenId || preselected
   const chosen = players.find((player) => player.playerId === selectedId)
   const record = t.clip.compilationPanel.record
+  // Over a picture an outline is filled, so that its inside is not the picture.
+  const fill = scenery ? 'bg-card/92' : undefined
   return (
-    <section className="flex flex-wrap items-end gap-x-8 gap-y-4 border border-border px-6 py-5.5">
+    // `isolate`: the scenery lies under the panel's content but over the panel's own colour.
+    <section className="relative isolate flex flex-wrap items-end gap-x-8 gap-y-4 border border-border bg-card px-6 py-5.5">
+      {scenery && (
+        // Decoration: never announced. On a phone the picture is a band at the top of the panel, behind the title, and
+        // the veil closes under it (`scenery-veil-panel`), as in the panel of the match.
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
+          <img
+            src={scenery}
+            alt=""
+            decoding="async"
+            loading="lazy"
+            className="h-28 w-full object-cover object-[50%_35%] sm:h-full"
+          />
+          <div className="scenery-veil-panel absolute inset-0" />
+        </div>
+      )}
       <div className="flex min-w-0 flex-[999_1_24rem] flex-col gap-1">
         <h2 className="text-[17px] leading-[1.4] font-semibold">{t.clip.compilation}</h2>
         <p className="text-sm text-muted-foreground">{t.clip.compilationPanel.text}</p>
       </div>
-      <div className="flex min-w-0 flex-wrap items-end gap-3">
+      {/* The controls stand where the picture shows most: on a scrim of the panel's colour. */}
+      <div className="scenery-scrim flex min-w-0 flex-wrap items-end gap-3 [--scrim-bleed-x:0.75rem] [--scrim-fade-x:0.75rem]">
         <div className="flex min-w-0 flex-col gap-1.5">
           <label htmlFor={playerFieldId} className="label-mono">
             {t.clip.compilationPanel.playerLabel}
@@ -482,7 +502,10 @@ function Compilation({ matchId, mapName, teams, onOrder }: CompilationProps) {
             id={playerFieldId}
             value={selectedId}
             onChange={(event) => setChosenId(event.target.value)}
-            className="h-11 max-w-full min-w-48 rounded-lg border border-border bg-card px-3 text-base text-foreground"
+            className={cn(
+              'h-11 max-w-full min-w-48 rounded-lg border border-border bg-card px-3 text-base text-foreground',
+              fill,
+            )}
           >
             {!preselected && <option value="">{t.clip.compilationPanel.choosePlayer}</option>}
             {players.map((player) => (
@@ -492,19 +515,36 @@ function Compilation({ matchId, mapName, teams, onOrder }: CompilationProps) {
             ))}
           </select>
         </div>
-        <div className="flex min-h-11 min-w-0 items-center gap-3">
+        <div className="flex min-h-11 min-w-0 flex-wrap items-center gap-3">
           {chosen ? (
             <ClipButton
               clip={compilationFor(chosen.playerId, matchClips)}
               label={record}
               variant="outline"
+              className={fill}
               onOrder={() => onOrder({ kind: 'compilation', matchId, mapName, ...chosen })}
             />
           ) : (
             // Nothing to record until a player is chosen: the button is there to say what the panel is for.
-            <Button type="button" variant="outline" disabled>
+            <Button type="button" variant="outline" disabled className={fill}>
               <RecDot />
               {record}
+            </Button>
+          )}
+          {/* The second way: the player's own cut of the kills, in the montage editor. A link once a player is chosen;
+              until then a button that is off, since a link cannot be. */}
+          {chosen ? (
+            <Link
+              to={montageEditorPath(matchId, chosen.playerId)}
+              className={cn(buttonVariants({ variant: 'outline' }), fill)}
+            >
+              <Scissors aria-hidden="true" />
+              {t.lively.buildMontage}
+            </Link>
+          ) : (
+            <Button type="button" variant="outline" disabled className={fill}>
+              <Scissors aria-hidden="true" />
+              {t.lively.buildMontage}
             </Button>
           )}
         </div>

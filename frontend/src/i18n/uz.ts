@@ -509,4 +509,13 @@ export const uz: Messages = {
   language: {
     label: 'Til',
   },
+  // The third step of the lively style (plan 7, J1).
+  lively: {
+    mainMap: 'Asosiy xarita',
+    kda: (kills, deaths, assists) => `${kills} kill, ${deaths} o'lim, ${assists} assist`,
+    montage: 'Montaj',
+    buildMontage: "Montaj yig'ish",
+    openInEditor: 'Muharrirda ochish',
+    intro: 'Intro',
+  },
 }
