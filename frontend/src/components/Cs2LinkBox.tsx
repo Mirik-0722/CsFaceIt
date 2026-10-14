@@ -19,6 +19,15 @@ const AUTH_CODE = /^[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}$/
 /** The form of a match sharing code: `CSGO-` and five groups of five letters or digits. */
 const SHARE_CODE = /^CSGO(?:-[A-Za-z0-9]{5}){5}$/
 
+/**
+ * Whether the browser masks the characters of a text field by CSS (`-webkit-text-security`). Then the authentication
+ * code is typed into a text field, masked while it is hidden: a password field is what the browsers' password managers
+ * offer to save, whatever its `autocomplete` says, and the secret would end up in their (synced) store. A browser
+ * without it keeps the password field, which is never shown in clear.
+ */
+const CSS_MASK =
+  typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('-webkit-text-security', 'disc')
+
 /** A text that is worked out when it is drawn, so that it follows a change of language. */
 type Text = (t: Messages) => string
 
@@ -50,8 +59,9 @@ function errorsOf(error: unknown): FormErrors {
 /**
  * The two codes and the button that links them (spec 3, `Cs2LinkBox`). The authentication code is a secret: it is in
  * the field while it is typed, and leaves the field and every state of the page the moment it is sent, whatever the
- * answer; it is never stored anywhere. Both codes are checked for their form first, and nothing is sent while one is
- * wrong. A refused code is said under its own field.
+ * answer; it is never stored anywhere, so after a failed request a line under the empty field asks for it again. Both
+ * codes are checked for their form first, and nothing is sent while one is wrong. A refused code is said under its own
+ * field.
  */
 function LinkForm({ userId, submitLabel }: { userId: number; submitLabel: string }) {
   const t = useT()
@@ -65,6 +75,9 @@ function LinkForm({ userId, submitLabel }: { userId: number; submitLabel: string
   const [shown, setShown] = useState(false)
   const [errors, setErrors] = useState<FormErrors>(NO_ERRORS)
   const [sending, setSending] = useState(false)
+  // The request failed after the code had left the field: the field says why it is empty until it is typed in again.
+  const [retype, setRetype] = useState(false)
+  const retypeId = useId()
   const authInput = useRef<HTMLInputElement>(null)
   const shareInput = useRef<HTMLInputElement>(null)
   // The field a refusal is about takes the focus once the fields are enabled again: a disabled field cannot take it.
@@ -84,7 +97,8 @@ function LinkForm({ userId, submitLabel }: { userId: number; submitLabel: string
     const shareWrong = !SHARE_CODE.test(share)
     if (authWrong || shareWrong) {
       setErrors({
-        auth: authWrong ? (text) => text.cs2.authFormat : null,
+        // An empty field is asked to be filled, not told its form is wrong (it is empty after every failed request).
+        auth: authWrong ? (text) => (auth === '' ? text.cs2.authMissing : text.cs2.authFormat) : null,
         share: shareWrong ? (text) => text.cs2.shareFormat : null,
         form: null,
       })
@@ -103,12 +117,15 @@ function LinkForm({ userId, submitLabel }: { userId: number; submitLabel: string
     } catch (error) {
       const found = errorsOf(error)
       setErrors(found)
+      setRetype(true)
       // The field the refusal is about takes the focus; the authentication code has to be typed again anyway.
       focusAfterSending.current = found.share ? shareInput.current : found.auth ? authInput.current : null
     } finally {
       setSending(false)
     }
   }
+
+  const retypeNote = retype && authCode === ''
 
   return (
     <form onSubmit={submit} noValidate className="flex flex-col gap-3.5">
@@ -120,24 +137,36 @@ function LinkForm({ userId, submitLabel }: { userId: number; submitLabel: string
           <Input
             ref={authInput}
             id={authId}
-            type={shown ? 'text' : 'password'}
+            // Not a password field where the browser can mask a text field itself: the browsers' password managers
+            // ignore `autocomplete="off"` on a password field, and would offer to keep the secret (see `CSS_MASK`).
+            type={shown || CSS_MASK ? 'text' : 'password'}
             autoComplete="off"
             autoCapitalize="characters"
             spellCheck={false}
+            // The password managers' own words for "not a login field": 1Password, LastPass, Dashlane.
+            data-1p-ignore="true"
+            data-lpignore="true"
+            data-form-type="other"
             placeholder={t.cs2.authPlaceholder}
             value={authCode}
             disabled={sending}
-            onChange={(event) => setAuthCode(event.target.value)}
+            onChange={(event) => {
+              setAuthCode(event.target.value)
+              setRetype(false)
+            }}
             aria-invalid={errors.auth ? true : undefined}
-            aria-describedby={errors.auth ? authErrorId : undefined}
+            aria-describedby={
+              [errors.auth ? authErrorId : null, retypeNote ? retypeId : null].filter(Boolean).join(' ') || undefined
+            }
             // 16px on a phone: a smaller text makes it zoom in when the field is focused.
-            className="font-mono text-base sm:text-sm"
+            className={cn('font-mono text-base sm:text-sm', !shown && CSS_MASK && '[-webkit-text-security:disc]')}
           />
           <Button
             type="button"
             variant="outline"
             size="icon"
-            aria-label={shown ? t.cs2.hideCode : t.cs2.showCode}
+            // One name, and the pressed state says whether the code is shown.
+            aria-label={t.cs2.showCode}
             aria-pressed={shown}
             onClick={() => setShown(!shown)}
           >
@@ -147,6 +176,11 @@ function LinkForm({ userId, submitLabel }: { userId: number; submitLabel: string
         {errors.auth && (
           <p id={authErrorId} className="text-[13px] leading-normal text-negative">
             {errors.auth(t)}
+          </p>
+        )}
+        {retypeNote && (
+          <p id={retypeId} className="text-[13px] leading-normal text-muted-foreground">
+            {t.cs2.retype}
           </p>
         )}
       </div>

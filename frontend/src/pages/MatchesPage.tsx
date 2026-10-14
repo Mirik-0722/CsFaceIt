@@ -22,7 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
-import { steamPlayerId } from '@/lib/matchSource'
+import { isSteamPlayer, steamPlayerId } from '@/lib/matchSource'
 import { useDemoBringing } from '@/lib/useDemoBringing'
 import { useViewer } from '@/lib/viewer'
 
@@ -60,21 +60,22 @@ function isIn(filter: Filter, match: PlayerMatchResponse): boolean {
 function PlayerMatches({ playerId }: { playerId: string }) {
   const t = useT()
   const player = usePlayer(playerId)
-  // The player's own page: the matches are the visitor's, so the visitor's demos can be brought for them.
+  // The player's own page: the matches are the visitor's, so the visitor's demos can be brought for them, and the
+  // visitor's CS2 matchmaking games linked. The visitor's own player is the FACEIT one, or the one an account without
+  // FACEIT is known by (`steam:` and its SteamID).
   const viewer = useViewer()
-  const own = viewer.signedIn && viewer.playerId === playerId
-  // The CS2 link is the signed-in user's own, on the page of the user's own matches: the FACEIT player's, or the one a
-  // user without FACEIT is known by (`steam:` and the user's SteamID).
   const me = useMe().data
-  const linkOwner =
-    me && (own || (me.steamId !== null && playerId === steamPlayerId(me.steamId))) ? me.id : null
+  const ownSteam = me?.steamId ? playerId === steamPlayerId(me.steamId) : false
+  const own = viewer.signedIn && (viewer.playerId === playerId || ownSteam)
+  const linkOwner = own && me ? me.id : null
   // When this page first saw each PARSED row: one that stays PARSED for 30 minutes is shown as nothing is going on.
   // A map that is kept for the page's life and changed in place, so that it is a state only to stay the same object.
   const [parsedSeen] = useState<ParsedSeen>(() => new Map())
   const matches = usePlayerMatches(playerId, undefined, own, parsedSeen)
   const [filter, setFilter] = useState<Filter>('all')
   const [now, setNow] = useState(() => Date.now())
-  useSyncMatches(playerId, own)
+  // The sync fetches the visitor's FACEIT matches: there are none behind a `steam:` page.
+  useSyncMatches(playerId, own && !isSteamPlayer(playerId))
   const rowInput = useRef<HTMLInputElement>(null)
   // The match the chooser of a row's action was opened for.
   const rowMatch = useRef<string | null>(null)
@@ -124,8 +125,11 @@ function PlayerMatches({ playerId }: { playerId: string }) {
       bring.bringFile(file)
     }
   }
-  // A player that cannot be shown has no matches to show either: its error is the one message on the page.
-  const playerFailed = player.isError && !player.data
+  // A player that cannot be shown has no matches to show either: its error is the one message on the page. Not so the
+  // visitor's own `steam:` player before the first of its demos has been read: the database has no row for it yet, and
+  // the page is where that first demo is brought (the list is empty, the upload box and the CS2 link are there).
+  const playerFailed =
+    player.isError && !player.data && !(ownSteam && player.error.code === 'PLAYER_NOT_FOUND')
   const labels: Record<Filter, string> = {
     all: t.matches.all,
     analyzed: t.demo.status.ANALYZED,

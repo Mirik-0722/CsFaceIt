@@ -8,15 +8,32 @@ const MATCH_ID = '1-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 const COPY = '(?: ?\\(\\d+\\))?'
 const DEMO_NAME = new RegExp(`^(${MATCH_ID})(?:-\\d+-\\d+)?${COPY}\\.dem${COPY}(?:\\.[a-z0-9]+${COPY})*$`, 'i')
 
-// Valve names the replay of a matchmaking match `<match id>_<number>.dem.bz2`, the match id written with leading zeros
-// (`003744426367741165791_1234567890.dem.bz2`). Its match on this site is `mm-` and the id without them, as the
-// coordinator gives it.
-const VALVE_DEMO_NAME = new RegExp(`^0*(\\d{1,20})_\\d+${COPY}\\.dem${COPY}(?:\\.[a-z0-9]+${COPY})*$`, 'i')
+// The two names Valve gives the demo of a matchmaking match, read as the backend's `demo/DemoFileName` reads them (plan
+// 6c): its replay servers' `<match id>_<number>.dem.bz2` (`003744426367741165791_1234567890.dem.bz2`), also without
+// the compression or with another one, and the CS2 client's `match730_<match id>_<number>_<number>.dem`. The match id
+// is zero-padded to 21 digits; what follows `.dem` is at most one more extension, and either may carry a browser's
+// counter.
+const VALVE_TAIL = `${COPY}\\.dem${COPY}(?:\\.[a-z0-9]+${COPY})?`
+const VALVE_REPLAY_NAME = new RegExp(`^(\\d{1,32})_\\d{1,20}${VALVE_TAIL}$`, 'i')
+const VALVE_CLIENT_NAME = new RegExp(`^match730_(\\d{1,32})_\\d{1,20}_\\d{1,20}${VALVE_TAIL}$`, 'i')
+
+/** The largest Valve match id: an unsigned 64-bit number. */
+const MAX_VALVE_MATCH_ID = 2n ** 64n - 1n
 
 /**
- * The match a demo file belongs to, from its name: `<FACEIT match id>-1-1.dem`, `….dem.zst` or `….dem.gz`, or Valve's
- * `<match id>_<number>.dem.bz2` for a matchmaking match (`mm-<match id>`). The folders before the name (a pasted path)
- * are ignored. Null for a name that carries no match id: a demo the visitor has renamed.
+ * The match of this site that a Valve match id written in a file name stands for: `mm-` and the id without the zeros
+ * Valve pads it with. A real id is 15 to 20 digits and fits in 64 bits; anything else is no Valve match (a date, or a
+ * counter a visitor named the file by), and the name then carries no match id.
+ */
+function matchmakingId(digits: string): string | null {
+  const id = digits.replace(/^0+/, '')
+  return id.length >= 15 && id.length <= 20 && BigInt(id) <= MAX_VALVE_MATCH_ID ? `mm-${id}` : null
+}
+
+/**
+ * The match a demo file belongs to, from its name: `<FACEIT match id>-1-1.dem`, `….dem.zst` or `….dem.gz`, or one of
+ * Valve's two names of a matchmaking match (`mm-<match id>`). The folders before the name (a pasted path) are ignored.
+ * Null for a name that carries no match id: a demo the visitor has renamed.
  */
 export function matchIdFromDemoName(name: string): string | null {
   const file = name.slice(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1)
@@ -24,8 +41,8 @@ export function matchIdFromDemoName(name: string): string | null {
   if (faceit) {
     return faceit[1].toLowerCase()
   }
-  const valve = VALVE_DEMO_NAME.exec(file)
-  return valve ? `mm-${valve[1]}` : null
+  const valve = VALVE_REPLAY_NAME.exec(file) ?? VALVE_CLIENT_NAME.exec(file)
+  return valve ? matchmakingId(valve[1]) : null
 }
 
 /**

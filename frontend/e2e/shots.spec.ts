@@ -1020,10 +1020,28 @@ function demoOnlyPlayer(number: number, nickname: string) {
 /** The player known only from demos whose page is photographed; he started on T in the analyzed match, and lost it. */
 const STEAM_PLAYER = demoOnlyPlayer(16, 'mm_only_guy')
 
+/**
+ * A visitor signed in with Steam who has no FACEIT account and plays matchmaking only, before the first of their demos
+ * has been read: the database has no player for the SteamID yet.
+ */
+const MM_ONLY_USER: MeResponse = {
+  id: 3,
+  nickname: 'Steam 000021',
+  avatarUrl: null,
+  role: 'USER',
+  steamId: '76561198000000021',
+  playerId: null,
+  limits: limitsWith(5),
+}
+
+/** The page of that visitor's own matches: those of the SteamID. */
+const MM_ONLY_PLAYER_ID = `steam:${MM_ONLY_USER.steamId}`
+
 const CS2_PAGES = [
   { name: 'mm-match', path: `/matches/${MM_MATCH_ID}`, tabs: 0, onRequest: true },
   { name: 'mm-pending', path: `/matches/${MM_PENDING_ID}`, tabs: 0, onRequest: true },
   { name: 'steam-player', path: `/players/${STEAM_PLAYER.playerId}`, tabs: 0, onRequest: true },
+  { name: 'steam-matches', path: `/players/${MM_ONLY_PLAYER_ID}/matches`, tabs: 0, onRequest: true },
 ] as const satisfies readonly ShotPage[]
 
 const MM_PLAYER = { playerId: PLAYER_ID, nickname: playerFixture.nickname }
@@ -1349,7 +1367,22 @@ const CS2_ANSWERS: [string, Reply][] = [
     [],
   ),
   ...steamPlayerAnswers(),
+  // The matchmaking-only visitor before their first demo: no player row yet (C1 answers 404), and an empty list.
+  [
+    `GET /api/v1/players/${encodeURIComponent(MM_ONLY_PLAYER_ID)}`,
+    { status: 404, body: { code: 'PLAYER_NOT_FOUND', message: `Player not found: ${MM_ONLY_PLAYER_ID}` } },
+  ],
+  [
+    `GET /api/v1/players/${encodeURIComponent(MM_ONLY_PLAYER_ID)}/matches?offset=0&limit=20`,
+    { body: { items: [], offset: 0, limit: 20 } },
+  ],
 ]
+
+/** The demo of the matchmaking match that waits for its analysis, failed with `errorCode`. */
+function pendingDemoFailed(errorCode: string, error: string): [string, Reply] {
+  const demo: DemoResponse = { ...demoFixture, demoId: 42, matchId: MM_PENDING_ID, status: 'FAILED', error, errorCode }
+  return [`GET /api/v1/matches/${MM_PENDING_ID}/demo`, { body: demo }]
+}
 
 // What `GET /cs2/link` answers: no link (any 404 but CS2_DISABLED), the feature off on the server, or a link.
 const LINK_ANSWER = 'GET /api/v1/cs2/link'
@@ -1362,21 +1395,24 @@ function linkIn(state: string): Reply {
 }
 
 /**
- * The signed-in player with the matchmaking matches in the list of his own matches, and his link in `link`'s state;
- * `writes` answers the link's writes.
+ * The signed-in player (`me`, the FACEIT one unless said) with the matchmaking matches in the list of his own matches,
+ * and his link in `link`'s state; `more` answers the link's writes, or replaces answers of the block.
  */
-function cs2Backend(link: Reply, writes: [string, Reply][] = []): Partial<Backend> {
+function cs2Backend(link: Reply, more: [string, Reply][] = [], me: MeResponse = MEMBER): Partial<Backend> {
   return {
-    me: MEMBER,
+    me,
     playerMatches: withMatchmakingRows(playerMatchesFixture),
-    extra: [...CS2_ANSWERS, [LINK_ANSWER, link], ...writes],
+    extra: [...CS2_ANSWERS, [LINK_ANSWER, link], ...more],
   }
 }
 
-/** Types the two codes into the CS2 section (the one section with a password field) and sends them. */
+/**
+ * Types the two codes into the CS2 section (the one section with the authentication code field, which the password
+ * managers are told to leave alone) and sends them.
+ */
 function sendCodes(authCode: string, shareCode: string) {
   return async (page: Page) => {
-    const section = page.locator('section').filter({ has: page.locator('input[type="password"]') })
+    const section = page.locator('section').filter({ has: page.locator('input[data-lpignore]') })
     await section.locator('input').nth(0).fill(authCode)
     await section.locator('input').nth(1).fill(shareCode)
     await section.locator('button[type="submit"]').click()
@@ -1434,6 +1470,33 @@ const CS2_SCENARIOS: Scenario[] = [
     pages: ['player', 'mm-match', 'mm-pending', 'steam-player'],
     languages: BOTH_LANGUAGES,
     backend: cs2Backend(NOT_LINKED),
+  },
+  // A visitor without FACEIT who plays matchmaking only, before the first demo: "Matches" in the top bar and the menu,
+  // and the page of their matches empty, with the upload box and the CS2 section (not linked) and no error.
+  {
+    name: 'cs2-mmonly',
+    pages: ['steam-matches', 'menu'],
+    languages: BOTH_LANGUAGES,
+    backend: cs2Backend(NOT_LINKED, [], MM_ONLY_USER),
+  },
+  // The same visitor on a matchmaking match whose demo could not be fetched by its link, and on one whose replay Valve
+  // no longer keeps: the reason without FACEIT, and the controls open by themselves without the "you did not play"
+  // refusal (the backend decides who may act on a matchmaking match).
+  {
+    name: 'cs2-importfailed',
+    pages: ['mm-pending'],
+    languages: BOTH_LANGUAGES,
+    backend: cs2Backend(
+      NOT_LINKED,
+      [pendingDemoFailed('IMPORT_FAILED', 'Importing the demo failed after 3 attempts')],
+      MM_ONLY_USER,
+    ),
+  },
+  {
+    name: 'cs2-expired',
+    pages: ['mm-pending'],
+    languages: BOTH_LANGUAGES,
+    backend: cs2Backend(NOT_LINKED, [pendingDemoFailed('REPLAY_EXPIRED', 'The replay has expired')], MM_ONLY_USER),
   },
 ]
 

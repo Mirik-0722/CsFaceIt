@@ -8,6 +8,7 @@ import SignInDialog from '@/components/SignInDialog'
 import TopBarSearch from '@/components/TopBarSearch'
 import { Button } from '@/components/ui/button'
 import { useT } from '@/i18n'
+import { ownMatchesPath } from '@/lib/matchSource'
 import { cn } from '@/lib/utils'
 
 // An item of the navigation (spec 3). The ring is drawn inside, because the item reaches the edges of the bar.
@@ -28,7 +29,8 @@ const ANCHORS = [
  * The bar above every page (spec 6): the logo, the navigation, and on the right the player search, the language and
  * the visitor's way in. The navigation depends on who is looking. A visitor who is not signed in finds, on the home
  * page, the sections of the landing page; elsewhere "Clips". A signed-in visitor always has the pages of their own
- * (matches, clips, statistics), the player ones when a FACEIT player is linked.
+ * (matches, clips, statistics), the player ones when a FACEIT player is linked; an account without FACEIT has its
+ * matches too, those of its SteamID (CS2 matchmaking).
  *
  * Until `/auth/me` has answered, the bar of a visitor who is not signed in (the common case) is drawn at its real size
  * but cannot be seen, reached or read (`invisible`, `aria-hidden`, `inert`). When the answer says "not signed in",
@@ -58,6 +60,9 @@ export default function TopBar() {
   // The landing page's bar is the lighter one: anchors of 44px, closer rows and a right side without padding of its own.
   const landing = home && user === null
   const playerPath = user?.playerId ? `/players/${encodeURIComponent(user.playerId)}` : null
+  // The visitor's own matches: the FACEIT player's, or for an account without FACEIT those its SteamID is known by
+  // (CS2 matchmaking, plan 6c).
+  const matchesPath = ownMatchesPath(user)
 
   // On a phone the bar is the one row of the mockup (56px: the logo and, on the right, the language and the account).
   // The navigation of the inner pages gets a row of its own under it; the anchors of the landing page and the search
@@ -90,8 +95,8 @@ export default function TopBar() {
           pending && 'invisible',
         )}
       >
-        {playerPath && (
-          <NavLink to={`${playerPath}/matches`} className={cn(itemClass, CURRENT)}>
+        {matchesPath && (
+          <NavLink to={matchesPath} className={cn(itemClass, CURRENT)}>
             {t.auth.matches}
           </NavLink>
         )}

@@ -369,6 +369,8 @@ export const uz: Messages = {
       PARSE_FAILED: "Demo faylini o'qib bo'lmadi. Fayl buzilgan bo'lishi mumkin.",
       ANALYSIS_FAILED: "Demo tahlili yakunlanmadi. Qayta urinib ko'ring.",
       WRONG_MATCH: "Bu fayl boshqa matchning demosi: undagi o'yinchilar bu matchniki emas.",
+      REPLAY_EXPIRED:
+        "Valve bu matchning replay faylini endi saqlamaydi. Demo sizda bo'lsa, uni fayl sifatida yuklashingiz mumkin.",
     },
   },
   clip: {
@@ -657,13 +659,14 @@ export const uz: Messages = {
     authPlaceholder: 'AAAA-AAAAA-AAAA',
     sharePlaceholder: 'CSGO-xxxxx-xxxxx-…',
     showCode: "Kodni ko'rsatish",
-    hideCode: 'Kodni yashirish',
     codesLink: "Ikkala kodni Steam'da olish",
     link: 'Ulash',
     relink: 'Yangilash',
     linking: 'Ulanmoqda…',
     authFormat: "Kod AAAA-AAAAA-AAAA ko'rinishida bo'lishi kerak.",
+    authMissing: "Authentication code'ni kiriting.",
     shareFormat: "Kod CSGO- bilan boshlanib, beshta besh belgili guruhdan iborat bo'lishi kerak.",
+    retype: 'Xavfsizlik uchun kod saqlanmaydi — uni qayta kiriting.',
     authRefused: "Steam bu authentication code'ni qabul qilmadi. Kodni tekshiring yoki Steam'da yangisini oling.",
     shareRefused: "Steam bu match sharing code'ni shu kod bilan tanimadi. Oxirgi matchingizning kodini kiriting.",
     active: "Ulangan — yangi matchlar o'zi keladi",
@@ -681,5 +684,7 @@ export const uz: Messages = {
     unlinkQuestion: 'Uzilsinmi? Yangi matchlar kelmay qoladi.',
     unlinkYes: 'Ha, uzish',
     unlinkNo: "Yo'q",
+    importFailed: "Demoni havola orqali olib bo'lmadi. Uni fayl sifatida yuklashingiz mumkin.",
+    importFailedPlain: "Demoni havola orqali olib bo'lmadi.",
   },
 }

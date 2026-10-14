@@ -37,6 +37,9 @@ const DOWNLOAD_NEEDS_ACCESS = 'DOWNLOAD_NEEDS_ACCESS'
 /** The code of a demo whose import failed on every attempt: the upload is the way out, as it is for the code above. */
 const IMPORT_FAILED = 'IMPORT_FAILED'
 
+/** The code of a matchmaking demo whose replay Valve no longer keeps (plan 6c): the upload is the way out as well. */
+const REPLAY_EXPIRED = 'REPLAY_EXPIRED'
+
 interface Failure {
   action: Action
   error: ApiError
@@ -137,10 +140,22 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
   const needsAccess = demo.data?.errorCode === DOWNLOAD_NEEDS_ACCESS
   // The wording of the other codes the page knows; a code it does not know shows the backend's sentence.
   const importFailed = demo.data?.errorCode === IMPORT_FAILED
-  const reason =
-    importFailed && !instructed ? t.demo.importFailedPlain : reasonText(demo.data?.errorCode ?? null, t.demo.reasons)
+  // A matchmaking match is not FACEIT's: its demo is fetched by a link (Valve's replay server), and its failure is
+  // worded without FACEIT.
+  const matchmaking = isMatchmakingMatch(matchId)
+  const reason = importFailed
+    ? matchmaking
+      ? instructed
+        ? t.cs2.importFailed
+        : t.cs2.importFailedPlain
+      : instructed
+        ? t.demo.reasons.IMPORT_FAILED
+        : t.demo.importFailedPlain
+    : reasonText(demo.data?.errorCode ?? null, t.demo.reasons)
+  // A matchmaking replay that Valve has deleted sends the visitor to the upload too.
+  const replayExpired = demo.data?.errorCode === REPLAY_EXPIRED
   const [openedForAccess, setOpenedForAccess] = useState(false)
-  if ((needsAccess || importFailed) && !viewer.loading && instructed && !openedForAccess) {
+  if ((needsAccess || importFailed || replayExpired) && !viewer.loading && instructed && !openedForAccess) {
     setOpenedForAccess(true)
     setOpen(true)
   }
@@ -172,7 +187,6 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
   // queued or stored demo the request does something once the demo has stood still for ten minutes (it is queued or
   // announced again): the way to revive a demo whose message was lost, so the button stays for those two.
   // A matchmaking match is not FACEIT's: there is nothing to import from there, its demo comes as a file or a link.
-  const matchmaking = isMatchmakingMatch(matchId)
   const canImport =
     !matchmaking && (demo.data === null || status === 'FAILED' || status === 'QUEUED' || status === 'STORED')
   const canAnalyze = status === 'PARSED' || (status === 'ANALYZED' && !asPlayer)

@@ -22,3 +22,18 @@ export function isSteamPlayer(playerId: string): boolean {
 export function steamPlayerId(steamId: string): string {
   return `${STEAM_PLAYER_PREFIX}${steamId}`
 }
+
+/**
+ * The page of the signed-in visitor's own matches: the FACEIT player's, else, for an account without FACEIT, the one
+ * its SteamID is known by (its matchmaking matches, and the CS2 link). Null for nobody, and for an account with neither.
+ * The colon of `steam:` stays as it is (it is allowed in a path, and the SteamID is digits): the address bar shows it
+ * so, and a navigation link compares its path with the address as written to tell that it is the current page.
+ */
+export function ownMatchesPath(
+  me: { playerId: string | null; steamId: string | null } | null | undefined,
+): string | null {
+  if (me?.playerId) {
+    return `/players/${encodeURIComponent(me.playerId)}/matches`
+  }
+  return me?.steamId ? `/players/${STEAM_PLAYER_PREFIX}${encodeURIComponent(me.steamId)}/matches` : null
+}

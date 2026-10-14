@@ -5,6 +5,7 @@ import type { Messages } from '@/i18n'
 import { matchIdFromDemoLink, matchIdFromDemoName } from '@/lib/demoName'
 import { errorMessage } from '@/lib/errorMessage'
 import { nextPossible } from '@/lib/limits'
+import { isMatchmakingMatch } from '@/lib/matchSource'
 import { useViewer } from '@/lib/viewer'
 
 /** How long "Sent" stays in the feed: the row of the match shows the demo's stages by then. */
@@ -91,8 +92,9 @@ export function useDemoBringing(items: PlayerMatchResponse[] | undefined, comple
   /**
    * Uploads a file. For a row's own action the match is given; for a file that was dropped or chosen in the box it is
    * the one the name names. A file chosen for a row whose name names another match is refused at once (a name with no
-   * id is the visitor's word for it), and so is a file named for a match that is not in the visitor's list once every
-   * page of the list is loaded (while more pages may come, the match may be on one of them, and the backend decides).
+   * id is the visitor's word for it), and so is a file named for a FACEIT match that is not in the visitor's list once
+   * every page of the list is loaded (while more pages may come, the match may be on one of them, and the backend
+   * decides). A file named for a matchmaking match is always sent: its first upload is what creates the match.
    */
   const bringFile = useCallback(
     (file: File, forMatchId?: string) => {
@@ -108,7 +110,15 @@ export function useDemoBringing(items: PlayerMatchResponse[] | undefined, comple
         return
       }
       const { items: rows, viewer: who, complete: allLoaded } = latest.current
-      if (forMatchId === undefined && !who.admin && allLoaded && !rows?.some((match) => match.matchId === matchId)) {
+      // A matchmaking match is created by the first upload of its demo, so it is in nobody's list before it: the
+      // backend decides (and refuses with its own code a demo the visitor did not play in).
+      if (
+        forMatchId === undefined &&
+        !who.admin &&
+        allLoaded &&
+        !isMatchmakingMatch(matchId) &&
+        !rows?.some((match) => match.matchId === matchId)
+      ) {
         put(matchId, { phase: 'failed', text: (t) => t.access.NOT_IN_MATCH })
         return
       }

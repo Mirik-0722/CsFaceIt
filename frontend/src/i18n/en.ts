@@ -424,6 +424,8 @@ export const en = {
       PARSE_FAILED: 'The demo file could not be read. The file may be damaged.',
       ANALYSIS_FAILED: 'The demo analysis did not finish. Try again.',
       WRONG_MATCH: 'This file is the demo of another match: its players are not the players of this one.',
+      // A matchmaking demo whose replay Valve has already deleted (plan 6c).
+      REPLAY_EXPIRED: "Valve no longer keeps this match's replay. If you have the demo, you can upload it as a file.",
     },
   },
   clip: {
@@ -744,16 +746,19 @@ export const en = {
     authPlaceholder: 'AAAA-AAAAA-AAAA',
     // The start of the form only: the whole code does not fit in the side column, nor on a phone.
     sharePlaceholder: 'CSGO-xxxxx-xxxxx-…',
+    // The name of the toggle; its pressed state says whether the code is shown.
     showCode: 'Show the code',
-    hideCode: 'Hide the code',
     codesLink: 'Get both codes on Steam',
     link: 'Link',
     // The same request for a link whose code stopped working.
     relink: 'Update',
     linking: 'Linking…',
-    // Why a code was not sent: its form is wrong.
+    // Why a code was not sent: its form is wrong, or the authentication code is missing.
     authFormat: 'The code has the form AAAA-AAAAA-AAAA.',
+    authMissing: 'Enter the authentication code.',
     shareFormat: 'The code starts with CSGO- and has five groups of five characters.',
+    // Under the emptied authentication code field after a request that did not link.
+    retype: 'For your safety the code is not kept — enter it again.',
     // The two 422 refusals of the link.
     authRefused: 'Steam did not accept this authentication code. Check it, or get a new one on Steam.',
     shareRefused:
@@ -773,5 +778,9 @@ export const en = {
     unlinkQuestion: 'Unlink? New matches will stop coming.',
     unlinkYes: 'Yes, unlink',
     unlinkNo: 'No',
+    // IMPORT_FAILED on a matchmaking match, whose demo comes by a link (Valve's replay server), never from FACEIT: the
+    // demo panel's sentence for whoever may upload, and the plain one for whoever may not.
+    importFailed: 'The demo could not be fetched by its link. You can upload it as a file.',
+    importFailedPlain: 'The demo could not be fetched by its link.',
   },
 }
