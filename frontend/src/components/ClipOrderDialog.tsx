@@ -134,6 +134,8 @@ interface OrderFormProps {
   onClose: () => void
   /** Called with the clip the backend put in the queue, before the dialog closes. */
   onOrdered?: (clip: ClipResponse) => void
+  /** A signed-in visitor asked for the admin key: the key field is open from the start. */
+  keyFirst?: boolean
 }
 
 /**
@@ -145,7 +147,7 @@ interface OrderFormProps {
  * may not order reads why; the key field is then behind the quiet switch. A visitor who is not signed in is shown the
  * field: a key the backend took is kept until the page is reloaded, and a key it rejects is forgotten.
  */
-function OrderForm({ order, sending, onSendingChange, onClose, onOrdered }: OrderFormProps) {
+function OrderForm({ order, sending, onSendingChange, onClose, onOrdered, keyFirst = false }: OrderFormProps) {
   const t = useT()
   const keyId = useId()
   const messagesId = useId()
@@ -157,7 +159,7 @@ function OrderForm({ order, sending, onSendingChange, onClose, onOrdered }: Orde
   // The backend refused an order made by the session alone as nobody's: the session has ended since the page asked.
   const [sessionEnded, setSessionEnded] = useState(false)
   // A signed-in visitor opened the key field (an operator's way in where the session is not enough).
-  const [keyOpen, setKeyOpen] = useState(false)
+  const [keyOpen, setKeyOpen] = useState(keyFirst)
   const [failure, setFailure] = useState<ApiError | null>(null)
   const viewer = useViewer()
   const permission = viewer.canOrderFor(orderedPlayer(order))
@@ -356,6 +358,8 @@ interface ClipOrderDialogProps {
   onClose: () => void
   /** Called with the clip that was put in the queue (the montage editor then opens its page). */
   onOrdered?: (clip: ClipResponse) => void
+  /** Opens the key field at once, for a signed-in visitor who chose "with the admin key" outside the dialog. */
+  keyFirst?: boolean
 }
 
 /**
@@ -365,7 +369,7 @@ interface ClipOrderDialogProps {
  * While the request is on its way the dialog cannot be closed, by its buttons, by Escape or by a click outside: the
  * request cannot be taken back, and what the backend says to it (the key is wrong, the queue is full) is shown here.
  */
-export default function ClipOrderDialog({ order, onClose, onOrdered }: ClipOrderDialogProps) {
+export default function ClipOrderDialog({ order, onClose, onOrdered, keyFirst }: ClipOrderDialogProps) {
   const t = useT()
   const [sending, setSending] = useState(false)
   return (
@@ -401,6 +405,7 @@ export default function ClipOrderDialog({ order, onClose, onOrdered }: ClipOrder
             onSendingChange={setSending}
             onClose={onClose}
             onOrdered={onOrdered}
+            keyFirst={keyFirst}
           />
         )}
       </DialogContent>
