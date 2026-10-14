@@ -9,6 +9,7 @@ import io.csfaceit.backend.faceit.FaceitGateway;
 import io.csfaceit.backend.faceit.FaceitRejectedException;
 import io.csfaceit.backend.faceit.dto.FaceitHistoryItem;
 import io.csfaceit.backend.faceit.dto.FaceitMatchHistory;
+import io.csfaceit.backend.match.MatchSource;
 import io.csfaceit.backend.messaging.DemoImportWorker;
 import io.csfaceit.backend.messaging.DemoMetrics;
 import java.time.Clock;
@@ -262,12 +263,17 @@ public class FaceitSyncService {
             if (pastedLinks.peek(demoId).isEmpty()) {
                 // A demo that FACEIT had no address for waits out its time without asking FACEIT again at every run.
                 Instant lookAgainAt = waitingForLink.get(demoId);
-                if (reads <= 0 || (lookAgainAt != null && now.isBefore(lookAgainAt))) {
+                // A matchmaking match has no FACEIT address and FACEIT is never asked about it: only a pasted link
+                // queues its demo, so it goes to the case of a link that is gone below, and spends no read.
+                boolean matchmaking = MatchSource.isMatchmaking(matchId);
+                if ((!matchmaking && reads <= 0) || (lookAgainAt != null && now.isBefore(lookAgainAt))) {
                     continue;
                 }
-                reads--;
+                if (!matchmaking) {
+                    reads--;
+                }
                 try {
-                    demoUrl = demoService.faceitDemoUrl(matchId);
+                    demoUrl = matchmaking ? null : demoService.faceitDemoUrl(matchId);
                 } catch (NotFoundException e) {
                     failForMatchFaceitDoesNotGive(demoId, matchId, staleBefore);
                     continue;

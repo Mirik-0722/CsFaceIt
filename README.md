@@ -562,6 +562,10 @@ or about a player known only from demos:
 - The wrong-demo check of the analysis: the owner's SteamID has to be among the demo's players, or the demo is `FAILED`
   with `WRONG_MATCH`; a match without an owner is not checked. The map that the parser wrote from such a demo is
   forgotten with it (a matchmaking match has no map but its demo's), so that the right demo sets it again.
+- The player endpoints that read the database (`/players/{playerId}`, `/overview`, `/matches`, `/stats`,
+  `/highlights`, `/clips`) take `steam:<SteamID>` as `playerId` (1 to 20 digits); `/history` stays FACEIT's. All of them
+  read the same row for it: the placeholder `steam:<SteamID>` when there is one, else the FACEIT player that carries the
+  SteamID (whose id the profile then answers with).
 
 **How a matchmaking match comes into being.** The site learns of it from its first demo. An upload
 (`POST /api/v1/matches/mm-<id>/demo/upload`) or an import by link (`POST .../demo/import` with `{"url": "..."}`) for an
@@ -586,12 +590,22 @@ whose file turns out too large (`413`, also a small bzip2 file that expands beyo
 parser fills in the map, and a match without a start is placed at the moment its demo arrived. **With the admin key the
 match has no owner**, and the wrong-demo check above is then skipped with a `WARN`. Two first demos at once make one
 row: the second follows the rules of a stored match (its owner, or after the analysis a player of its demo). For an
-`mm-` id the database does not know, an import without a link and every other request is `404 MATCH_NOT_FOUND`. FACEIT
-is not asked at any step.
-- The player endpoints that read the database (`/players/{playerId}`, `/overview`, `/matches`, `/stats`,
-  `/highlights`, `/clips`) take `steam:<SteamID>` as `playerId` (1 to 20 digits); `/history` stays FACEIT's. All of them
-  read the same row for it: the placeholder `steam:<SteamID>` when there is one, else the FACEIT player that carries the
-  SteamID (whose id the profile then answers with).
+`mm-` id the database does not know, `GET /api/v1/matches/mm-…` and an import without a link answer
+`404 MATCH_NOT_FOUND`, and `GET …/demo` and `POST …/demo/analyze` answer `404 DEMO_NOT_FOUND`. FACEIT is not asked at
+any step.
+
+**A match whose first demo failed is open again.** A first demo binds the match to whoever brought it, checked only by
+the file's name. So that a file that is not the match's demo (a few bytes under the right name, or a link that answers
+`404`) does not keep it, a stored matchmaking match whose demo has never been `ANALYZED` and is now `FAILED` (whatever
+the reason), or that has no demo, is open to a first demo again: any signed-in user, or the admin key, who brings a
+demo under Valve's name of it is taken for its first bringer. In one transaction, under the lock of the demo's row (of
+the match's row when it has none), the match becomes theirs (no one's for the key) and the demo is queued or stored
+again; the limits count as for any first demo. "Never `ANALYZED`" is read from the analysis' own rows (no
+`player_match_stats` row of the match with `rounds_played`). While such a demo is `QUEUED`, `STORED` or `PARSED` the
+rules above stay, so the real player waits for it to fail and then takes over; a match `ANALYZED` once never changes
+owner. The price: a real owner whose demo failed can be displaced by another player's demo of the same match, which
+passes the wrong-demo check only if its bringer is among its players. An open match keeps taking a file under another
+name from its owner, the admin key or an administrator, without a change of owner.
 
 One person, one row: at every sign-in the visitor's SteamID is written onto their linked FACEIT player (taken from
 another row that held it: the latest proof wins), so the parser files their matchmaking kills under that one player.
@@ -880,6 +894,10 @@ What counts is what was **started**:
   all (a concurrent request queued the same one, which is then the answer), nothing is counted.
 - The counted actions are the rows of `user_actions`; those older than the window plus a day are removed once a day
   (04:45 server time).
+- **The limits are all that bounds copies of one demo for now.** A user can rename a demo of their own to other Valve
+  match ids (made-up ones, or other games'): each copy passes the wrong-demo check, because they are among its
+  players, and is analyzed as a matchmaking match of its own, so the same game can appear as several matches. Telling
+  one demo file from another by a hash of its content is a later task (it needs a migration).
 
 The refusal says when the next place frees: the oldest counted action plus the window (with more counted than a
 limit that was lowered allows, the action whose leaving brings the count below the limit), as `retryAt` in the body
