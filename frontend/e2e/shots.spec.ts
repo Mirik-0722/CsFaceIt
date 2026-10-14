@@ -857,6 +857,8 @@ function answersFor(backend: Backend): Map<string, Reply> {
         ? { body: backend.breakdown }
         : { status: 500, body: { code: 'INTERNAL_ERROR', message: 'Internal error' } },
     ],
+    // The CS2 link is off, as on a server without its settings, unless a scenario of the CS2 block answers otherwise.
+    [LINK_ANSWER, LINK_OFF],
     ...backend.extra,
   ])
 }
