@@ -9,6 +9,7 @@ import {
   matchHighlightsFixture,
   playerFixture,
   playerHighlightsFixture,
+  playerMatchesFixture,
   playerOverviewFixture,
   playerStatsFixture,
   recorderStatusFixture,
@@ -26,6 +27,8 @@ const API_RESPONSES = new Map<string, unknown>([
   [`GET /api/v1/players/${PLAYER_ID}/stats`, playerStatsFixture],
   [`GET /api/v1/players/${PLAYER_ID}/overview`, playerOverviewFixture],
   [`GET /api/v1/players/${PLAYER_ID}/highlights?offset=0&limit=6`, playerHighlightsFixture],
+  // The stored matches, where the profile's history rows find their map, figures and highlight.
+  [`GET /api/v1/players/${PLAYER_ID}/matches?offset=0&limit=20`, playerMatchesFixture],
   // No clip has been recorded in this flow: both lists are empty, and the recorder is asked about on the match page.
   [`GET /api/v1/players/${PLAYER_ID}/clips?offset=0&limit=12`, { items: [], offset: 0, limit: 12 }],
   [`GET /api/v1/matches/${WON_MATCH_ID}`, matchFixture],
