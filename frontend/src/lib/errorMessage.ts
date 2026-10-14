@@ -51,6 +51,15 @@ export function errorMessage(error: Error, t: Messages): string {
     if (error.code === 'CLIP_TOO_LONG') {
       return t.clip.errors.tooLong
     }
+    if (error.code === 'INVALID_SEGMENTS') {
+      return t.montage.errors.invalidSegments
+    }
+    if (error.code === 'INVALID_MONTAGE_OPTION') {
+      return t.montage.errors.invalidOption
+    }
+    if (error.code === 'PLAYER_NOT_IN_MATCH') {
+      return t.montage.errors.playerNotInMatch
+    }
     if (error.code === 'NO_KILLS') {
       return t.clip.errors.noKills
     }
