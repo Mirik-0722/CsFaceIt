@@ -8,14 +8,19 @@ const SIDE_CLASS: Record<Side, string> = { CT: 'text-side-ct', T: 'text-side-t' 
 
 interface KillFeedRowProps {
   killer: string
-  killerSide: Side
+  /** Null when the demo does not say: the name is then in the plain text colour. */
+  killerSide: Side | null
   /** The weapon as it is shown (`AK-47`). */
   weapon: string
   /** Draws the mark between the weapon and the victim. */
   headshot?: boolean
   victim: string
-  victimSide: Side
+  victimSide: Side | null
   className?: string
+}
+
+function sideClass(side: Side | null): string {
+  return side ? SIDE_CLASS[side] : 'text-foreground'
 }
 
 /**
@@ -42,7 +47,7 @@ export default function KillFeedRow({
         className,
       )}
     >
-      <span className={SIDE_CLASS[killerSide]}>{killer}</span>
+      <span className={sideClass(killerSide)}>{killer}</span>
       <span className="text-muted-foreground">{weapon}</span>
       {headshot && (
         // A ring with a dot in it, the mark of a headshot in the game's own kill feed.
@@ -51,7 +56,7 @@ export default function KillFeedRow({
           <circle cx="6" cy="6" r="1.4" fill="currentColor" />
         </svg>
       )}
-      <span className={SIDE_CLASS[victimSide]}>{victim}</span>
+      <span className={sideClass(victimSide)}>{victim}</span>
     </div>
   )
 }
