@@ -10,7 +10,9 @@ import {
   usePlayerMatches,
   useSyncMatches,
 } from '@/api/overview'
+import { useMe } from '@/api/auth'
 import { usePlayer } from '@/api/queries'
+import Cs2LinkBox from '@/components/Cs2LinkBox'
 import DemoBringingFeed from '@/components/DemoBringingFeed'
 import DemoDropOverlay from '@/components/DemoDropOverlay'
 import DemoUploadBox from '@/components/DemoUploadBox'
@@ -20,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
+import { steamPlayerId } from '@/lib/matchSource'
 import { useDemoBringing } from '@/lib/useDemoBringing'
 import { useViewer } from '@/lib/viewer'
 
@@ -51,8 +54,8 @@ function isIn(filter: Filter, match: PlayerMatchResponse): boolean {
 /**
  * The player's matches in a table, a page at a time, under three filters that work on the rows loaded so far (each
  * carries how many rows it shows), with the recorder beside them. The signed-in player's own matches also bring demos
- * in: a box beside the rows, an action on the rows that have none, and the whole page as a place to drop a file on.
- * A failure stays inside the part that failed.
+ * in: a box beside the rows, an action on the rows that have none, and the whole page as a place to drop a file on;
+ * beside them, the section that links the visitor's CS2 matchmaking games. A failure stays inside the part that failed.
  */
 function PlayerMatches({ playerId }: { playerId: string }) {
   const t = useT()
@@ -60,6 +63,11 @@ function PlayerMatches({ playerId }: { playerId: string }) {
   // The player's own page: the matches are the visitor's, so the visitor's demos can be brought for them.
   const viewer = useViewer()
   const own = viewer.signedIn && viewer.playerId === playerId
+  // The CS2 link is the signed-in user's own, on the page of the user's own matches: the FACEIT player's, or the one a
+  // user without FACEIT is known by (`steam:` and the user's SteamID).
+  const me = useMe().data
+  const linkOwner =
+    me && (own || (me.steamId !== null && playerId === steamPlayerId(me.steamId))) ? me.id : null
   // When this page first saw each PARSED row: one that stays PARSED for 30 minutes is shown as nothing is going on.
   // A map that is kept for the page's life and changed in place, so that it is a state only to stay the same object.
   const [parsedSeen] = useState<ParsedSeen>(() => new Map())
@@ -131,7 +139,7 @@ function PlayerMatches({ playerId }: { playerId: string }) {
         <input
           ref={rowInput}
           type="file"
-          accept=".dem,.gz,.zst"
+          accept=".dem,.gz,.zst,.bz2"
           tabIndex={-1}
           aria-hidden="true"
           className="hidden"
@@ -260,6 +268,7 @@ function PlayerMatches({ playerId }: { playerId: string }) {
           </div>
           <aside className="flex min-w-0 flex-[1_1_280px] flex-col gap-4">
             {own && <DemoUploadBox onFile={bring.bringFile} onLink={bring.bringLink} />}
+            {linkOwner !== null && <Cs2LinkBox userId={linkOwner} />}
             <RecorderCard />
           </aside>
         </div>
