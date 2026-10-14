@@ -25,7 +25,11 @@ import org.springframework.stereotype.Component;
  *   <li><b>Shape.</b> {@code http} or {@code https}; no user name or password; a host that is a plain ASCII host name,
  *       never an IP address in any of its spellings.</li>
  *   <li><b>Allow-list.</b> The scheme, the host and the port are one of {@code demo.link.allowed-origins}: an exact host,
- *       or {@code *.} and a domain for any name under it. A port that is not written is the scheme's own.</li>
+ *       {@code *.} and a domain for any name under it, or a first label with one {@code *} in it and a domain
+ *       ({@code replay*.valve.net}: a name of exactly one label more than {@code valve.net}, that label starting with
+ *       {@code replay}; the {@code *} stands for any letters, digits and hyphens, none included). A port that is not
+ *       written is the scheme's own. {@code http} is held to every rule {@code https} is (Valve's replay servers serve
+ *       plain {@code http}).</li>
  *   <li><b>Addresses.</b> Every address the name resolves to is public: loopback, any-local, link-local (which holds
  *       the cloud metadata address 169.254.169.254), site-local, multicast, 0.0.0.0/8, 100.64.0.0/10, 192.0.0.0/24,
  *       198.18.0.0/15, 240.0.0.0/4, fc00::/7 and 64:ff9b::/96 are refused, also inside an IPv6 address that carries an
@@ -49,6 +53,7 @@ public class LinkGuard {
 
     private static final String LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
     private static final Pattern HOST_NAME = Pattern.compile(LABEL + "(?:\\." + LABEL + ")*");
+    private static final Pattern ONE_LABEL = Pattern.compile(LABEL);
 
     /** A label that an IPv4 parser reads as a number: decimal, octal or hexadecimal. */
     private static final Pattern NUMERIC_LABEL = Pattern.compile("[0-9]+|0x[0-9a-f]*");
@@ -88,12 +93,21 @@ public class LinkGuard {
     public record CheckedHop(URI uri, String host, int port, List<InetAddress> addresses) {
     }
 
-    /** An entry of the allow-list: an exact host, or ({@code wildcard}) any name that ends with {@code .host}. */
-    private record AllowedOrigin(String scheme, String host, boolean wildcard, int port) {
+    /**
+     * An entry of the allow-list: an exact host; ({@code wildcard}) any name that ends with {@code .host}; or
+     * ({@code firstLabel} set) a name whose first label matches {@code firstLabel} and whose rest is exactly
+     * {@code host}.
+     */
+    private record AllowedOrigin(String scheme, String host, boolean wildcard, Pattern firstLabel, int port) {
 
         boolean matches(String scheme, String host, int port) {
             if (!this.scheme.equals(scheme) || this.port != port) {
                 return false;
+            }
+            if (firstLabel != null) {
+                int dot = host.indexOf('.');
+                return dot > 0 && host.substring(dot + 1).equals(this.host)
+                        && firstLabel.matcher(host.substring(0, dot)).matches();
             }
             return wildcard ? host.endsWith("." + this.host) : host.equals(this.host);
         }
@@ -293,15 +307,31 @@ public class LinkGuard {
         String scheme = matcher.group(1);
         String host = matcher.group(2);
         boolean wildcard = host.startsWith("*.");
+        Pattern firstLabel = null;
         String name = wildcard ? host.substring(2) : host;
-        if (!HOST_NAME.matcher(name).matches() || isNumeric(name) || (wildcard && !name.contains("."))) {
+        if (!wildcard && host.indexOf('*') >= 0) {
+            // replay*.valve.net: one * in the first label, which with a letter in its place is a label, and a domain.
+            int dot = host.indexOf('.');
+            String label = dot < 0 ? host : host.substring(0, dot);
+            int star = label.indexOf('*');
+            if (dot < 0 || star < 0 || host.indexOf('*', star + 1) >= 0
+                    || !ONE_LABEL.matcher(label.replace('*', 'a')).matches()) {
+                throw new IllegalStateException("demo.link.allowed-origins: a * stands for the first label or for "
+                        + "part of it, once, before a domain: " + entry);
+            }
+            firstLabel = Pattern.compile(Pattern.quote(label.substring(0, star)) + "[a-z0-9-]*"
+                    + Pattern.quote(label.substring(star + 1)));
+            name = host.substring(dot + 1);
+        }
+        if (!HOST_NAME.matcher(name).matches() || isNumeric(name)
+                || ((wildcard || firstLabel != null) && !name.contains("."))) {
             throw new IllegalStateException("demo.link.allowed-origins: the host has to be a host name, or *. and a "
-                    + "domain with at least two labels: " + entry);
+                    + "domain with at least two labels, or a first label with one * in it and such a domain: " + entry);
         }
         int port = matcher.group(3) == null ? (scheme.equals("https") ? 443 : 80) : Integer.parseInt(matcher.group(3));
         if (port < 1 || port > 65535) {
             throw new IllegalStateException("demo.link.allowed-origins: the port is out of range: " + entry);
         }
-        return new AllowedOrigin(scheme, name, wildcard, port);
+        return new AllowedOrigin(scheme, name, wildcard, firstLabel, port);
     }
 }

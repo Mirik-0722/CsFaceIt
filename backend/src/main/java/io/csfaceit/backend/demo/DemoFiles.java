@@ -1,12 +1,15 @@
 package io.csfaceit.backend.demo;
 
 import com.github.luben.zstd.ZstdOutputStream;
+import java.io.BufferedInputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.zip.GZIPInputStream;
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
 import org.springframework.util.unit.DataSize;
 
 /**
@@ -22,8 +25,21 @@ final class DemoFiles {
 
     private static final byte[] GZIP_MAGIC = {0x1f, (byte) 0x8b};
     private static final byte[] ZSTD_MAGIC = {0x28, (byte) 0xb5, 0x2f, (byte) 0xfd};
+    /** {@code BZh}: the start of every bzip2 stream, the form Valve's replay servers give a matchmaking demo in. */
+    private static final byte[] BZIP2_MAGIC = {'B', 'Z', 'h'};
 
     private DemoFiles() {
+    }
+
+    /**
+     * A bzip2 file that cannot be unpacked: its blocks are damaged, it is cut off, or something that is no bzip2
+     * follows a stream. Told apart from a failure to write the result, which is the server's and no fault of the file.
+     */
+    static final class CorruptBzip2Exception extends IOException {
+
+        CorruptBzip2Exception(Exception cause) {
+            super("The file is not a valid bzip2 archive", cause);
+        }
     }
 
     /**
@@ -76,15 +92,17 @@ final class DemoFiles {
     }
 
     /**
-     * Brings a demo file to zstd, by its first bytes and not by its name: zstd is kept as it is, gzip is unpacked and
-     * compressed again, anything else is taken for a raw demo and compressed. The result is either {@code source}
-     * itself or a new temporary file, in which case {@code source} is deleted; when this method fails, {@code source}
-     * is left for the caller to delete. A demo that expands beyond {@code limit} is refused.
+     * Brings a demo file to zstd, by its first bytes and not by its name: zstd is kept as it is, gzip and bzip2 are
+     * unpacked and compressed again, anything else is taken for a raw demo and compressed. The result is either
+     * {@code source} itself or a new temporary file, in which case {@code source} is deleted; when this method fails,
+     * {@code source} is left for the caller to delete. A demo that expands beyond {@code limit} is refused, so a small
+     * archive that unpacks to far more (a "bomb") is refused like a large file.
      *
      * @return the zstd file; the caller deletes it
      * @throws DemoDownloadRejectedException the demo is larger than {@code limit}
      * @throws DemoDownloadException the file could not be read or compressed (a corrupt gzip file is the
-     *         {@link java.util.zip.ZipException} or {@link java.io.EOFException} cause)
+     *         {@link java.util.zip.ZipException} or {@link java.io.EOFException} cause, a corrupt bzip2 file the
+     *         {@link CorruptBzip2Exception} cause)
      */
     static Path normalize(Path source, DataSize limit) {
         try {
@@ -93,11 +111,12 @@ final class DemoFiles {
                 return source;
             }
             boolean gzip = startsWith(head, GZIP_MAGIC);
+            boolean bzip2 = startsWith(head, BZIP2_MAGIC);
             Path target = createTempFile();
             boolean done = false;
             try {
                 try (InputStream file = Files.newInputStream(source);
-                     InputStream in = gzip ? new GZIPInputStream(file, BUFFER_SIZE) : file;
+                     InputStream in = gzip ? new GZIPInputStream(file, BUFFER_SIZE) : bzip2 ? bzip2(file) : file;
                      OutputStream targetFile = Files.newOutputStream(target);
                      OutputStream out = new ZstdOutputStream(targetFile, ZSTD_LEVEL)) {
                     copyBounded(in, out, limit);
@@ -115,6 +134,40 @@ final class DemoFiles {
         } catch (IOException e) {
             throw new DemoDownloadException("The demo file could not be compressed", e);
         }
+    }
+
+    /**
+     * Unpacks bzip2, also several streams one after the other (as a parallel compressor writes them). The decoder reads
+     * the file a bit at a time, so the file is buffered beneath it. Whatever the decoder fails with, when it starts or
+     * while it reads, is a {@link CorruptBzip2Exception}: what is beneath it is a local temporary file, so the failure
+     * is the file's, and a decoder of a file from outside must not end the request with anything less plain.
+     */
+    private static InputStream bzip2(InputStream file) throws IOException {
+        BZip2CompressorInputStream decoder;
+        try {
+            decoder = new BZip2CompressorInputStream(new BufferedInputStream(file, BUFFER_SIZE), true);
+        } catch (IOException | RuntimeException e) {
+            throw new CorruptBzip2Exception(e);
+        }
+        return new FilterInputStream(decoder) {
+            @Override
+            public int read() throws IOException {
+                try {
+                    return super.read();
+                } catch (IOException | RuntimeException e) {
+                    throw new CorruptBzip2Exception(e);
+                }
+            }
+
+            @Override
+            public int read(byte[] buffer, int offset, int length) throws IOException {
+                try {
+                    return super.read(buffer, offset, length);
+                } catch (IOException | RuntimeException e) {
+                    throw new CorruptBzip2Exception(e);
+                }
+            }
+        };
     }
 
     /** Copies at most {@code limit} bytes, counting what really arrives instead of believing a length header. */

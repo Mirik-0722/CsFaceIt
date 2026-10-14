@@ -12,6 +12,7 @@ import io.csfaceit.backend.faceit.FaceitGateway;
 import io.csfaceit.backend.faceit.FaceitNotFoundException;
 import io.csfaceit.backend.faceit.dto.FaceitMatch;
 import io.csfaceit.backend.match.DemoScoreboard;
+import io.csfaceit.backend.match.Match;
 import io.csfaceit.backend.match.MatchRepository;
 import io.csfaceit.backend.match.MatchService;
 import io.csfaceit.backend.match.MatchSource;
@@ -31,8 +32,11 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.zip.ZipException;
 import org.slf4j.Logger;
@@ -57,10 +61,15 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
  * user fails with the answer of a FACEIT that is unavailable, before anything is stored: a roster that cannot be read
  * lets nobody in.
  *
- * <p>A matchmaking match ({@code mm-<id>}, {@link MatchSource#MATCHMAKING}) is never asked of FACEIT: it has to be
- * stored already, its members are its owner and the players of its parsed demo
- * ({@link Access#requireMatchmakingMember}), it has no roster to map and no FACEIT demo address, so only a link or an
- * upload brings its demo.
+ * <p>A matchmaking match ({@code mm-<id>}, {@link MatchSource#MATCHMAKING}) is never asked of FACEIT: its members are
+ * its owner and the players of its analyzed demo ({@link Access#requireMatchmakingMember}), it has no roster to map and
+ * no FACEIT demo address, so only a link or an upload brings its demo. One the database does not know yet is made by
+ * its first demo: an upload, or an import by link, whose file has Valve's name of this very match
+ * ({@link DemoFileName}). Whoever is signed in may bring it (the admin key too), and the match is theirs: its row is
+ * created with them as its owner in the transaction that creates its demo, after every check that can refuse the
+ * request, so that a refused request leaves no match behind (see {@link DemoPersistence#queueNewMatchmaking} and
+ * {@link DemoPersistence#restoreNewMatchmaking}). From then on the rules of a stored match apply, also to the second of
+ * two first demos that arrive at once.
  *
  * <p>A user does so much per day ({@link UsageService}): an import and a request for a missing analysis count as
  * {@link UsageKind#DEMO_IMPORT}, an upload as {@link UsageKind#DEMO_UPLOAD} (the controller takes that place, before
@@ -70,6 +79,12 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
  */
 @Service
 public class DemoService {
+
+    /**
+     * The first upload of a matchmaking match the database does not know has a file whose name is not Valve's name of
+     * this match. (A link's name has its own code, {@link DemoLinkRefusedException#DEMO_LINK_MISMATCH}.)
+     */
+    public static final String DEMO_FILE_MISMATCH = "DEMO_FILE_MISMATCH";
 
     private static final String DEMO_NOT_FOUND = "DEMO_NOT_FOUND";
     private static final String DEMO_URL_UNAVAILABLE = "DEMO_URL_UNAVAILABLE";
@@ -165,6 +180,10 @@ public class DemoService {
      * have a demo address for the match, and its import always counts as one of the user's day, because unlike
      * FACEIT's own address without the Downloads API it can work.
      *
+     * <p>For a matchmaking match the database does not know yet, the link makes the match: its name has been checked to
+     * be Valve's name of this match, and the match is created, owned by the actor, in the transaction that queues its
+     * demo and takes the place of the limit (see {@link #queueStep}). Without a link such a match is not found.
+     *
      * @throws DemoLinkRefusedException {@code DEMO_LINK_INVALID}, {@code DEMO_LINK_HOST_NOT_ALLOWED} or
      *         {@code DEMO_LINK_MISMATCH}; nothing is queued or counted
      */
@@ -177,7 +196,7 @@ public class DemoService {
         boolean matchmaking = MatchSource.isMatchmaking(faceitMatchId);
         String demoUrl = matchmaking ? null : matchService.getMatch(faceitMatchId).demoUrl();
         boolean demoUrlAvailable = link != null || (demoUrl != null && !demoUrl.isBlank());
-        long matchRowId = matchmaking ? matchmakingRowId(faceitMatchId) : mapRosterSteamIds(faceitMatchId);
+        QueueStep step = queueStep(actor, faceitMatchId, link != null, demoUrlAvailable);
 
         // The place this request takes, if it queues something. A repeat of the step after a lost race starts from a
         // transaction that was rolled back, and the place it had taken with it.
@@ -187,9 +206,7 @@ public class DemoService {
             queued = persistWithRetry("demo of match " + faceitMatchId,
                     () -> {
                         place.set(null);
-                        // What the site does by itself never takes up a demo that has a row (FAILED included).
-                        return persistence.queue(matchRowId, demoUrlAvailable, actor.kind() != Actor.Kind.SYSTEM,
-                                publish -> {
+                        return step.queue(publish -> {
                             if (link != null || countsAsImport(publish)) {
                                 place.set(usage.reserve(actor, UsageKind.DEMO_IMPORT));
                             }
@@ -203,7 +220,7 @@ public class DemoService {
             // A request of the same user that ran at the same moment (a double click) may have queued the demo and
             // taken the last place while this one waited for it. Then the demo stands, and asking for a demo that
             // stands is not counted: the look is repeated, and it refuses only if it would still queue something.
-            queued = persistence.queue(matchRowId, demoUrlAvailable, publish -> {
+            queued = step.queue(publish -> {
                 throw refused;
             }).orElseThrow(() -> refused);
         }
@@ -230,6 +247,41 @@ public class DemoService {
             throw e;
         }
         return toResponse(faceitMatchId, demo);
+    }
+
+    /** One run of the transaction that queues the demo of the request's match (see {@link #queueStep}). */
+    @FunctionalInterface
+    private interface QueueStep {
+
+        Optional<Queued> queue(Consumer<DemoPersistence.Publish> beforeQueued);
+    }
+
+    /**
+     * The transaction that queues the demo, for the match of the request. A FACEIT match is stored first, with the
+     * SteamIDs of its roster, and a stored matchmaking match is taken as it is. A matchmaking match the database does
+     * not know is made by the transaction itself, from the link, owned by the actor (nobody for the admin key); should
+     * another request make it first, the rules of a stored match are asked in that transaction
+     * ({@link #requireMatchmakingMember}). What the site does by itself never takes up a demo that has a row (FAILED
+     * included).
+     *
+     * @throws NotFoundException {@code MATCH_NOT_FOUND}: a matchmaking match the database does not know, and no link
+     */
+    private QueueStep queueStep(Actor actor, String matchId, boolean withLink, boolean demoUrlAvailable) {
+        boolean reviveExisting = actor.kind() != Actor.Kind.SYSTEM;
+        if (!MatchSource.isMatchmaking(matchId)) {
+            long matchRowId = mapRosterSteamIds(matchId);
+            return beforeQueued -> persistence.queue(matchRowId, demoUrlAvailable, reviveExisting, beforeQueued);
+        }
+        Optional<Long> stored = matches.findByFaceitMatchId(matchId).map(Match::getId);
+        if (stored.isPresent()) {
+            long matchRowId = stored.get();
+            return beforeQueued -> persistence.queue(matchRowId, demoUrlAvailable, reviveExisting, beforeQueued);
+        }
+        if (!withLink) {
+            throw new NotFoundException(MATCH_NOT_FOUND, "Match not found: " + matchId);
+        }
+        return beforeQueued -> persistence.queueNewMatchmaking(matchId, actor.userId(),
+                () -> requireMatchmakingMember(actor, matchId), beforeQueued);
     }
 
     /**
@@ -282,8 +334,8 @@ public class DemoService {
 
     /**
      * Takes the demo file of the match from the caller instead of FACEIT. The file is stored as zstd whatever it came
-     * as (raw, gzip or zstd), under the key the import worker uses, and the demo becomes STORED and is announced on
-     * {@code demo.parse} once that is committed. A manual upload stores from any status, so it also repairs a FAILED
+     * as (raw, gzip, zstd or bzip2), under the key the import worker uses, and the demo becomes STORED and is announced
+     * on {@code demo.parse} once that is committed. A manual upload stores from any status, so it also repairs a FAILED
      * import and, deliberately, parses a PARSED or ANALYZED demo again. An import that is still downloading never
      * overwrites the demo row afterwards (the worker checks that the demo is still QUEUED before it stores its file,
      * and {@link DemoPersistence#markStored} needs it to be QUEUED). The uploaded object is less safe: the import's
@@ -302,7 +354,15 @@ public class DemoService {
      * look and the {@code put}, in which a demo that becomes PARSED is parsed again from the user's file, which the
      * analysis then checks against the roster like any other.
      *
+     * <p>A matchmaking match the database does not know yet is made by its first upload: the name of the file has to be
+     * Valve's name of this match ({@link DemoFileName}; else 400 {@code DEMO_FILE_MISMATCH}), asked before the file is
+     * read, and the match is created, owned by the actor (nobody for the admin key), in the transaction that stores the
+     * demo row: after the file has been received, unpacked and stored, so that an upload that fails on its way (too
+     * large, damaged) leaves no match behind. Should another request make the match first, the rules of a stored match
+     * are asked in that transaction ({@link #requireMatchmakingMember}).
+     *
      * @param actor who uploads
+     * @param fileName the name the file came with, which the first upload of a matchmaking match is checked by
      * @param content the file, already known to be non-empty and to have a demo's file name; it is read once and not
      *        closed here
      * @param stored runs once the demo row is stored, which is the moment from which the upload has started something
@@ -311,24 +371,34 @@ public class DemoService {
      * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_IN_MATCH}: the user did not play the match
      * @throws ConflictException {@code DEMO_ALREADY_PARSED}: a user uploads over a demo that has been parsed
      * @throws NotFoundException {@code MATCH_NOT_FOUND}: FACEIT does not know the match
-     * @throws BadRequestException the file is a corrupt gzip archive
+     * @throws BadRequestException the file is a corrupt gzip or bzip2 archive; {@code DEMO_FILE_MISMATCH}: the first
+     *         demo of a matchmaking match has another name
      * @throws MaxUploadSizeExceededException the file, or what it expands to, is larger than the allowed size
      */
-    public DemoResponse upload(Actor actor, String faceitMatchId, InputStream content, Runnable stored) {
+    public DemoResponse upload(Actor actor, String faceitMatchId, String fileName, InputStream content,
+                               Runnable stored) {
         requireUploadAllowed(actor, faceitMatchId);
-        long matchRowId;
+        Function<String, Demo> restore;
         if (MatchSource.isMatchmaking(faceitMatchId)) {
-            matchRowId = matchmakingRowId(faceitMatchId);
+            Optional<Long> storedMatch = matches.findByFaceitMatchId(faceitMatchId).map(Match::getId);
+            if (storedMatch.isPresent()) {
+                long matchRowId = storedMatch.get();
+                restore = storageKey -> persistence.restore(matchRowId, storageKey);
+            } else {
+                requireFirstDemoName(actor, faceitMatchId, fileName);
+                restore = storageKey -> persistence.restoreNewMatchmaking(faceitMatchId, actor.userId(),
+                        () -> requireMatchmakingMember(actor, faceitMatchId), storageKey);
+            }
         } else {
             matchService.getMatch(faceitMatchId);
-            matchRowId = mapRosterSteamIds(faceitMatchId);
+            long matchRowId = mapRosterSteamIds(faceitMatchId);
+            restore = storageKey -> persistence.restore(matchRowId, storageKey);
         }
 
         String storageKey = DemoImportWorker.storageKey(faceitMatchId);
         storeUpload(content, storageKey, () -> requireDemoReplaceable(actor, faceitMatchId));
 
-        Demo demo = persistWithRetry("demo of match " + faceitMatchId,
-                () -> persistence.restore(matchRowId, storageKey));
+        Demo demo = persistWithRetry("demo of match " + faceitMatchId, () -> restore.apply(storageKey));
         stored.run();
         log.info("Stored the uploaded demo {} of match {} as {}", demo.getId(), faceitMatchId, storageKey);
         storedPublisher.publish(demo.getId(), faceitMatchId, storageKey);
@@ -436,23 +506,39 @@ public class DemoService {
     /**
      * The rule of {@link Access#requireMatchmakingMember} for a matchmaking match, from the database alone: its owner,
      * and once its demo is ANALYZED (it has passed the wrong-demo check) the SteamIDs of the demo's players. A match the
-     * database does not know is not found (the key and an administrator learn that from the step after this one).
+     * database does not know is nobody's yet: any signed-in user may bring its first demo, which makes it theirs, so
+     * nothing is refused here; the name of the file and the limit per day decide (see the class comment), and a request
+     * that brings no demo learns from the step after this one that the match is not found.
      */
     private void requireMatchmakingMember(Actor actor, String matchId) {
         if (actor.unlimited()) {
             return;
         }
-        DemoScoreboard.StoredMatch match = scoreboard.find(matchId)
-                .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND, "Match not found: " + matchId));
+        Optional<DemoScoreboard.StoredMatch> stored = scoreboard.find(matchId);
+        if (stored.isEmpty()) {
+            return;
+        }
+        DemoScoreboard.StoredMatch match = stored.get();
         access.requireMatchmakingMember(actor, match.ownerUserId(),
                 () -> match.analyzed() ? scoreboard.steamIds(match.id()) : Set.of());
     }
 
-    /** The row of a stored matchmaking match, which only the database knows. */
-    private long matchmakingRowId(String matchId) {
-        return matches.findByFaceitMatchId(matchId)
-                .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND, "Match not found: " + matchId))
-                .getId();
+    /**
+     * The first demo of a matchmaking match makes the match, so its file has to say which match it is: its name has to
+     * be Valve's name of this match ({@link DemoFileName}). Otherwise any file could make a match of any id.
+     *
+     * @throws BadRequestException {@code DEMO_FILE_MISMATCH}
+     */
+    private static void requireFirstDemoName(Actor actor, String matchId, String fileName) {
+        if (DemoFileName.matchId(fileName).map(matchId::equalsIgnoreCase).orElse(false)) {
+            return;
+        }
+        log.info("Refused the first demo of match {} from {}: the file has another name [{}]", matchId,
+                describe(actor), DEMO_FILE_MISMATCH);
+        throw new BadRequestException(DEMO_FILE_MISMATCH, "The file is not the demo of match " + matchId
+                + ": a matchmaking match the site does not know yet is made by its first demo, whose name has to be "
+                + "Valve's name of it, <match id>_<number>.dem.bz2 (or .dem), or "
+                + "match730_<match id>_<number>_<number>.dem");
     }
 
     private FaceitMatch roster(String faceitMatchId) {
@@ -494,6 +580,9 @@ public class DemoService {
         } catch (DemoDownloadException e) {
             if (e.getCause() instanceof ZipException || e.getCause() instanceof EOFException) {
                 throw new BadRequestException("The file is not a valid gzip archive");
+            }
+            if (e.getCause() instanceof DemoFiles.CorruptBzip2Exception) {
+                throw new BadRequestException("The file is not a valid bzip2 archive");
             }
             throw e;
         } finally {

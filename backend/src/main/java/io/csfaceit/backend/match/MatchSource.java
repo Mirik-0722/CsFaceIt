@@ -1,5 +1,7 @@
 package io.csfaceit.backend.match;
 
+import java.util.Optional;
+
 /**
  * Where a match comes from ({@code matches.source}).
  *
@@ -29,5 +31,34 @@ public enum MatchSource {
     /** Whether the public match id is a matchmaking match's, which FACEIT must not be asked about. */
     public static boolean isMatchmaking(String matchId) {
         return ofMatchId(matchId) == MATCHMAKING;
+    }
+
+    /**
+     * The public id of the matchmaking match whose Valve match id is {@code digits}: {@code mm-} and the id in decimal,
+     * without the zeros Valve pads it with in a file name. Valve's match id is an unsigned 64-bit number, so after the
+     * zeros it is 1 to 20 digits, not 0, and at most 2^64 - 1; anything else names no match. This is the one rule for
+     * such ids: every place that turns a Valve match id into a match of this site goes through it.
+     *
+     * @param digits the match id as Valve writes it, decimal digits only, possibly zero-padded
+     * @return {@code mm-<id>}, or empty when {@code digits} is not a Valve match id
+     */
+    public static Optional<String> matchmakingId(String digits) {
+        if (digits == null || digits.isEmpty() || !digits.chars().allMatch(c -> c >= '0' && c <= '9')) {
+            return Optional.empty();
+        }
+        int start = 0;
+        while (start < digits.length() && digits.charAt(start) == '0') {
+            start++;
+        }
+        String id = digits.substring(start);
+        if (id.isEmpty() || id.length() > 20) {
+            return Optional.empty();
+        }
+        try {
+            Long.parseUnsignedLong(id);
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+        return Optional.of(MATCHMAKING_PREFIX + id);
     }
 }

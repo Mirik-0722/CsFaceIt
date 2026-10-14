@@ -2,11 +2,13 @@ package io.csfaceit.backend.demo;
 
 import io.csfaceit.backend.match.Match;
 import io.csfaceit.backend.match.MatchRepository;
+import io.csfaceit.backend.match.MatchSource;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.function.Consumer;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,14 +40,26 @@ public class DemoPersistence {
      */
     static final Duration STALE_AFTER = Duration.ofMinutes(10);
 
+    /**
+     * Creates the row of a matchmaking match, unless a row with its id is there. A row that another transaction is
+     * inserting at the same moment is waited for: when that one commits, nothing is inserted and no id comes back.
+     */
+    private static final String INSERT_MATCHMAKING_SQL = """
+            INSERT INTO matches (faceit_match_id, source, owner_user_id)
+            VALUES (:matchId, :source, :ownerUserId)
+            ON CONFLICT (faceit_match_id) DO NOTHING
+            RETURNING id""";
+
     private final DemoRepository demos;
     private final MatchRepository matches;
     private final Clock clock;
+    private final JdbcClient jdbc;
 
-    public DemoPersistence(DemoRepository demos, MatchRepository matches, Clock clock) {
+    public DemoPersistence(DemoRepository demos, MatchRepository matches, Clock clock, JdbcClient jdbc) {
         this.demos = demos;
         this.matches = matches;
         this.clock = clock;
+        this.jdbc = jdbc;
     }
 
     /** The message the caller of {@link #queue} has to publish once the transaction has committed. */
@@ -136,6 +150,23 @@ public class DemoPersistence {
             existing.touch();
         }
         return Optional.of(new Queued(demos.saveAndFlush(existing), Publish.IMPORT));
+    }
+
+    /**
+     * Like {@link #queue(long, boolean, Consumer)} with a link to the demo, for a matchmaking match that the database
+     * did not know when the request began: the match's row is created here, in the transaction that creates its demo
+     * (see {@link #matchmakingRow}). A request that {@code beforeQueued} refuses (the limit per day) therefore leaves
+     * neither row behind.
+     *
+     * @param ownerUserId the user who brings the match in; {@code null} for the admin key, and the match then has no
+     *        owner
+     * @param storedMeanwhile runs when another request created the match first; it refuses by throwing what the rules
+     *        of a stored match refuse, and nothing is written then
+     */
+    @Transactional
+    public Optional<Queued> queueNewMatchmaking(String matchId, Long ownerUserId, Runnable storedMeanwhile,
+                                                Consumer<Publish> beforeQueued) {
+        return queue(matchmakingRow(matchId, ownerUserId, storedMeanwhile), true, true, beforeQueued);
     }
 
     /**
@@ -268,6 +299,45 @@ public class DemoPersistence {
         }
         demo.restore(storageKey);
         return demos.saveAndFlush(demo);
+    }
+
+    /**
+     * Like {@link #restore}, for a matchmaking match that the database did not know when the upload began: the match's
+     * row is created here, in the transaction that stores its demo (see {@link #matchmakingRow}), so an upload that is
+     * refused before (a file too large or damaged, a name of another match) leaves no row behind.
+     *
+     * @param ownerUserId the user who brings the match in; {@code null} for the admin key
+     * @param storedMeanwhile runs when another request created the match first; it refuses by throwing, and nothing is
+     *        written then
+     */
+    @Transactional
+    public Demo restoreNewMatchmaking(String matchId, Long ownerUserId, Runnable storedMeanwhile, String storageKey) {
+        return restore(matchmakingRow(matchId, ownerUserId, storedMeanwhile), storageKey);
+    }
+
+    /**
+     * The row of a matchmaking match, created if there is none: {@code source} MATCHMAKING, the owner, and no map or
+     * time (the parser fills the map from the demo, and a match without a start is placed at its demo's time). Of two
+     * requests that create the same match at once, one inserts the row and the other waits for that insert and then
+     * finds the row: the second is no longer the first demo of the match, and {@code storedMeanwhile} applies the
+     * rules of a stored match to it.
+     *
+     * @return the id of the row
+     */
+    private long matchmakingRow(String matchId, Long ownerUserId, Runnable storedMeanwhile) {
+        Optional<Long> created = jdbc.sql(INSERT_MATCHMAKING_SQL)
+                .param("matchId", matchId)
+                .param("source", MatchSource.MATCHMAKING.name())
+                .param("ownerUserId", ownerUserId)
+                .query(Long.class)
+                .optional();
+        if (created.isPresent()) {
+            return created.get();
+        }
+        storedMeanwhile.run();
+        return matches.findByFaceitMatchId(matchId)
+                .orElseThrow(() -> new IllegalStateException("Match " + matchId + " is not stored"))
+                .getId();
     }
 
     /**
