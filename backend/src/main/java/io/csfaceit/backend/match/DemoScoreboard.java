@@ -248,7 +248,10 @@ public class DemoScoreboard {
         return new MatchStatsResponse(stored.matchId(), stored.mapName(), rounds, teams);
     }
 
-    /** The score of each match of {@code matchRowIds} whose demo has been parsed; a match without rounds is absent. */
+    /**
+     * The score of each match of {@code matchRowIds} whose demo is {@code ANALYZED}; a match without such a demo or
+     * without rounds is absent.
+     */
     public Map<Long, Score> scores(Collection<Long> matchRowIds) {
         Map<Long, Score> scores = new HashMap<>();
         if (matchRowIds.isEmpty()) {

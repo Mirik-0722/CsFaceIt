@@ -148,29 +148,45 @@ public class PlayerOverviewService {
      * {@code PARSED} and {@code ANALYZED}, and a {@code WRONG_MATCH} demo keeps the parser's rows): before that a match is
      * on nobody's list by its players, and his numbers are not read. Its owner still finds it in his list, with the
      * demo's status, so that he sees what became of the demo he brought.
+     *
+     * <p>The person's matches are found first, by index, and only they are then read, ranged, ordered and paged:
+     * {@code own} joins two lookups with {@code UNION} (which also drops a match found by both), the matches brought in
+     * by the users who are him ({@code idx_matches_owner}, the users themselves by {@code idx_users_player} and their
+     * unique SteamID) and the matches of the {@code ANALYZED} demos he is among the players of
+     * ({@code idx_round_players_player}). One condition joining the two with {@code OR} could only be checked match by
+     * match, which read every matchmaking match of the database for each list. No index serves the range or the order:
+     * the time a match is listed at is taken across the join with its demo, and it is worked out for the person's own
+     * matches only.
      */
     private static final String MATCHMAKING_ROWS_SQL = """
             WITH person AS (SELECT id, steam_id FROM players WHERE faceit_id = :playerId),
             owners AS (
                 SELECT u.id
                 FROM users u
-                WHERE u.player_id IN (SELECT id FROM person)
+                WHERE u.player_id = (SELECT id FROM person)
                    OR u.steam_id = (SELECT steam_id FROM person)
-                   OR u.steam_id = :ownSteamId)
+                   OR u.steam_id = :ownSteamId),
+            own AS (
+                SELECT m.id AS match_id
+                FROM matches m
+                WHERE m.owner_user_id IN (SELECT id FROM owners)
+                UNION
+                SELECT d.match_id
+                FROM demos d
+                WHERE d.status = 'ANALYZED'
+                  AND d.match_id IN (SELECT rp.match_id FROM round_players rp
+                                     WHERE rp.player_id = (SELECT id FROM person)))
             SELECT m.id, m.faceit_match_id, m.map_name, m.finished_at,
                    coalesce(m.started_at, d.created_at) AS listed_at,
                    s.kills, s.deaths, s.assists,
                    CASE WHEN s.rounds_played IS NOT NULL THEN s.adr END AS adr,
                    d.status AS demo_status
-            FROM matches m
+            FROM own o
+            JOIN matches m ON m.id = o.match_id
             LEFT JOIN demos d ON d.match_id = m.id
             LEFT JOIN player_match_stats s ON s.match_id = m.id AND s.player_id = (SELECT id FROM person)
                                           AND d.status = 'ANALYZED'
-            WHERE m.source = 'MATCHMAKING'
-              AND (m.owner_user_id IN (SELECT id FROM owners)
-                   OR (d.status = 'ANALYZED'
-                       AND EXISTS (SELECT 1 FROM round_players rp
-                                   WHERE rp.match_id = m.id AND rp.player_id = (SELECT id FROM person))))""";
+            WHERE m.source = 'MATCHMAKING'""";
 
     private static final String MATCHMAKING_ORDER = " ORDER BY listed_at DESC NULLS LAST, m.id DESC";
 
