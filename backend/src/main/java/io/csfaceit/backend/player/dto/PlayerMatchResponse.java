@@ -26,8 +26,8 @@ import java.util.Map;
  *
  * <p>A {@link MatchSource#MATCHMAKING} match comes wholly from the database: {@code startedAt} is its start, or when that
  * is not known the moment its demo arrived; {@code score} is keyed by {@code faction1} (the team that started on CT) and
- * {@code faction2}, empty before the parse; {@code result} follows the rounds the player's team won, {@code UNKNOWN}
- * before the parse and on a draw.
+ * {@code faction2}, empty until its demo is analyzed; {@code result} follows the rounds the player's team won,
+ * {@code UNKNOWN} until then and on a draw.
  */
 public record PlayerMatchResponse(
         String matchId,

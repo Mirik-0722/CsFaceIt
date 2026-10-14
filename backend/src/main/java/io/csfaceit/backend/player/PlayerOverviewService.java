@@ -143,6 +143,11 @@ public class PlayerOverviewService {
      * is not known; a match with neither is listed last. The range and the page are added by
      * {@link #matchmakingRows}. The player's row of statistics and the demo are left joins, as in
      * {@link #MATCH_FACTS_SQL}.
+     *
+     * <p>A demo's players are trusted only once the demo is {@code ANALYZED} (the wrong-demo check runs between
+     * {@code PARSED} and {@code ANALYZED}, and a {@code WRONG_MATCH} demo keeps the parser's rows): before that a match is
+     * on nobody's list by its players, and his numbers are not read. Its owner still finds it in his list, with the
+     * demo's status, so that he sees what became of the demo he brought.
      */
     private static final String MATCHMAKING_ROWS_SQL = """
             WITH person AS (SELECT id, steam_id FROM players WHERE faceit_id = :playerId),
@@ -160,10 +165,12 @@ public class PlayerOverviewService {
             FROM matches m
             LEFT JOIN demos d ON d.match_id = m.id
             LEFT JOIN player_match_stats s ON s.match_id = m.id AND s.player_id = (SELECT id FROM person)
+                                          AND d.status = 'ANALYZED'
             WHERE m.source = 'MATCHMAKING'
               AND (m.owner_user_id IN (SELECT id FROM owners)
-                   OR EXISTS (SELECT 1 FROM round_players rp
-                              WHERE rp.match_id = m.id AND rp.player_id = (SELECT id FROM person)))""";
+                   OR (d.status = 'ANALYZED'
+                       AND EXISTS (SELECT 1 FROM round_players rp
+                                   WHERE rp.match_id = m.id AND rp.player_id = (SELECT id FROM person))))""";
 
     private static final String MATCHMAKING_ORDER = " ORDER BY listed_at DESC NULLS LAST, m.id DESC";
 
@@ -219,10 +226,18 @@ public class PlayerOverviewService {
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PlayerMatchListResponse matches(String faceitPlayerId, MatchHistoryResponse history, Instant before) {
-        List<MatchSummary> page = history.items();
-        List<MatchmakingRow> matchmaking = matchmakingRange(history, before)
-                .map(range -> matchmakingRows(faceitPlayerId, "", range.from(), range.to(), null, null))
+        Optional<Range> range = matchmakingRange(history, before);
+        // With no lower end (the last page of FACEIT's history) the matchmaking matches are paged too: at most a page
+        // of them, the newest first, and the next request (before = the start of the last row) goes on from there.
+        boolean capped = range.map(r -> r.from() == null).orElse(false);
+        List<MatchmakingRow> matchmaking = range
+                .map(r -> matchmakingRows(faceitPlayerId, "", r.from(), r.to(), capped ? 0 : null,
+                        capped ? history.limit() : null))
                 .orElse(List.of());
+        List<MatchSummary> page = history.items();
+        if (capped && matchmaking.size() == history.limit()) {
+            page = linesNotOlderThan(page, matchmaking.get(matchmaking.size() - 1).listedAt());
+        }
         if (page.isEmpty() && matchmaking.isEmpty()) {
             return new PlayerMatchListResponse(List.of(), history.offset(), history.limit());
         }
@@ -245,29 +260,47 @@ public class PlayerOverviewService {
     }
 
     /**
-     * The list of matches of a player known only from demos ({@code steam:<SteamID>}), wholly from the database: his
-     * matchmaking matches, newest first, a page of {@code limit} from {@code offset}. A player the database does not know
-     * has an empty list.
+     * The list of matches of a player asked for as {@code steam:<SteamID>}, wholly from the database: his matchmaking
+     * matches, newest first, a page of {@code limit} from {@code offset}. A player the database does not know has an
+     * empty list.
      *
-     * @param steamPlayerId {@code steam:<SteamID>}
+     * @param rowPlayerId the {@code players.faceit_id} of the row that stands for the SteamID
+     *        ({@link PlayerService#resolveSteamPlayerId}): the placeholder {@code steam:<SteamID>}, or the FACEIT player
+     *        that carries the SteamID
+     * @param steamId the SteamID, so that the matches a user with it brought in are his whatever the row
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public PlayerMatchListResponse matchmakingMatches(String steamPlayerId, int offset, int limit) {
-        String steamId = steamPlayerId.substring(steamPlayerId.indexOf(':') + 1);
-        List<MatchmakingRow> rows = matchmakingRows(steamPlayerId, steamId, null, null, offset, limit);
+    public PlayerMatchListResponse matchmakingMatches(String rowPlayerId, String steamId, int offset, int limit) {
+        List<MatchmakingRow> rows = matchmakingRows(rowPlayerId, steamId, null, null, offset, limit);
         if (rows.isEmpty()) {
             return new PlayerMatchListResponse(List.of(), offset, limit);
         }
         List<String> matchIds = rows.stream().map(MatchmakingRow::matchId).toList();
-        Map<String, List<HighlightCount>> highlights = highlightsByMatch(steamPlayerId, matchIds);
-        Map<String, ClipCounts> clips = clipsByMatch(steamPlayerId, matchIds);
-        return new PlayerMatchListResponse(matchmakingResponses(steamPlayerId, rows, highlights, clips), offset, limit);
+        Map<String, List<HighlightCount>> highlights = highlightsByMatch(rowPlayerId, matchIds);
+        Map<String, ClipCounts> clips = clipsByMatch(rowPlayerId, matchIds);
+        return new PlayerMatchListResponse(matchmakingResponses(rowPlayerId, rows, highlights, clips), offset, limit);
+    }
+
+    /**
+     * The lines of a page of FACEIT history that are not older than {@code oldest}. When a full page of matchmaking
+     * matches fills the answer, the FACEIT lines older than its last one wait for the next request: they belong after
+     * matchmaking matches this answer does not hold yet. The next request asks FACEIT from the number of FACEIT lines
+     * received ({@code offset} counts FACEIT lines only), so they come again then. A line without a start stays.
+     */
+    private static List<MatchSummary> linesNotOlderThan(List<MatchSummary> page, Instant oldest) {
+        if (oldest == null) {
+            return page;
+        }
+        return page.stream()
+                .filter(line -> line.startedAt() == null || !line.startedAt().isBefore(oldest))
+                .toList();
     }
 
     /**
      * The stretch of time of a page of FACEIT history in which the person's matchmaking matches are shown with it:
      * below {@code before} (exclusive; now for the first page) and down to the start of the page's last line
-     * (inclusive). A page shorter than its limit is the last one, and takes every older matchmaking match too. A later
+     * (inclusive). A page shorter than its limit is the last one: it has no lower end, and takes the older matchmaking
+     * matches a page at a time (see {@link #matches}). A later
      * page asked without {@code before} has no known upper end, and shows none, so that no match is listed twice.
      */
     private static Optional<Range> matchmakingRange(MatchHistoryResponse history, Instant before) {

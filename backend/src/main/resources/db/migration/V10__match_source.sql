@@ -12,6 +12,13 @@ ALTER TABLE matches ADD COLUMN source VARCHAR(16) NOT NULL DEFAULT 'FACEIT';
 ALTER TABLE matches ADD COLUMN share_code VARCHAR(64);
 ALTER TABLE matches ADD COLUMN owner_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
 
+-- A person's list of matches looks for the matchmaking matches they brought in (by owner), those whose demo has them
+-- among its players (round_players by player; its key starts with match_id and does not serve this), and orders the
+-- matchmaking matches by start.
+CREATE INDEX idx_matches_owner ON matches (owner_user_id) WHERE owner_user_id IS NOT NULL;
+CREATE INDEX idx_matches_matchmaking_started ON matches (started_at) WHERE source = 'MATCHMAKING';
+CREATE INDEX idx_round_players_player ON round_players (player_id);
+
 -- One row for each user who linked their CS2 matchmaking history: the authentication code (AES-256-GCM with a random
 -- nonce, never readable from here), the last match sharing code known for the account, and where the walk along the
 -- chain of codes stands. state: ACTIVE, BAD_AUTH_CODE or BAD_SHARE_CODE. The link goes with the user.

@@ -47,7 +47,7 @@ public class PlayerOverviewController {
     @GetMapping("/{playerId}/overview")
     public PlayerOverviewResponse getOverview(
             @PathVariable @Pattern(regexp = ANY_PLAYER_ID_PATTERN, message = ANY_PLAYER_ID_MESSAGE) String playerId) {
-        return overview.overview(playerId);
+        return overview.overview(databaseId(playerId));
     }
 
     /**
@@ -66,9 +66,15 @@ public class PlayerOverviewController {
             @RequestParam(defaultValue = "20") @Min(1) @Max(MAX_LIMIT) int limit,
             @RequestParam(required = false) Instant before) {
         if (PlayerService.isSteamPlayerId(playerId)) {
-            return overview.matchmakingMatches(playerId, offset, limit);
+            return overview.matchmakingMatches(players.resolveSteamPlayerId(playerId), PlayerService.steamIdOf(playerId),
+                    offset, limit);
         }
         MatchHistoryResponse history = players.getHistory(playerId, offset, limit);
         return overview.matches(playerId, history, before);
+    }
+
+    /** The id the database reads: a {@code steam:} id stands for one row ({@link PlayerService#resolveSteamPlayerId}). */
+    private String databaseId(String playerId) {
+        return PlayerService.isSteamPlayerId(playerId) ? players.resolveSteamPlayerId(playerId) : playerId;
     }
 }

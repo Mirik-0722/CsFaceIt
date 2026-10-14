@@ -27,7 +27,7 @@ import org.springframework.stereotype.Component;
  * <ul>
  *   <li>{@link #requireMatchMember}: the user's FACEIT player is in one of the rosters FACEIT gives for the match
  *   <li>{@link #requireMatchmakingMember}: for a matchmaking match, which FACEIT does not know, the user brought it in
- *       or is among the players of its parsed demo
+ *       or is among the players of its analyzed demo
  *   <li>{@link #requireOwnPlayer}: the player something is ordered for is the user's own (their FACEIT player, or
  *       {@code steam:} and their SteamID)
  *   <li>{@link #requireClipOwner}: the clip was ordered by this user ({@code clips.requested_by})
@@ -132,12 +132,13 @@ public class Access {
 
     /**
      * The actor played the matchmaking match ({@code mm-<id>}), which FACEIT knows nothing of: the user who brought it in
-     * (its owner) always; once its demo has been parsed, also a user whose SteamID is among the demo's players. Before
-     * the parse there are no players to look among, so only the owner gets in. No FACEIT player is needed for any of it.
+     * (its owner) always; once its demo has been analyzed, also a user whose SteamID is among the demo's players. Until
+     * then the demo's players are not trusted (the wrong-demo check runs between parse and analysis), so only the owner
+     * gets in. No FACEIT player is needed for any of it.
      *
      * @param ownerUserId {@code matches.owner_user_id}; {@code null} for a match nobody brought in
-     * @param demoSteamIds the SteamIDs of the players of the match's parsed demo, asked only when the owner rule does not
-     *        let the actor in; empty before the parse
+     * @param demoSteamIds the SteamIDs of the players of the match's analyzed demo, asked only when the owner rule does
+     *        not let the actor in; empty until the demo is analyzed
      * @throws ForbiddenException {@code NOT_IN_MATCH}
      */
     public void requireMatchmakingMember(Actor actor, Long ownerUserId, Supplier<Set<String>> demoSteamIds) {

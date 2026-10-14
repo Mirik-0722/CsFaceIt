@@ -17,6 +17,7 @@ import io.csfaceit.backend.player.dto.PlayerResponse;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -205,17 +206,35 @@ public class PlayerService {
     }
 
     /**
-     * The profile of a player known from demos, from the database: the row {@code steam:<SteamID>} the parser made, or,
-     * when there is none, the row that carries the SteamID (a FACEIT player who signed in; the answer then names that
-     * player's id). Elo and level are what the row has; there is no avatar or country.
+     * The {@code players.faceit_id} of the row that stands for {@code steam:<SteamID>}, which every database endpoint
+     * of such an id reads (the profile, the overview, the statistics, the highlights, the clips and the list of matches),
+     * so that they agree: the placeholder row {@code steam:<SteamID>} the parser made, when there is one; else the row
+     * that carries the SteamID (a FACEIT player who signed in with it); else the id as it is, which the database does not
+     * know and whose answers are empty.
+     *
+     * @param steamPlayerId {@code steam:<SteamID>}
+     */
+    public String resolveSteamPlayerId(String steamPlayerId) {
+        return steamRow(steamPlayerId).map(Player::getFaceitId).orElse(steamPlayerId);
+    }
+
+    /** The SteamID in {@code steam:<SteamID>}. */
+    public static String steamIdOf(String steamPlayerId) {
+        return steamPlayerId.substring(STEAM_PLACEHOLDER_PREFIX.length());
+    }
+
+    private Optional<Player> steamRow(String steamPlayerId) {
+        return players.findByFaceitId(steamPlayerId).or(() -> players.findBySteamId(steamIdOf(steamPlayerId)));
+    }
+
+    /**
+     * The profile of a player known from demos, from the database: the row of {@link #resolveSteamPlayerId} (the answer
+     * names that row's id). Elo and level are what the row has; there is no avatar or country.
      *
      * @throws NotFoundException {@code PLAYER_NOT_FOUND}: no row has the id or the SteamID
      */
     private PlayerResponse getFromDatabase(String playerId) {
-        String steamId = playerId.substring(STEAM_PLACEHOLDER_PREFIX.length());
-        Player row = players.findByFaceitId(playerId)
-                .or(() -> players.findBySteamId(steamId))
-                .orElseThrow(() -> playerNotFound(playerId));
+        Player row = steamRow(playerId).orElseThrow(() -> playerNotFound(playerId));
         return new PlayerResponse(row.getFaceitId(), row.getNickname(), null, null, row.getElo(), row.getLevel());
     }
 

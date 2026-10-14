@@ -544,20 +544,25 @@ or about a player known only from demos:
 
 - `GET /api/v1/matches/mm-…` answers from the database: the map and times of the row, `status` `FINISHED`,
   `demoUrl` `null`; the teams are the sides of the demo's first round, `faction1` the team that started on CT (named
-  `CT`) and `faction2` the one that started on T (named `T`), empty until the demo is parsed; a player who joined later
-  is in the team whose side he played in his first round; `winner` is the team that won more rounds (`null` on a draw).
+  `CT`) and `faction2` the one that started on T (named `T`); a player who joined later is in the team whose side he
+  played in his first round; `winner` is the team that won more rounds (`null` on a draw).
 - `GET /api/v1/matches/mm-…/stats` is the analysis' rows by team, the score is the rounds each team won
   (`rounds.winner_side` against the team's side in that round, which follows half time and overtime), `kdRatio` is
-  kills over deaths (deaths at least 1) and `krRatio` kills over the match's rounds. Before the analysis the teams have
-  no players.
+  kills over deaths (deaths at least 1) and `krRatio` kills over the match's rounds.
+- Teams, score, statistics and the players of the demo are read **only while the demo is `ANALYZED`**: the wrong-demo
+  check runs between `PARSED` and `ANALYZED`, and a demo that failed as `WRONG_MATCH` keeps the parser's rows. Before
+  that the match has no teams and no score (like a FACEIT match before its analysis), and it is on nobody's list of
+  matches except its owner's.
 - The breakdown, the highlights, the editor and the clips read the database for every match already.
-- Who may act on it (a session): its owner always; once its demo is parsed, also a user whose SteamID is among the
+- Who may act on it (a session): its owner always; once its demo is `ANALYZED`, also a user whose SteamID is among the
   demo's players (`403 NOT_IN_MATCH` otherwise). No FACEIT link is needed. A clip may be ordered for `steam:<own
   SteamID>` as for one's own FACEIT player.
 - The wrong-demo check of the analysis: the owner's SteamID has to be among the demo's players, or the demo is `FAILED`
   with `WRONG_MATCH`; a match without an owner is not checked.
 - The player endpoints that read the database (`/players/{playerId}`, `/overview`, `/matches`, `/stats`,
-  `/highlights`, `/clips`) take `steam:<SteamID>` as `playerId` (1 to 20 digits); `/history` stays FACEIT's.
+  `/highlights`, `/clips`) take `steam:<SteamID>` as `playerId` (1 to 20 digits); `/history` stays FACEIT's. All of them
+  read the same row for it: the placeholder `steam:<SteamID>` when there is one, else the FACEIT player that carries the
+  SteamID (whose id the profile then answers with).
 
 One person, one row: at every sign-in the visitor's SteamID is written onto their linked FACEIT player (taken from
 another row that held it: the latest proof wins), so the parser files their matchmaking kills under that one player.
@@ -567,11 +572,15 @@ The list of matches: for a FACEIT player `GET /api/v1/players/{playerId}/matches
 same person's matchmaking matches (his row is among the demo's players, or a user who is him brought the match in) are
 merged in by start, each with `source` `MATCHMAKING`. Which ones: those that started before `before` (the start of the
 last row of the page before, as that page answered it; now for the first page) and no earlier than the last line of
-this page. A page shorter than `limit` is the last, and takes every older one. A later page asked without `before`
-gets none, so that nothing is listed twice. A matchmaking match whose start is not known is placed at the moment its
-demo arrived. For a `steam:<SteamID>` player the whole list comes from the database, paged by `offset` and `limit`
-(`before` is not needed). A matchmaking row's `score` is keyed by `faction1`/`faction2` like FACEIT's, empty before
-the parse, and its `result` follows the rounds his team won.
+this page. A page shorter than `limit` is FACEIT's last: it has no lower end, so its matchmaking matches come a page
+(`limit`) at a time, newest first; when that page of them is full, the FACEIT lines older than its last one are left
+for the next request. How to page: **`offset` counts the FACEIT lines received so far** (the merged matchmaking rows
+are not counted), and **`before` is the start of the last row received**; that is what pages the matchmaking rows. A
+later page asked without `before` gets no matchmaking rows, so that nothing is listed twice: a page that sends no
+`before` (the site's list until it is taught to) sees matchmaking matches on its first page only. A matchmaking match
+whose start is not known is placed at the moment its demo arrived. For a `steam:<SteamID>` player the whole list comes
+from the database, paged by `offset` and `limit` (`before` is not needed). A matchmaking row's `score` is keyed by
+`faction1`/`faction2` like FACEIT's, empty until the demo is analyzed, and its `result` follows the rounds his team won.
 
 ```bash
 curl "http://localhost:3000/api/v1/matches/mm-3000000000000000001"

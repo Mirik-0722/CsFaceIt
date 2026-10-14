@@ -4,6 +4,7 @@ import static io.csfaceit.backend.player.PlayerController.ANY_PLAYER_ID_MESSAGE;
 import static io.csfaceit.backend.player.PlayerController.ANY_PLAYER_ID_PATTERN;
 
 import io.csfaceit.backend.analysis.api.dto.PlayerAggregateStatsResponse;
+import io.csfaceit.backend.player.PlayerService;
 import jakarta.validation.constraints.Pattern;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,14 +22,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class PlayerStatsController {
 
     private final StatsQueryService stats;
+    private final PlayerService players;
 
-    public PlayerStatsController(StatsQueryService stats) {
+    public PlayerStatsController(StatsQueryService stats, PlayerService players) {
         this.stats = stats;
+        this.players = players;
     }
 
+    /** {@code steam:<SteamID>} reads the row that stands for it ({@link PlayerService#resolveSteamPlayerId}). */
     @GetMapping("/{playerId}/stats")
     public PlayerAggregateStatsResponse getStats(
             @PathVariable @Pattern(regexp = ANY_PLAYER_ID_PATTERN, message = ANY_PLAYER_ID_MESSAGE) String playerId) {
-        return stats.aggregate(playerId);
+        return stats.aggregate(PlayerService.isSteamPlayerId(playerId) ? players.resolveSteamPlayerId(playerId)
+                : playerId);
     }
 }

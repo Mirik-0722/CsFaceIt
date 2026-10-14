@@ -30,9 +30,4 @@ public enum MatchSource {
     public static boolean isMatchmaking(String matchId) {
         return ofMatchId(matchId) == MATCHMAKING;
     }
-
-    /** The source a {@code matches.source} value names; anything unknown (or {@code null}) is FACEIT, the default. */
-    public static MatchSource fromDatabase(String value) {
-        return MATCHMAKING.name().equals(value) ? MATCHMAKING : FACEIT;
-    }
 }

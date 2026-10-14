@@ -193,8 +193,10 @@ public class DemoService {
                             }
                         });
                     })
-                    .orElseThrow(() -> new ConflictException(DEMO_URL_UNAVAILABLE,
-                            "FACEIT has no demo for match " + faceitMatchId));
+                    .orElseThrow(() -> new ConflictException(DEMO_URL_UNAVAILABLE, matchmaking
+                            ? "No demo address is known for match " + faceitMatchId
+                                    + ": bring its demo by a link or upload the file"
+                            : "FACEIT has no demo for match " + faceitMatchId));
         } catch (QuotaExceededException refused) {
             // A request of the same user that ran at the same moment (a double click) may have queued the demo and
             // taken the last place while this one waited for it. Then the demo stands, and asking for a demo that
@@ -409,8 +411,8 @@ public class DemoService {
 
     /**
      * The rule of {@link Access#requireMatchmakingMember} for a matchmaking match, from the database alone: its owner,
-     * and once its demo is parsed the SteamIDs of the demo's players. A match the database does not know is not found
-     * (the key and an administrator learn that from the step after this one).
+     * and once its demo is ANALYZED (it has passed the wrong-demo check) the SteamIDs of the demo's players. A match the
+     * database does not know is not found (the key and an administrator learn that from the step after this one).
      */
     private void requireMatchmakingMember(Actor actor, String matchId) {
         if (actor.unlimited()) {
@@ -419,7 +421,7 @@ public class DemoService {
         DemoScoreboard.StoredMatch match = scoreboard.find(matchId)
                 .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND, "Match not found: " + matchId));
         access.requireMatchmakingMember(actor, match.ownerUserId(),
-                () -> match.parsed() ? scoreboard.steamIds(match.id()) : Set.of());
+                () -> match.analyzed() ? scoreboard.steamIds(match.id()) : Set.of());
     }
 
     /** The row of a stored matchmaking match, which only the database knows. */
