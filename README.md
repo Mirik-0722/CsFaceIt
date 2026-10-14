@@ -709,7 +709,7 @@ What a `USER` may ask for without the key, and when:
 | `POST /api/v1/matches/{id}/demo/import` | they are in the roster of the match; with a link, the link passes its checks ([Bringing a demo by a link](#bringing-a-demo-by-a-link)) | `403 FACEIT_NOT_LINKED`, `403 NOT_IN_MATCH`; `400 DEMO_LINK_INVALID`, `400 DEMO_LINK_HOST_NOT_ALLOWED`, `400 DEMO_LINK_MISMATCH` |
 | `POST /api/v1/matches/{id}/demo/upload` | they are in the roster; the demo has not been parsed yet (the key and an administrator may upload over a `PARSED` or `ANALYZED` demo) | the same two; `409 DEMO_ALREADY_PARSED` |
 | `POST /api/v1/matches/{id}/demo/analyze` | they are in the roster; the demo is `PARSED`, that is, its analysis is missing (the key and an administrator may have an `ANALYZED` demo analyzed again) | the same two; `409 DEMO_ALREADY_ANALYZED` (and `409 DEMO_NOT_PARSED` as for anyone) |
-| `POST /api/v1/highlights/{id}/clips`, `POST /api/v1/matches/{id}/clips` | the highlight's player, or the `playerId` of the compilation, is their own FACEIT player | `403 FACEIT_NOT_LINKED`, `403 NOT_YOUR_PLAYER` |
+| `POST /api/v1/highlights/{id}/clips`, `POST /api/v1/matches/{id}/clips`, `POST /api/v1/matches/{id}/montages` | the highlight's player, or the `playerId` of the compilation or the montage, is their own FACEIT player | `403 FACEIT_NOT_LINKED`, `403 NOT_YOUR_PLAYER` |
 | `DELETE /api/v1/clips/{id}` | they ordered the clip | `403 NOT_YOUR_CLIP` |
 | `POST /api/v1/clips/{id}/retry` | they ordered the clip, and it is `FAILED` | `403 NOT_YOUR_CLIP`; `409 CLIP_NOT_FAILED` |
 
@@ -1428,10 +1428,12 @@ brought back by uploading it again. Clips have a clean-up of their own, at 04:30
 
 ## Video clips
 
-A clip is a video of a moment of a match, cut from the stored demo of the match. There are two kinds: the clip of one
-**highlight** (a moment the analysis found, see [Highlights and statistics](#highlights-and-statistics)) and the
-**compilation** of every kill of one player in a match. Asking for either puts a row in the `clips` table with the
-status `QUEUED` and the **segments** of the demo the video is made of. A recorder, a separate program, takes the queued
+A clip is a video of a moment of a match, cut from the stored demo of the match. There are three kinds: the clip of one
+**highlight** (a moment the analysis found, see [Highlights and statistics](#highlights-and-statistics)), the
+**compilation** of every kill of one player in a match, and the **montage**, the stretches of a match a player picks
+himself in the montage editor, in his order, with a title, an intro, music, slow motion and a 16:9 or 9:16 picture.
+Asking for any of them puts a row in the `clips` table with the status `QUEUED` and the **segments** of the demo the
+video is made of. A recorder, a separate program, takes the queued
 clips one at a time, records them and uploads an MP4 and a thumbnail (see [Worker API](#worker-api-the-recorder)). The
 recorder that plays the demo in CS2 on a Windows machine is not written yet; the fake recorder, which makes a test
 pattern with ffmpeg in its place, runs the whole chain (see [The fake recorder](#the-fake-recorder) and
@@ -1482,7 +1484,9 @@ it is `FAILED` instead.
 | --- | --- |
 | `POST /api/v1/highlights/{highlightId}/clips` | Queues the clip of the highlight. The body is `{"quality": "720p"}` or `{"quality": "1080p"}`; no body, or `{}`, is 720p. `201` and the clip when this request queued it, `200` and the clip that already stands for the highlight at that quality when there is one. |
 | `POST /api/v1/matches/{matchId}/clips` | Queues the compilation of a player's kills in the match: one video of every kill of an enemy he made, round by round (see **A compilation** below). The body is `{"playerId": "...", "quality": "720p"}`; `playerId` is required, `quality` is as above. `201` and the clip (its `kind` is `COMPILATION`) when this request queued it, `200` and the one that already stands for the player at that quality when there is one. |
-| `POST /api/v1/clips/{clipId}/retry` | Orders a `FAILED` clip again: the same highlight (or compilation) at the same quality, as a new clip with a new id, and the failed one is deleted with its files. No body. `201` and the new clip (`200` and the clip that stands, when the same clip was ordered again before this request). The new clip belongs to whoever ordered the failed one. It is checked like an order (the demo file, the queue, ...), and when a check refuses, the failed clip stays. `404 CLIP_NOT_FOUND`; `409 CLIP_NOT_FAILED` for a clip that waits, is being made or is done; `403 NOT_YOUR_CLIP`. |
+| `GET /api/v1/matches/{matchId}/editor?playerId=` | What the montage editor of a player in the match is built from: his kills of an enemy round by round, his highlights and the rules of a montage (see **A montage** below). Open like the other reads. `playerId` is required, a FACEIT player id or `steam:<SteamID>`. `404 MATCH_NOT_FOUND`, `404 PLAYER_NOT_IN_MATCH`, `409 DEMO_NOT_AVAILABLE`. |
+| `POST /api/v1/matches/{matchId}/montages` | Queues a montage of a player's own choice of stretches of the match (see **A montage** below). `202` and the clip (its `kind` is `MONTAGE`); every order is a new clip. |
+| `POST /api/v1/clips/{clipId}/retry` | Orders a `FAILED` clip again: the same highlight (or compilation, or montage with its own segments and options) at the same quality, as a new clip with a new id, and the failed one is deleted with its files. No body. `201` and the new clip (`200` and the clip that stands, when the same clip was ordered again before this request). The new clip belongs to whoever ordered the failed one. It is checked like an order (the demo file, the queue, ...), and when a check refuses, the failed clip stays. `404 CLIP_NOT_FOUND`; `409 CLIP_NOT_FAILED` for a clip that waits, is being made or is done; `403 NOT_YOUR_CLIP`. |
 | `GET /api/v1/clips/{clipId}` | One clip, with the `kills` its video shows. `404 CLIP_NOT_FOUND`. |
 | `GET /api/v1/matches/{matchId}/clips` | An array of the clips of the match, whatever their status, the newest first. Empty for a match the database does not know. |
 | `GET /api/v1/players/{playerId}/clips?offset=0&limit=20` | `{"items": [...], "offset": 0, "limit": 20}`: a page of the clips of the player over all his matches, whatever their status, the newest first. `offset` 0-10000, `limit` 1-100. Empty for a player the database does not know. |
@@ -1498,6 +1502,12 @@ curl -X POST -H 'X-API-Key: dev-admin-key' -H 'Content-Type: application/json' -
 curl -X POST -H 'X-API-Key: dev-admin-key' -H 'Content-Type: application/json' \
   -d '{"playerId": "<playerId>", "quality": "720p"}' \
   http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/clips
+curl "http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/editor?playerId=<playerId>"
+curl -X POST -H 'X-API-Key: dev-admin-key' -H 'Content-Type: application/json' \
+  -d '{"playerId": "<playerId>", "quality": "720p", "aspect": "9:16", "title": "Ace on Mirage", "intro": true,
+       "musicTrack": "night-drive", "segments": [{"startTick": 34400, "endTick": 34900, "slowMo": false},
+       {"startTick": 33100, "endTick": 33500, "slowMo": true}]}' \
+  http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/montages
 curl http://localhost:3000/api/v1/clips/<clipId>
 curl http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/clips
 curl "http://localhost:3000/api/v1/players/<playerId>/clips?offset=0&limit=20"
