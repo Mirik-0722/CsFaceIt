@@ -1,20 +1,20 @@
 import { useId } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { usePlayerOverview } from '@/api/overview'
+import { usePlayerMatches, usePlayerOverview } from '@/api/overview'
 import { usePlayer, usePlayerClips, usePlayerHighlights, usePlayerHistory, usePlayerStats } from '@/api/queries'
 import ClipList from '@/components/ClipList'
 import FormStrip, { FormStripPlaceholder } from '@/components/FormStrip'
 import HighlightBreakdown from '@/components/HighlightBreakdown'
 import HighlightList from '@/components/HighlightList'
 import MapsTable from '@/components/MapsTable'
-import MatchList from '@/components/MatchList'
+import MatchList, { type MatchDetails } from '@/components/MatchList'
 import PlayerHeader from '@/components/PlayerHeader'
 import StatsCards from '@/components/StatsCards'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
-import { mostPlayedScenery } from '@/lib/mostPlayedScenery'
+import { mostPlayedMap, mostPlayedScenery } from '@/lib/mostPlayedScenery'
 import { cn } from '@/lib/utils'
 
 /**
@@ -184,14 +184,26 @@ function PlayerProfile({ playerId }: { playerId: string }) {
   const t = useT()
   const player = usePlayer(playerId)
   const history = usePlayerHistory(playerId)
+  // The history comes from FACEIT and knows no map: the map, the figures and the highlights of each row come from the
+  // player's stored matches, the request of the page of matches (one cache), looked up by `matchId`.
+  const stored = usePlayerMatches(playerId)
   // The overview is asked for by the maps table below as well: one request, shared. Its most played map is the header's
   // scenery once the answer is there; until then, and for a player without one, the header is plain.
   const overview = usePlayerOverview(playerId)
   const scenery = overview.data ? mostPlayedScenery(overview.data.maps) : null
+  const mainMap = overview.data ? mostPlayedMap(overview.data.maps) : null
   // Offset paging can return the same match on two pages (each page is cached on its own), so keep the first.
   const matches = history.data?.pages
     .flatMap((page) => page.items)
     .filter((item, index, all) => all.findIndex((other) => other.matchId === item.matchId) === index)
+  const details: MatchDetails | undefined = stored.data
+    ? {
+        state: 'ready',
+        matches: new Map(stored.data.pages.flatMap((page) => page.items).map((match) => [match.matchId, match])),
+      }
+    : stored.isPending
+      ? { state: 'pending', matches: new Map() }
+      : undefined
   // A player that cannot be shown has no history to show either: its error is the one message on the page.
   const playerFailed = player.isError && !player.data
   // The page of matches lists the same history with what the site knows about each match: no row, no link.
@@ -202,11 +214,12 @@ function PlayerProfile({ playerId }: { playerId: string }) {
       <div aria-live="polite">
         {player.isPending && (
           // Made of the head's own parts, so that what follows does not move when the player arrives (see
-          // `ProfileHeader`): the first row (the label and the skeleton) is as tall as the head's, 72px, and 92px under
-          // `sm`, where the mono line wraps beside the ring; under `md` the strip's place is a row of its own below it, as
-          // in the head, whatever the player is; from `md` it is beside the row, as the strip is where there is room.
+          // `ProfileHeader`): the first row (the label and the skeleton) is as tall as the head's, 114px, and 122px under
+          // `sm`, where the mono line wraps beside the ring;
+          // under `md` the strip's place is a row of its own below it, as in the head, whatever the player is; from `md`
+          // it is beside the row, as the strip is where there is room.
           <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-5 max-md:flex-col max-md:items-start">
-            <div className="flex h-18 min-w-0 flex-col max-md:w-full max-sm:h-23 md:flex-1">
+            <div className="flex h-30.5 min-w-0 flex-col max-md:w-full sm:h-28.5 md:flex-1">
               <p className="label-mono mb-2">{t.player.loading}</p>
               <Skeleton className="min-h-0 w-full flex-1" />
             </div>
@@ -222,6 +235,7 @@ function PlayerProfile({ playerId }: { playerId: string }) {
             // its own, the rest of the page would move down by that row when the history arrives.
             aside={history.isPending ? <FormStripPlaceholder /> : <FormStrip matches={matches ?? []} />}
             scenery={scenery}
+            mainMap={mainMap}
           />
         )}
       </div>
@@ -249,13 +263,13 @@ function PlayerProfile({ playerId }: { playerId: string }) {
                 <p className="label-mono">{t.player.loadingMatches}</p>
                 {/* 12px between the rows of the placeholder, 8px under its label as under every loading label. */}
                 <div className="flex flex-col gap-3">
-                  <Skeleton className="h-14 w-full" />
-                  <Skeleton className="h-14 w-full" />
-                  <Skeleton className="h-14 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
                 </div>
               </>
             )}
-            {matches && <MatchList items={matches} />}
+            {matches && <MatchList items={matches} details={details} />}
             {history.isError && <p className="text-sm text-destructive">{errorMessage(history.error, t)}</p>}
           </div>
           {history.hasNextPage && (
@@ -263,7 +277,13 @@ function PlayerProfile({ playerId }: { playerId: string }) {
               variant="outline"
               className="self-center"
               disabled={history.isFetchingNextPage}
-              onClick={() => history.fetchNextPage()}
+              onClick={() => {
+                // The next page of both: the rows it brings look their maps up in the stored matches' next page.
+                void history.fetchNextPage()
+                if (stored.hasNextPage && !stored.isFetchingNextPage) {
+                  void stored.fetchNextPage()
+                }
+              }}
             >
               {t.player.loadMore}
             </Button>
