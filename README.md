@@ -109,6 +109,8 @@ Then edit `.env`:
 | `FACEIT_OAUTH_CLIENT_ID`, `FACEIT_OAUTH_CLIENT_SECRET` | The FACEIT OAuth application, for signing in with FACEIT. The sign-in with FACEIT itself is not written yet, so the two are read and nothing more: `GET /api/v1/auth/providers` answers `faceit: false` whatever they hold, and only Steam is offered. The secret is never logged. | empty |
 | `FACEIT_DOWNLOADS_TOKEN` | The access token for FACEIT's Downloads API (`faceit.downloads.token`), the only way to get a demo file; it is not the Data API key, which that API refuses. Applied for at FACEIT (see [How the import gets the file](#how-the-import-gets-the-file)). Empty means no access: the import then fails at once with `DOWNLOAD_NEEDS_ACCESS`, and the demo is uploaded by hand. Never logged. | empty |
 | `FACEIT_DOWNLOADS_URL` | The address of the Downloads API (`faceit.downloads.url`); override it only to point the backend at a fake FACEIT. Commented out in `.env.example`. | `https://open.faceit.com/download/v2/demos/download` |
+| `STEAM_WEB_API_KEY`, `CS2_BRIDGE_URL`, `CS2_BRIDGE_TOKEN`, `CS2_LINK_SECRET` | CS2 matchmaking (see [CS2 matchmaking](#cs2-matchmaking)): the site's Steam Web API key, the address of the bridge to the game coordinator (`http://gcbridge:8090`) and its token (the bridge's `BRIDGE_TOKEN`, required once the address is set), and the key that seals the players' authentication codes (the base64 of 32 random bytes, `openssl rand -base64 32`). The feature is on only while the key, the address and the secret are all set. None of them is ever logged. | empty (off) |
+| `CS2_STEAM_API_URL` | Steam's Web API address (`cs2.steam-api-url`); override it only to point the backend at a fake. Commented out in `.env.example`. | `https://api.steampowered.com` |
 | `FACEIT_BASE_URL` | FACEIT Data API address; override it only to point the backend at a fake FACEIT. Commented out in `.env.example`. | `https://open.faceit.com/data/v4` |
 | `FACEIT_HISTORY_LOOKBACK` | How far back a player's match history reaches (`faceit.history-lookback`). FACEIT itself returns only the last month unless the request names a start time, so the backend always sends one. Commented out in `.env.example`. | `365d` |
 | `FAKE_SPEED` | Only for the stack without a FACEIT key (`docker-compose.fake.yml`): the seconds of video its `recorder-fake` makes per second of real time. `1` is real time, `0` is as fast as ffmpeg goes (see [The fake recorder](#the-fake-recorder)). Commented out in `.env.example`. | `1` |
@@ -521,6 +523,7 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 403 | `CROSS_SITE_REQUEST` | A write (not `GET`, `HEAD` or `OPTIONS`) carries the session cookie and not the admin key, and its `Origin` header is missing or is not one of the known origins of the site, signing out included (an `Origin` of another host is answered `403` `Invalid CORS request` by the CORS filter first; see [Writes with the session cookie](#writes-with-the-session-cookie)). |
 | 404 | `PLAYER_NOT_FOUND`, `MATCH_NOT_FOUND`, `DEMO_NOT_FOUND` | FACEIT does not know the player or match, or the match has no demo record yet. The request for the compilation of a player's kills does not ask FACEIT: there the first two say that the database has no such match or player; see [Video clips](#video-clips). |
 | 404 | `AUTH_PROVIDER_DISABLED` | The sign-in with FACEIT was asked for; it is not written yet (see [Signing in](#signing-in)). |
+| 404 | `CS2_DISABLED`, `CS2_NOT_LINKED` | A CS2 link endpoint was asked while the site has CS2 matchmaking off, or the user has no CS2 link (see [CS2 matchmaking](#cs2-matchmaking)). |
 | 404 | `HIGHLIGHT_NOT_FOUND`, `CLIP_NOT_FOUND` | There is no such highlight (or its demo is not `ANALYZED`) or clip; see [Video clips](#video-clips). |
 | 409 | `DEMO_URL_UNAVAILABLE`, `DEMO_NOT_PARSED` | A demo import was requested but FACEIT has no demo for the match (yet); or an analysis was requested but the demo is not `PARSED` or `ANALYZED`. |
 | 409 | `DEMO_ALREADY_PARSED`, `DEMO_ALREADY_ANALYZED` | A signed-in player uploaded a file over a demo that is `PARSED` or `ANALYZED`, or asked for the analysis of a demo that is `ANALYZED`; both are the admin key's and an administrator's to do. |
@@ -528,10 +531,12 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 409 | `CLIP_IN_PROGRESS` | A clip was to be deleted while a recorder works on it; see [Video clips](#video-clips). |
 | 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip or bzip2 file expands beyond it), or a recorder's video or thumbnail is larger than `CLIP_UPLOAD_MAX_SIZE`. |
 | 416 | `RANGE_NOT_SATISFIABLE` | The `Range` of a request for a clip's video starts at or beyond its end; see [Video clips](#video-clips). |
+| 422 | `CS2_AUTH_CODE_REFUSED`, `CS2_SHARE_CODE_REFUSED` | Steam refused the authentication code, or the match sharing code is not one of the account's, when a CS2 account was linked; nothing was stored (see [CS2 matchmaking](#cs2-matchmaking)). |
 | 429 | `CLIP_QUEUE_FULL` | A new clip was requested but the queue of clips is full; see [Video clips](#video-clips). |
-| 429 | `UPLOAD_LIMIT_REACHED`, `IMPORT_LIMIT_REACHED`, `CLIP_LIMIT_REACHED` | A signed-in player has started as many demo uploads, demo imports or clip orders as a day allows. The body also has `retryAt` and the answer a `Retry-After` header; see [Limits per day](#limits-per-day). |
+| 429 | `UPLOAD_LIMIT_REACHED`, `IMPORT_LIMIT_REACHED`, `CLIP_LIMIT_REACHED`, `CS2_LINK_LIMIT_REACHED` | A signed-in player has started as many demo uploads, demo imports, clip orders or CS2 link attempts as a day allows. The body also has `retryAt` and the answer a `Retry-After` header; see [Limits per day](#limits-per-day). |
 | 502 | `FACEIT_UNAVAILABLE` | FACEIT failed or timed out after retries, or refused the request (for example a rejected `FACEIT_API_KEY`, which is not retried), and no cached copy exists. |
 | 503 | `STORAGE_UNAVAILABLE` | The storage cannot do what a request needs: a recorder's (see [Worker API](#worker-api-the-recorder)), or the request for the video or the thumbnail of a clip (see [Video clips](#video-clips)). |
+| 503 | `CS2_STEAM_UNAVAILABLE` | Steam failed, did not answer in time or asked the site to slow down while a CS2 account was being linked; nothing was stored and the attempt does not count (see [CS2 matchmaking](#cs2-matchmaking)). |
 
 FACEIT responses are cached in Redis (player profile 5 minutes, match history 2 minutes, finished match 24 hours),
 and an expired copy is served when FACEIT is down.
@@ -641,6 +646,123 @@ curl "http://localhost:3000/api/v1/players/<playerId>/matches?offset=20&limit=20
 Operational endpoints (`/actuator/health`, `/actuator/prometheus`) are served by the backend on port 8080 and are
 only reachable directly in dev mode, not through Nginx. In the Compose stack Prometheus reads them over the internal
 network (see [Metrics and dashboards](#metrics-and-dashboards)).
+
+## CS2 matchmaking
+
+A signed-in player can link their CS2 match history once; from then on the demo of every new Premier, Competitive and
+Wingman match of theirs is brought, analyzed and listed with their FACEIT matches by itself (as a
+[matchmaking match](#matchmaking-matches)). Two things outside the site make it work:
+
+- **Steam's Web API**, with a key of the site's own (`STEAM_WEB_API_KEY`), which tells the code of a player's next match
+  (`GetNextMatchSharingCode`), and only to someone who has the player's authentication code.
+- **The bridge to the CS2 game coordinator** ([`gcbridge/`](gcbridge/README.md), the service of
+  `docker-compose.cs2.yml`), which turns a match sharing code into the address of the match's replay file. Only the game
+  coordinator knows that address, and it answers a Steam account that plays CS2: the bridge signs in with **a Steam
+  account of its own (the bot)**, which owns CS2 and is not anyone's personal account. **This is unofficial use of
+  Steam: Valve offers no interface for it, and can change it, rate-limit it or ban the bot's account at any time,
+  without notice.** Use an account you can lose; [`gcbridge/README.md`](gcbridge/README.md) says how to make it ready.
+
+The feature is **off** unless `STEAM_WEB_API_KEY`, `CS2_BRIDGE_URL` and `CS2_LINK_SECRET` are all set: the endpoints
+below answer `404 CS2_DISABLED`, the walk does nothing, and one `INFO` line at startup names the missing settings.
+
+### What the player does
+
+1. On Steam's support page for their CS2 match history (Steam Support, Counter-Strike 2, the access to one's match
+   history: `https://help.steampowered.com/en/wizard/HelpWithGameIssue/?appid=730&issueid=128`), signed in with their own
+   Steam account, they create the **authentication code** (`xxxx-xxxxx-xxxx`) and copy the **match sharing code** of
+   their last match (`CSGO-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx`) from the same page.
+2. On the site, they give both (`POST /api/v1/cs2/link`). One call to Steam checks the pair before anything is stored.
+3. That match and every newer one are brought from then on. A match is played, Valve publishes its replay some minutes
+   later, and the site finds it within a few minutes after that; Valve keeps a replay for a limited time only, so a match
+   whose replay is gone (a link made long after the match) gets a `FAILED` demo with `REPLAY_EXPIRED`.
+
+The authentication code lets whoever has it read the player's match history, and nothing else; the player can revoke it
+on the same page of Steam (the link then turns `BAD_AUTH_CODE`). Unlinking (`DELETE`) removes the stored code at once.
+
+### The link and its states
+
+| Request | Answer |
+| --- | --- |
+| `POST /api/v1/cs2/link` with `{"authCode": "...", "shareCode": "..."}` | `201` for a new link, `200` for one that replaces the user's earlier link, `{"state", "linkedAt", "checkedAt"}`. The codes are checked for their shape (`400 VALIDATION_ERROR`) and then with Steam: `422 CS2_AUTH_CODE_REFUSED` (Steam refused the authentication code), `422 CS2_SHARE_CODE_REFUSED` (the sharing code is not one of this account's), `503 CS2_STEAM_UNAVAILABLE` (Steam failed, did not answer or asked to slow down: try again later). Nothing is stored on a refusal. At most 10 attempts a day (`429 CS2_LINK_LIMIT_REACHED`, see [Limits per day](#limits-per-day)). |
+| `GET /api/v1/cs2/link` | `200 {"state", "linkedAt", "checkedAt"}`, or `404 CS2_NOT_LINKED`. `checkedAt` is when Steam last answered about the link. |
+| `DELETE /api/v1/cs2/link` | `204`, also when there was no link. The row and its code are gone; the matches it brought stay. |
+
+All three need a session and are for the user's own link; without one they answer `401`, and the admin key alone,
+which is nobody, `403 FORBIDDEN`. The writes come from the site itself ([Writes with the session cookie](#writes-with-the-session-cookie)).
+No answer ever holds a code. `state` is one of:
+
+| State | Meaning | What the player does |
+| --- | --- | --- |
+| `ACTIVE` | The walk goes on. | Nothing. |
+| `BAD_AUTH_CODE` | Steam refused the authentication code (it was revoked or made anew), or the stored code can no longer be read because `CS2_LINK_SECRET` was changed. The walk stops. | Link again with the current code. |
+| `BAD_SHARE_CODE` | Steam said the known code is not one of this account's. The walk stops. | Link again with the code of a recent match. |
+
+### The walk
+
+A job (`cs2/Cs2ChainJob`) runs every `cs2.sync.interval` (2 minutes). It takes at most `links-per-run` (5) `ACTIVE`
+links that are due, the longest waiting first, and claims them in one short statement (`FOR UPDATE SKIP LOCKED`, which
+also moves their next look ahead), so two backends never walk the same link; no network call is made inside a
+transaction. On each link it takes at most `steps-per-link` (5) steps:
+
+1. **The pending code first** (the one the player gave, then each one Steam gives): the bridge is asked for its match.
+   - The replay is there: the match `mm-<Valve match id>` is made if the site does not know it, owned by the player,
+     with the sharing code and the time of the match, and its replay is imported **as a pasted link of the site itself**
+     (Valve's name of the file, the hosts of `DEMO_LINK_ALLOWED_ORIGINS`, which list `http://replay*.valve.net`; no limit
+     per day counts it). A match that has a demo already, in any state, is left alone. The analysis then checks that the
+     owner is among the demo's players ([Matchmaking matches](#matchmaking-matches)).
+   - Not ready yet (`409`): asked again after `not-ready-recheck` (5 minutes); the link waits for it. The bridge says
+     "expired" by itself once the match is 2 hours old.
+   - Expired (`410`): the match is made (its id decoded from the sharing code, `cs2/ShareCode`, the bridge's decoder)
+     with a `FAILED` demo and the code `REPLAY_EXPIRED`, and is never asked for again.
+   - Unknown to the game coordinator (`404`): nothing is made; a `WARN` names the user's id.
+   - The bridge busy, failing or not answering, or refusing the site's token (`401`, also an `ERROR` once a run): a
+     back-off (below), and the code stays pending.
+2. **Then Steam**, for the code after the last known one: a newer code becomes the known and the pending one, and the
+   next step brings its match; none (`202`): the link is looked at again after `idle-recheck` (15 minutes); `403`:
+   `BAD_AUTH_CODE`; `412`: `BAD_SHARE_CODE`; `429`: the whole run ends there, and the links it had not walked yet are due
+   at the next one; `5xx` or no answer: a back-off.
+
+The back-off is `2^failures` minutes after the failure, at most an hour; an answer that is not a failure resets it. Steam
+is asked at most once a second, by the walk and the link requests together. A player who links again or unlinks while
+their link is walked stops that walk (it writes only to the link it claimed).
+
+### The codes are secrets
+
+The authentication code is sealed in `cs2_links.auth_code` with AES-256-GCM: a random 12-byte nonce for every write, the
+nonce, the ciphertext and the tag stored together, the key `CS2_LINK_SECRET` (the base64 of exactly 32 random bytes, or
+the backend does not start), and `cs2-link:<user id>` as associated data, so a row copied to another user does not open.
+It is opened only by the walk and the link request, for their Steam call, and never reaches a log line, an exception
+message, an answer or a queue message. Steam takes it in the query string, so the address of a Steam call is never
+logged: the calls use the JDK's HTTP client, and a failure is logged with its HTTP status or the class of its exception
+only. A changed `CS2_LINK_SECRET` does not stop anything: each link whose code no longer opens turns `BAD_AUTH_CODE` when
+it is walked. The bridge's token is never logged either, and a sharing code is logged by nobody but the bridge, by its
+first nine characters.
+
+### Settings
+
+| Variable or setting | Meaning | Default |
+| --- | --- | --- |
+| `STEAM_WEB_API_KEY` | The site's Steam Web API key (<https://steamcommunity.com/dev/apikey>). | empty: off |
+| `CS2_BRIDGE_URL` | The bridge: `http://gcbridge:8090` with `docker-compose.cs2.yml`. | empty: off |
+| `CS2_BRIDGE_TOKEN` | The bridge's `BRIDGE_TOKEN`, sent as `X-Bridge-Token`. Required once `CS2_BRIDGE_URL` is set: the backend does not start without it. | empty |
+| `CS2_LINK_SECRET` | The key of the sealed authentication codes, the base64 of 32 random bytes (`openssl rand -base64 32`). Another shape stops the start, with a message that names the variable and not the value. Changing it turns every link `BAD_AUTH_CODE`. | empty: off |
+| `CS2_STEAM_API_URL` | Steam's Web API; changed only to point at a fake. | `https://api.steampowered.com` |
+| `cs2.sync.interval`, `links-per-run`, `steps-per-link`, `idle-recheck`, `not-ready-recheck` | The walk (above); plain values of `application.yml`. | `2m`, `5`, `5`, `15m`, `5m` |
+| `cs2.steam-timeout`, `cs2.bridge-timeout` | How long a call to Steam and to the bridge may take. | `10s`, `30s` |
+| `limits.cs2-links` | Link attempts per user per window. | `10` |
+
+The stack without a FACEIT key (`docker-compose.fake.yml`) has the feature on with fakes of Steam and of the bridge and
+made-up values; see [`dev/fake-faceit/README.md`](dev/fake-faceit/README.md), "CS2 matchmaking", for its chains of codes.
+
+```bash
+# Signed in as in "Trying it without Steam" (jar.txt holds the session cookie). Made-up codes.
+curl -b jar.txt -X POST -H 'Origin: http://localhost:3000' -H 'Content-Type: application/json' \
+  -d '{"authCode": "Fk7Q-Lm3Rt-Wz9P", "shareCode": "CSGO-Qw7Mn-Zp5Xc-Hy9Rt-Ab3Kd-AAAAA"}' \
+  http://localhost:3000/api/v1/cs2/link
+# {"state":"ACTIVE","linkedAt":"2026-10-14T18:53:11.120548Z","checkedAt":"2026-10-14T18:53:11.120548Z"}   (201)
+curl -b jar.txt http://localhost:3000/api/v1/cs2/link
+curl -b jar.txt -X DELETE -H 'Origin: http://localhost:3000' http://localhost:3000/api/v1/cs2/link
+```
 
 ## Signing in
 
@@ -815,6 +937,7 @@ What a `USER` may ask for without the key, and when:
 | `POST /api/v1/highlights/{id}/clips`, `POST /api/v1/matches/{id}/clips`, `POST /api/v1/matches/{id}/montages` | the highlight's player, or the `playerId` of the compilation or the montage, is their own FACEIT player | `403 FACEIT_NOT_LINKED`, `403 NOT_YOUR_PLAYER` |
 | `DELETE /api/v1/clips/{id}` | they ordered the clip | `403 NOT_YOUR_CLIP` |
 | `POST /api/v1/clips/{id}/retry` | they ordered the clip, and it is `FAILED` | `403 NOT_YOUR_CLIP`; `409 CLIP_NOT_FAILED` |
+| `POST /api/v1/cs2/link`, `DELETE /api/v1/cs2/link` (and `GET`) | their own link, always; no FACEIT link is needed (the admin key alone is refused: it is nobody) | `403 FORBIDDEN` for the key; `422`, `429`, `503` as in [CS2 matchmaking](#cs2-matchmaking) |
 
 - **The roster** is FACEIT's answer for the match (the cached one when there is one): the user's FACEIT player has to be
   in one of the two teams. When FACEIT cannot be asked and has no cached answer, the request is refused with
@@ -867,6 +990,7 @@ never counted and never refused.
 | Demo uploads | 10 | `limits.demo-uploads` | `LIMITS_DEMO_UPLOADS` | `429 UPLOAD_LIMIT_REACHED` |
 | Demo imports | 20 | `limits.demo-imports` | `LIMITS_DEMO_IMPORTS` | `429 IMPORT_LIMIT_REACHED` |
 | Clip orders | 5 | `limits.clip-orders` | `LIMITS_CLIP_ORDERS` | `429 CLIP_LIMIT_REACHED` |
+| CS2 link attempts (`POST /api/v1/cs2/link` that Steam was asked about, refused ones included; one Steam could not answer gives its place back) | 10 | `limits.cs2-links` (a plain value) | | `429 CS2_LINK_LIMIT_REACHED` |
 | The window | 24 hours | `limits.window` | `LIMITS_WINDOW` | |
 
 The window is rolling: it is the last 24 hours at the moment of the request, not a calendar day, so a place frees 24
@@ -1073,6 +1197,7 @@ succeeds); every failure that is not listed here has `errorCode` `null`. A clien
 | `PARSE_FAILED` | The parsing failed on every attempt: the message of the parse was dead-lettered after three tries, and `error` is `Parsing the demo failed after 3 attempts`. The site says that the file may be damaged. A parse that the parser itself gives up on records its own sentence and has no code. |
 | `ANALYSIS_FAILED` | The analysis of a parsed demo failed on every attempt: the demo stays `PARSED` (not `FAILED`) with `error` `Analyzing the demo failed after 3 attempts. The parsed data is kept; start the analysis again.` and this code. Starting the analysis again, or uploading the file, clears both. |
 | `WRONG_MATCH` | The demo was parsed, but its players are not the players of the match it was uploaded or imported for (see [A demo of another match](#a-demo-of-another-match)). `error` says how many of the SteamIDs compared are among the demo's, for example `The players of the demo are not the players of this match: only 3 of the 10 SteamIDs compared are among them`. Nothing of the demo was analyzed, so the match shows no analysis. Uploading or importing the right file starts over. |
+| `REPLAY_EXPIRED` | A matchmaking match that the walk of a player's CS2 link found has no replay any more: Valve keeps the files for a limited time, and the game coordinator gave no address for it. The demo was made `FAILED` with this code when the match was found and is never asked for again; uploading the file, if the player kept it, starts over (see [CS2 matchmaking](#cs2-matchmaking)). |
 
 ### Endpoints
 
