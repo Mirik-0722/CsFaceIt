@@ -1,0 +1,2 @@
+# cmd.exe finds the labels of a batch file (goto) reliably only with Windows line endings, whatever the checkout.
+windows/*.cmd text eol=crlf
