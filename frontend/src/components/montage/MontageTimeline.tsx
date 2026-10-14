@@ -291,7 +291,7 @@ export default function MontageTimeline({
         <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain">
           <div
             ref={trackRef}
-            // Its own stacking context: the playhead and a dragged segment stay under the phone's fixed order bar.
+            // Its own stacking context: the playhead and a dragged segment stay under the phone's sticky order bar.
             className="relative isolate flex flex-col gap-1"
             style={{ width: `max(100%, ${Math.ceil(span * PX_PER_SECOND)}px)` }}
           >

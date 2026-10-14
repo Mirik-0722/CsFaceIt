@@ -515,7 +515,20 @@ function Workbench({ matchId, playerId, source }: WorkbenchProps) {
           className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border border-line-strong bg-card px-4 py-2.5"
         >
           <p className="text-sm">{t.montage.staleDraft}</p>
-          <Button type="button" variant="outline" size="sm" onClick={() => setStaleNotice(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setStaleNotice(false)
+              // The draft that no longer fits is dropped, so the notice does not come back at the next visit.
+              try {
+                localStorage.removeItem(key)
+              } catch {
+                // A browser that keeps nothing has nothing to remove.
+              }
+            }}
+          >
             {t.montage.staleDraftOk}
           </Button>
         </div>

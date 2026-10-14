@@ -1,5 +1,5 @@
 import { Minus, Plus } from 'lucide-react'
-import { useId } from 'react'
+import { useId, useRef } from 'react'
 import type { EditorSource, MontageAspect } from '@/api/editorTypes'
 import type { ClipQuality } from '@/api/types'
 import { Button } from '@/components/ui/button'
@@ -135,6 +135,8 @@ export default function MontageInspector({
   const { options } = montage
   const { limits, tickRate } = source
   const count = montage.segments.length
+  // Where focus goes when the last segment is removed from here: the section stays, the button does not.
+  const segmentRef = useRef<HTMLDivElement>(null)
   const index = selected ? montage.segments.findIndex((segment) => segment.id === selected.id) : -1
   const round = selected ? roundOf(source, selected.round) : undefined
   const roundStart = round?.startTick ?? 0
@@ -152,7 +154,7 @@ export default function MontageInspector({
       </h2>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {/* The selected segment. */}
-        <div className="flex flex-col gap-3 border-b border-border p-4">
+        <div ref={segmentRef} tabIndex={-1} className="flex flex-col gap-3 border-b border-border p-4 outline-none">
           {selected && round ? (
             <>
               <h3 className="label-mono text-foreground">
@@ -210,7 +212,7 @@ export default function MontageInspector({
                   <ul className="flex flex-col gap-1">
                     {segmentKills(source, selected).map((kill, at) => (
                       // Two kills can share a tick (one bullet through two players): the place tells them apart.
-                      <li key={`${kill.tick}-${at}`}className="flex min-w-0 items-baseline gap-2 text-[13px]">
+                      <li key={`${kill.tick}-${at}`} className="flex min-w-0 items-baseline gap-2 text-[13px]">
                         <span className="shrink-0 font-mono">
                           {isKnife(kill.weapon) ? t.highlight.knife : weaponLabel(kill.weapon)}
                         </span>
@@ -236,7 +238,19 @@ export default function MontageInspector({
                 >
                   {t.montage.inspector.moveRight}
                 </Button>
-                <Button type="button" variant="destructive" size="sm" className="ml-auto" onClick={onRemoveSelected}>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() => {
+                    const last = count === 1
+                    onRemoveSelected()
+                    if (last) {
+                      segmentRef.current?.focus()
+                    }
+                  }}
+                >
                   {t.montage.inspector.remove}
                 </Button>
               </div>
