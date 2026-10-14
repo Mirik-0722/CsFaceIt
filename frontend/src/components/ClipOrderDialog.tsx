@@ -1,6 +1,6 @@
 import { X } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
-import { useRecorderStatus, useRequestCompilation, useRequestHighlightClip } from '@/api/queries'
+import { useOrderMontage, useRecorderStatus, useRequestCompilation, useRequestHighlightClip } from '@/api/queries'
 import KillTimeline from '@/components/KillTimeline'
 import RecDot from '@/components/RecDot'
 import { Badge } from '@/components/ui/badge'
@@ -17,12 +17,27 @@ import { mapLabel } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
 import { useViewer } from '@/lib/viewer'
 import type { ApiError } from '@/api/client'
-import type { ClipQuality, HighlightResponse } from '@/api/types'
+import type { MontageRequest } from '@/api/editorTypes'
+import type { ClipQuality, ClipResponse, HighlightResponse } from '@/api/types'
 
-/** What can be ordered: the clip of one highlight, or one video of every kill of a player in a match. */
+/**
+ * What can be ordered: the clip of one highlight, one video of every kill of a player in a match, or a montage that the
+ * player put together in the editor (its quality is chosen there, so the dialog only names it). `durationSeconds` and
+ * `musicName` are what the editor worked out, for the summary.
+ */
 export type ClipOrder =
   | { kind: 'highlight'; highlight: HighlightResponse }
   | { kind: 'compilation'; matchId: string; mapName: string | null; playerId: string; nickname: string }
+  | {
+      kind: 'montage'
+      matchId: string
+      mapName: string | null
+      playerId: string
+      nickname: string
+      request: MontageRequest
+      durationSeconds: number
+      musicName: string | null
+    }
 
 // A side is shown as its letters in its own colour, so the colour is never the only sign.
 const SIDE_CLASS: Record<string, string> = { CT: 'text-side-ct', T: 'text-side-t' }
@@ -81,12 +96,45 @@ function CompilationSummary({ order }: { order: Extract<ClipOrder, { kind: 'comp
   )
 }
 
+/** What is about to be recorded when it is a montage: whose, of which match, its title and what it is made of. */
+function MontageSummary({ order }: { order: Extract<ClipOrder, { kind: 'montage' }> }) {
+  const t = useT()
+  const map = mapLabel(order.mapName)
+  const { request } = order
+  const facts = [
+    t.montage.order.segments(request.segments.length),
+    formatDuration(order.durationSeconds),
+    request.quality,
+    request.aspect,
+    request.intro ? t.montage.order.intro : null,
+    order.musicName,
+  ].filter((fact): fact is string => fact !== null)
+  return (
+    <div className="flex flex-col gap-3 border border-border bg-background p-4">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        <Badge variant="outline">{t.montage.kind}</Badge>
+        <span className="min-w-0 truncate text-[15px] font-semibold">{order.nickname}</span>
+        {map && <span className="label-mono">{map}</span>}
+      </div>
+      {request.title && <p className="text-[15px] break-words">«{request.title}»</p>}
+      <p className="font-mono text-xs text-muted-foreground">{facts.join(' · ')}</p>
+    </div>
+  )
+}
+
+/** Who the order is for: the player whose kills it records. */
+function orderedPlayer(order: ClipOrder): string {
+  return order.kind === 'highlight' ? order.highlight.playerId : order.playerId
+}
+
 interface OrderFormProps {
   order: ClipOrder
   /** A request of this form is on its way. The dialog holds the flag, because it must not close meanwhile. */
   sending: boolean
   onSendingChange: (sending: boolean) => void
   onClose: () => void
+  /** Called with the clip the backend put in the queue, before the dialog closes. */
+  onOrdered?: (clip: ClipResponse) => void
 }
 
 /**
@@ -98,12 +146,13 @@ interface OrderFormProps {
  * may not order reads why; the key field is then behind the quiet switch. A visitor who is not signed in is shown the
  * field: a key the backend took is kept until the page is reloaded, and a key it rejects is forgotten.
  */
-function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps) {
+function OrderForm({ order, sending, onSendingChange, onClose, onOrdered }: OrderFormProps) {
   const t = useT()
   const keyId = useId()
   const messagesId = useId()
-  // The higher quality is the recommended one (spec 4).
-  const [quality, setQuality] = useState<ClipQuality>('1080p')
+  // The higher quality is the recommended one (spec 4); a montage brings the one chosen in the editor.
+  const [chosenQuality, setQuality] = useState<ClipQuality>('1080p')
+  const quality = order.kind === 'montage' ? order.request.quality : chosenQuality
   const [typedKey, setTypedKey] = useState('')
   const [keyRejected, setKeyRejected] = useState(false)
   // The backend refused an order made by the session alone as nobody's: the session has ended since the page asked.
@@ -112,7 +161,7 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
   const [keyOpen, setKeyOpen] = useState(false)
   const [failure, setFailure] = useState<ApiError | null>(null)
   const viewer = useViewer()
-  const permission = viewer.canOrderFor(order.kind === 'highlight' ? order.highlight.playerId : order.playerId)
+  const permission = viewer.canOrderFor(orderedPlayer(order))
   const storedKey = useAdminKey()
   // Not until it is known who is signed in: see the demo panel.
   const keyField = storedKey === null && !viewer.loading && (!viewer.signedIn || keyOpen)
@@ -126,6 +175,7 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
   const recorder = useRecorderStatus()
   const highlightClip = useRequestHighlightClip()
   const compilation = useRequestCompilation()
+  const montage = useOrderMontage()
   const hints: Record<ClipQuality, string> = { '720p': t.clip.order.fasterSmaller, '1080p': t.clip.order.recommended }
 
   // A form that goes away takes its flag with it, whatever became of its request.
@@ -141,12 +191,13 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
     // has to refuse to close from the very next key press on.
     onSendingChange(true)
     const callbacks = {
-      onSuccess: () => {
+      onSuccess: (clip: ClipResponse) => {
         onSendingChange(false)
         if (sentKey !== null) {
           // The backend took the key, so it is the right one: keep it for the next clip.
           setAdminKey(sentKey)
         }
+        onOrdered?.(clip)
         onClose()
       },
       onError: (error: ApiError) => {
@@ -162,6 +213,7 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
           setKeyRejected(true)
           highlightClip.reset()
           compilation.reset()
+          montage.reset()
         } else {
           setFailure(error)
         }
@@ -169,6 +221,8 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
     }
     if (order.kind === 'highlight') {
       highlightClip.mutate({ apiKey: sentKey ?? undefined, highlightId: order.highlight.id, quality }, callbacks)
+    } else if (order.kind === 'montage') {
+      montage.mutate({ apiKey: sentKey ?? undefined, matchId: order.matchId, request: order.request }, callbacks)
     } else {
       compilation.mutate(
         { apiKey: sentKey ?? undefined, matchId: order.matchId, playerId: order.playerId, quality },
@@ -185,39 +239,40 @@ function OrderForm({ order, sending, onSendingChange, onClose }: OrderFormProps)
         start()
       }}
     >
-      {order.kind === 'highlight' ? (
-        <HighlightSummary highlight={order.highlight} />
-      ) : (
-        <CompilationSummary order={order} />
+      {order.kind === 'highlight' && <HighlightSummary highlight={order.highlight} />}
+      {order.kind === 'compilation' && <CompilationSummary order={order} />}
+      {order.kind === 'montage' && <MontageSummary order={order} />}
+      {/* A montage's quality was chosen in the editor, and its summary names it. */}
+      {order.kind !== 'montage' && (
+        <fieldset className="min-w-0">
+          <legend className="label-mono">{t.clip.order.quality}</legend>
+          <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
+            {CLIP_QUALITIES.map((option) => (
+              // The whole box is the label of its radio button; the chosen one has the light outline.
+              <label
+                key={option}
+                className={cn(
+                  'flex min-h-17 cursor-pointer items-start gap-3 border p-3.5',
+                  quality === option ? 'border-foreground' : 'border-line-strong',
+                )}
+              >
+                <input
+                  type="radio"
+                  name="quality"
+                  value={option}
+                  checked={quality === option}
+                  onChange={() => setQuality(option)}
+                  className="mt-0.75 size-4 shrink-0 accent-foreground"
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-mono text-sm font-semibold">{option}</span>
+                  <span className="text-[13px] text-muted-foreground">{hints[option]}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
       )}
-      <fieldset className="min-w-0">
-        <legend className="label-mono">{t.clip.order.quality}</legend>
-        <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
-          {CLIP_QUALITIES.map((option) => (
-            // The whole box is the label of its radio button; the chosen one has the light outline.
-            <label
-              key={option}
-              className={cn(
-                'flex min-h-17 cursor-pointer items-start gap-3 border p-3.5',
-                quality === option ? 'border-foreground' : 'border-line-strong',
-              )}
-            >
-              <input
-                type="radio"
-                name="quality"
-                value={option}
-                checked={quality === option}
-                onChange={() => setQuality(option)}
-                className="mt-0.75 size-4 shrink-0 accent-foreground"
-              />
-              <span className="flex flex-col gap-0.5">
-                <span className="font-mono text-sm font-semibold">{option}</span>
-                <span className="text-[13px] text-muted-foreground">{hints[option]}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
       {/* Until it is known who is signed in, the room of the key field, so that it does not arrive with a jump. */}
       {viewer.loading && storedKey === null && <div aria-hidden="true" className="h-16" />}
       {/* Why not, before the key field: a signed-in visitor is never left with a bare key field. */}
@@ -300,6 +355,8 @@ interface ClipOrderDialogProps {
   /** What to record; the dialog is open while there is something. */
   order: ClipOrder | null
   onClose: () => void
+  /** Called with the clip that was put in the queue (the montage editor then opens its page). */
+  onOrdered?: (clip: ClipResponse) => void
 }
 
 /**
@@ -309,7 +366,7 @@ interface ClipOrderDialogProps {
  * While the request is on its way the dialog cannot be closed, by its buttons, by Escape or by a click outside: the
  * request cannot be taken back, and what the backend says to it (the key is wrong, the queue is full) is shown here.
  */
-export default function ClipOrderDialog({ order, onClose }: ClipOrderDialogProps) {
+export default function ClipOrderDialog({ order, onClose, onOrdered }: ClipOrderDialogProps) {
   const t = useT()
   const [sending, setSending] = useState(false)
   return (
@@ -329,7 +386,7 @@ export default function ClipOrderDialog({ order, onClose }: ClipOrderDialogProps
     >
       <DialogContent>
         <div className="flex items-center justify-between gap-3">
-          <DialogTitle>{t.clip.order.title}</DialogTitle>
+          <DialogTitle>{order?.kind === 'montage' ? t.montage.order.title : t.clip.order.title}</DialogTitle>
           <DialogClose
             disabled={sending}
             render={<Button type="button" variant="ghost" size="icon" className="-my-2 -mr-3 text-muted-foreground" />}
@@ -338,7 +395,15 @@ export default function ClipOrderDialog({ order, onClose }: ClipOrderDialogProps
             <X aria-hidden="true" />
           </DialogClose>
         </div>
-        {order && <OrderForm order={order} sending={sending} onSendingChange={setSending} onClose={onClose} />}
+        {order && (
+          <OrderForm
+            order={order}
+            sending={sending}
+            onSendingChange={setSending}
+            onClose={onClose}
+            onOrdered={onOrdered}
+          />
+        )}
       </DialogContent>
     </Dialog>
   )
