@@ -50,9 +50,44 @@ services:
       # server: whoever reaches the fake can sign in as anybody.
       AUTH_STEAM_LOGIN_URL: http://localhost:${FAKE_FACEIT_PORT:-8089}/steam/openid/login
       AUTH_STEAM_VERIFY_URL: http://fake-faceit:8080/steam/openid/login
+      # CS2 matchmaking with fakes only (README, "CS2 matchmaking"; dev/fake-faceit/README.md, "CS2 matchmaking"): the
+      # same WireMock plays Steam's Web API (GetNextMatchSharingCode, chains of made-up codes), and the bridge below runs
+      # in its fake mode. The key and the token are made up and written out here, so that a real STEAM_WEB_API_KEY or
+      # CS2_BRIDGE_TOKEN of your .env never reaches a fake. The link secret is a made-up one too; set CS2_LINK_SECRET to
+      # try another (every stored link then reads BAD_AUTH_CODE).
+      STEAM_WEB_API_KEY: fake-steam-key
+      CS2_STEAM_API_URL: http://fake-faceit:8080/steam/webapi
+      CS2_BRIDGE_URL: http://gcbridge:8090
+      CS2_BRIDGE_TOKEN: fake-bridge-token
+      CS2_LINK_SECRET: ${CS2_LINK_SECRET:-ZmFrZS1jczItbGluay1zZWNyZXQtb2YtdGhlLWZha2U=}
     depends_on:
       fake-faceit:
         condition: service_healthy
+
+  gcbridge:
+    # The bridge to the CS2 game coordinator (gcbridge/README.md) in its fake mode: no Steam account and no connection to
+    # Steam; the last group of a sharing code chooses the answer (READY, NOTYT, GONE5, UNKWN, ...). The replay address of
+    # its answers is a file of the fake FACEIT under Valve's name of the match, which the WireMock serves with a bzip2 copy
+    # of the real demo, when there is one (dev/fake-faceit/README.md). Reachable only inside the stack, like the real one.
+    build: ./gcbridge
+    environment:
+      BRIDGE_FAKE: "1"
+      BRIDGE_TOKEN: fake-bridge-token
+      BRIDGE_FAKE_REPLAY_URL: "http://fake-faceit:8080/valve/730/{matchId}_1.dem.bz2"
+    expose:
+      - "8090"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # The image's check, asked more often: the fake mode is ready at once.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8090/health || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
 
   frontend:
     # The override ships a publicly documented admin key, so the web port is not reachable from the LAN in this mode.

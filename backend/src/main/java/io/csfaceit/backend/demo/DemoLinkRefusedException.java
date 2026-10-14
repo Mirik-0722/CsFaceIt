@@ -19,8 +19,24 @@ public class DemoLinkRefusedException extends BadRequestException {
     /** The file the link names is not the demo of the match it was pasted for. */
     public static final String DEMO_LINK_MISMATCH = "DEMO_LINK_MISMATCH";
 
+    /** The host did not resolve, which may pass: the only refusal that asking again later can change. */
+    private final boolean unresolvedHost;
+
     private DemoLinkRefusedException(String code, String message) {
+        this(code, message, false);
+    }
+
+    private DemoLinkRefusedException(String code, String message, boolean unresolvedHost) {
         super(code, message);
+        this.unresolvedHost = unresolvedHost;
+    }
+
+    /**
+     * Whether the link was refused only because its host did not resolve. The answer is {@code DEMO_LINK_INVALID} as for
+     * a link that is no address at all; the site's own imports (the CS2 walk) try such a link again later.
+     */
+    public boolean isUnresolvedHost() {
+        return unresolvedHost;
     }
 
     static DemoLinkRefusedException invalid(String reason) {
@@ -34,7 +50,7 @@ public class DemoLinkRefusedException extends BadRequestException {
 
     static DemoLinkRefusedException unresolved(String host) {
         return new DemoLinkRefusedException(DEMO_LINK_INVALID,
-                "The demo link is not usable: its host " + host + " does not resolve");
+                "The demo link is not usable: its host " + host + " does not resolve", true);
     }
 
     static DemoLinkRefusedException mismatch(String matchId) {

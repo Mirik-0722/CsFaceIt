@@ -25,7 +25,8 @@ function idFromHash(code) {
 //   GONE5  a match from 30 days ago without one   UNKWN  no such match
 //   BUSY5  the queue is full                   DOWN5  Steam or the coordinator is not ready
 // and any other code answers like READY. The answers go through the same queue as the real ones, and each takes
-// delayMs, which is what makes the queue visible.
+// delayMs, which is what makes the queue visible. The replay address is replayUrl with {matchId} replaced by the id of
+// the match, so that a fake stack can serve a file under Valve's name of the match, which its backend asks for.
 function createFakeCoordinator({ replayUrl, delayMs }) {
   const lastGroup = (shareCode) => shareCode.slice(-5);
 
@@ -59,7 +60,10 @@ function createFakeCoordinator({ replayUrl, delayMs }) {
       if (group === 'GONE5') {
         return { kind: 'match', matchId, matchTime: new Date(now - 30 * DAY_MS), replayUrl: null };
       }
-      return { kind: 'match', matchId, matchTime: new Date(now - 30 * MINUTE_MS), replayUrl };
+      // {matchId} in the address becomes the id of the match, so that the replay can be named as Valve names it.
+      return {
+        kind: 'match', matchId, matchTime: new Date(now - 30 * MINUTE_MS), replayUrl: replayUrl.split('{matchId}').join(matchId),
+      };
     },
 
     stop() {},

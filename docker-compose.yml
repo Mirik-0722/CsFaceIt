@@ -146,6 +146,16 @@ services:
       # sign-in with FACEIT itself is not written yet, so they are read and nothing more; the secret is never logged.
       FACEIT_OAUTH_CLIENT_ID: ${FACEIT_OAUTH_CLIENT_ID:-}
       FACEIT_OAUTH_CLIENT_SECRET: ${FACEIT_OAUTH_CLIENT_SECRET:-}
+      # CS2 matchmaking (README, "CS2 matchmaking"): on only while all three of the Steam Web API key, the bridge's address
+      # and the link secret are set; empty by default, and then the site offers no CS2 link. The bridge is the service of
+      # docker-compose.cs2.yml (http://gcbridge:8090), and CS2_BRIDGE_TOKEN is the BRIDGE_TOKEN it was started with.
+      # CS2_LINK_SECRET seals the players' authentication codes: the base64 of 32 random bytes (openssl rand -base64 32);
+      # changing it makes every player link again. None of them is ever logged.
+      STEAM_WEB_API_KEY: ${STEAM_WEB_API_KEY:-}
+      CS2_STEAM_API_URL: ${CS2_STEAM_API_URL:-https://api.steampowered.com}
+      CS2_BRIDGE_URL: ${CS2_BRIDGE_URL:-}
+      CS2_BRIDGE_TOKEN: ${CS2_BRIDGE_TOKEN:-}
+      CS2_LINK_SECRET: ${CS2_LINK_SECRET:-}
       # The origins the backend takes for the site's own: the scheme, the host and the port when it is not the default one,
       # no path (a comma separated list). A visitor can sign in, and a write that carries the session cookie is accepted,
       # only at one of them; the same list is what CORS allows. By default the stack is reached on the published web port

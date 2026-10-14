@@ -1,0 +1,262 @@
+{
+  "mappings": [
+    {
+      "name": "GetNextMatchSharingCode: a key other than the stack's made-up one is refused (403)",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/steam/webapi/ICSGOPlayers_730/GetNextMatchSharingCode/v1",
+        "queryParameters": {
+          "key": {
+            "doesNotMatch": "fake-steam-key"
+          }
+        }
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "Content-Type": "text/html"
+        },
+        "body": "<html><head><title>Forbidden</title></head><body><h1>Forbidden</h1></body></html>"
+      }
+    },
+    {
+      "name": "GetPlayerSummaries: the stack's made-up key is good (the backend's check of its key after a 403)",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/steam/webapi/ISteamUser/GetPlayerSummaries/v2",
+        "queryParameters": {
+          "key": {
+            "equalTo": "fake-steam-key"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "response": {
+            "players": []
+          }
+        }
+      }
+    },
+    {
+      "name": "GetPlayerSummaries: any other key is refused (403)",
+      "priority": 10,
+      "request": {
+        "method": "GET",
+        "urlPath": "/steam/webapi/ISteamUser/GetPlayerSummaries/v2"
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "Content-Type": "text/html"
+        },
+        "body": "<html><head><title>Forbidden</title></head><body><h1>Forbidden</h1></body></html>"
+      }
+    },
+    {
+      "name": "GetNextMatchSharingCode: the authentication code BADA-BADAB-BADA is refused (403)",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/steam/webapi/ICSGOPlayers_730/GetNextMatchSharingCode/v1",
+        "queryParameters": {
+          "steamidkey": {
+            "equalTo": "BADA-BADAB-BADA"
+          }
+        }
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "Content-Type": "text/html"
+        },
+        "body": "<html><head><title>Forbidden</title></head><body><h1>Forbidden</h1></body></html>"
+      }
+    },
+    {
+      "name": "GetNextMatchSharingCode: a known code ending in -BADKN is not this player's (412)",
+      "priority": 2,
+      "request": {
+        "method": "GET",
+        "urlPath": "/steam/webapi/ICSGOPlayers_730/GetNextMatchSharingCode/v1",
+        "queryParameters": {
+          "knowncode": {
+            "matches": "CSGO(-[A-Za-z0-9]{5}){4}-BADKN"
+          }
+        }
+      },
+      "response": {
+        "status": 412,
+        "headers": {
+          "Content-Type": "text/html"
+        },
+        "body": "<html><head><title>Precondition Failed</title></head><body><h1>Precondition Failed</h1></body></html>"
+      }
+    },
+    {
+      "name": "GetNextMatchSharingCode: chain A, AAAAA is followed by READY",
+      "priority": 3,
+      "request": {
+        "method": "GET",
+        "urlPath": "/steam/webapi/ICSGOPlayers_730/GetNextMatchSharingCode/v1",
+        "queryParameters": {
+          "knowncode": {
+            "equalTo": "CSGO-Qw7Mn-Zp5Xc-Hy9Rt-Ab3Kd-AAAAA"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "result": {
+            "nextcode": "CSGO-Qw7Mn-Zp5Xc-Hy9Rt-Ab3Kd-READY"
+          }
+        }
+      }
+    },
+    {
+      "name": "GetNextMatchSharingCode: chain A, READY is the newest (202)",
+      "priority": 3,
+      "request": {
+        "method": "GET",
+        "urlPath": "/steam/webapi/ICSGOPlayers_730/GetNextMatchSharingCode/v1",
+        "queryParameters": {
+          "knowncode": {
+            "equalTo": "CSGO-Qw7Mn-Zp5Xc-Hy9Rt-Ab3Kd-READY"
+          }
+        }
+      },
+      "response": {
+        "status": 202,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "result": {
+            "nextcode": "n/a"
+          }
+        }
+      }
+    },
+    {
+      "name": "GetNextMatchSharingCode: chain B, UNKWN is followed by GONE5",
+      "priority": 3,
+      "request": {
+        "method": "GET",
+        "urlPath": "/steam/webapi/ICSGOPlayers_730/GetNextMatchSharingCode/v1",
+        "queryParameters": {
+          "knowncode": {
+            "equalTo": "CSGO-Tr8Vs-Nk4Pw-Jd6Fq-Cx2Hm-UNKWN"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "result": {
+            "nextcode": "CSGO-Tr8Vs-Nk4Pw-Jd6Fq-Cx2Hm-GONE5"
+          }
+        }
+      }
+    },
+    {
+      "name": "GetNextMatchSharingCode: chain B, GONE5 is followed by NOTYT",
+      "priority": 3,
+      "request": {
+        "method": "GET",
+        "urlPath": "/steam/webapi/ICSGOPlayers_730/GetNextMatchSharingCode/v1",
+        "queryParameters": {
+          "knowncode": {
+            "equalTo": "CSGO-Tr8Vs-Nk4Pw-Jd6Fq-Cx2Hm-GONE5"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "result": {
+            "nextcode": "CSGO-Tr8Vs-Nk4Pw-Jd6Fq-Cx2Hm-NOTYT"
+          }
+        }
+      }
+    },
+    {
+      "name": "GetNextMatchSharingCode: chain B, NOTYT is the newest (202)",
+      "priority": 3,
+      "request": {
+        "method": "GET",
+        "urlPath": "/steam/webapi/ICSGOPlayers_730/GetNextMatchSharingCode/v1",
+        "queryParameters": {
+          "knowncode": {
+            "equalTo": "CSGO-Tr8Vs-Nk4Pw-Jd6Fq-Cx2Hm-NOTYT"
+          }
+        }
+      },
+      "response": {
+        "status": 202,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "result": {
+            "nextcode": "n/a"
+          }
+        }
+      }
+    },
+    {
+      "name": "GetNextMatchSharingCode: chain C, UNKWN is followed by BADKN, which Steam then refuses as a known code",
+      "priority": 3,
+      "request": {
+        "method": "GET",
+        "urlPath": "/steam/webapi/ICSGOPlayers_730/GetNextMatchSharingCode/v1",
+        "queryParameters": {
+          "knowncode": {
+            "equalTo": "CSGO-Ye3Wb-Rp9Kt-Mf5Ns-Dq7Lz-UNKWN"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "jsonBody": {
+          "result": {
+            "nextcode": "CSGO-Ye3Wb-Rp9Kt-Mf5Ns-Dq7Lz-BADKN"
+          }
+        }
+      }
+    },
+    {
+      "name": "GetNextMatchSharingCode: any other known code is not this player's (412)",
+      "priority": 10,
+      "request": {
+        "method": "GET",
+        "urlPath": "/steam/webapi/ICSGOPlayers_730/GetNextMatchSharingCode/v1"
+      },
+      "response": {
+        "status": 412,
+        "headers": {
+          "Content-Type": "text/html"
+        },
+        "body": "<html><head><title>Precondition Failed</title></head><body><h1>Precondition Failed</h1></body></html>"
+      }
+    }
+  ]
+}

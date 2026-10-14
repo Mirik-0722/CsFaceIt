@@ -190,6 +190,17 @@ public class DemoService {
      *         {@code DEMO_LINK_MISMATCH}; nothing is queued or counted
      */
     public DemoResponse requestImport(String faceitMatchId, URI link, Actor actor) {
+        return requestImport(faceitMatchId, link, actor, false);
+    }
+
+    /**
+     * Like {@link #requestImport(String, URI, Actor)}; with {@code reviveFailed} the site's own request
+     * ({@link Actor#system()}) queues a FAILED demo again, as a person's request does, instead of leaving every demo that
+     * has a row alone. Only the walk of a CS2 link asks for that, and only for a demo of its own player's match whose
+     * import failed and that was never analyzed (it checks that first, see {@code cs2/Cs2ChainJob}); the FACEIT sync
+     * never does.
+     */
+    public DemoResponse requestImport(String faceitMatchId, URI link, Actor actor, boolean reviveFailed) {
         requireMember(actor, faceitMatchId, link != null);
         if (link != null) {
             checkLink(faceitMatchId, link, actor);
@@ -198,7 +209,7 @@ public class DemoService {
         boolean matchmaking = MatchSource.isMatchmaking(faceitMatchId);
         String demoUrl = matchmaking ? null : matchService.getMatch(faceitMatchId).demoUrl();
         boolean demoUrlAvailable = link != null || (demoUrl != null && !demoUrl.isBlank());
-        QueueStep step = queueStep(actor, faceitMatchId, link != null, demoUrlAvailable);
+        QueueStep step = queueStep(actor, faceitMatchId, link != null, demoUrlAvailable, reviveFailed);
 
         // The place this request takes, if it queues something. A repeat of the step after a lost race starts from a
         // transaction that was rolled back, and the place it had taken with it.
@@ -266,18 +277,23 @@ public class DemoService {
      * takes over: either way the match is the actor's (nobody's for the admin key). Should the match turn out not to be
      * open under the transaction's lock (another request made it first, or brought a demo meanwhile), the rules of a
      * stored match are asked in that transaction ({@link #requireMatchmakingMember}). What the site does by itself
-     * never takes up a demo that has a row (FAILED included).
+     * never takes up a demo that has a row (FAILED included), unless the walk of a CS2 link asks for it with
+     * {@code reviveFailed}, and never takes a stored match over: the walk of a CS2
+     * link ({@code cs2/Cs2ChainJob}) has made the match with its owner before it brings the demo, and the system, which
+     * is nobody, must not take that owner away.
      *
      * @throws NotFoundException {@code MATCH_NOT_FOUND}: a matchmaking match the database does not know, and no link
      */
-    private QueueStep queueStep(Actor actor, String matchId, boolean withLink, boolean demoUrlAvailable) {
-        boolean reviveExisting = actor.kind() != Actor.Kind.SYSTEM;
+    private QueueStep queueStep(Actor actor, String matchId, boolean withLink, boolean demoUrlAvailable,
+                                boolean reviveFailed) {
+        boolean reviveExisting = actor.kind() != Actor.Kind.SYSTEM || reviveFailed;
         if (!MatchSource.isMatchmaking(matchId)) {
             long matchRowId = mapRosterSteamIds(matchId);
             return beforeQueued -> persistence.queue(matchRowId, demoUrlAvailable, reviveExisting, beforeQueued);
         }
         Optional<Long> stored = matches.findByFaceitMatchId(matchId).map(Match::getId);
-        if (stored.isPresent() && !(withLink && persistence.isOpenToFirstDemo(stored.get()))) {
+        boolean mayTakeOver = withLink && actor.kind() != Actor.Kind.SYSTEM;
+        if (stored.isPresent() && !(mayTakeOver && persistence.isOpenToFirstDemo(stored.get()))) {
             long matchRowId = stored.get();
             return beforeQueued -> persistence.queue(matchRowId, demoUrlAvailable, reviveExisting, beforeQueued);
         }

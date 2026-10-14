@@ -1,0 +1,19 @@
+{
+  "mappings": [
+    {
+      "name": "GET /valve/730/<match id>_<n>.dem.bz2: the replay server of Valve, for the fake bridge's answers",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPathPattern": "/valve/730/[0-9]+_[0-9]+\\.dem\\.bz2"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/octet-stream"
+        },
+        "bodyFileName": "demos/local.dem.bz2"
+      }
+    }
+  ]
+}

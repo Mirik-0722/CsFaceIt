@@ -16,9 +16,10 @@ spring:
     max-file-size: ${demo.upload.max-size}
     max-request-size: ${demo.upload.max-size}
   # The scheduled jobs (the daily clean-ups of old demo files and old clips, the check for clips whose recorder has gone
-  # quiet, the read of the clip gauges) share one scheduler, whose default is a single thread. With two, the check that
-  # has to run every 30 seconds does not wait behind a clean-up that takes minutes.
-  task.scheduling.pool.size: 2
+  # quiet, the read of the clip gauges, the FACEIT sync and the CS2 walk) share one scheduler, whose default is a single
+  # thread. With three, the check that has to run every 30 seconds does not wait behind a clean-up or the two syncs, which
+  # wait for FACEIT, Steam and the bridge and can take minutes.
+  task.scheduling.pool.size: 3
   data.redis:
     host: ${REDIS_HOST:localhost}
     port: ${REDIS_PORT:6379}
@@ -121,6 +122,9 @@ limits:
   demo-uploads: ${LIMITS_DEMO_UPLOADS:10}
   demo-imports: ${LIMITS_DEMO_IMPORTS:20}
   clip-orders: ${LIMITS_CLIP_ORDERS:5}
+  # Attempts to link a CS2 account (POST /api/v1/cs2/link) that Steam was asked about, refused ones included: they bound
+  # how often an authentication code can be tried. Beyond it the answer is 429 CS2_LINK_LIMIT_REACHED. A plain value.
+  cs2-links: 10
 management:
   endpoints.web.exposure.include: health,info,metrics,prometheus
   # Redis is a best-effort cache here, so an outage must not turn /actuator/health (the container HEALTHCHECK) DOWN.
@@ -172,6 +176,38 @@ demo:
   # normally left alone.
   retention-days: ${DEMO_RETENTION_DAYS:30}
   retention-cron: ${DEMO_RETENTION_CRON:0 0 4 * * *}
+# CS2 matchmaking (cs2/Cs2Properties): a signed-in player links their CS2 match history once (POST /api/v1/cs2/link, with
+# the authentication code and a match sharing code from Steam's page), and a job walks the chain of their sharing codes
+# (Steam's GetNextMatchSharingCode), asks the bridge to the game coordinator (gcbridge/) for the replay of each new match
+# and imports it like a pasted link. On only while the Steam Web API key, the bridge's address and the link secret are all
+# set; with any of them empty the endpoints answer 404 CS2_DISABLED and the job does nothing (one INFO at startup says
+# which are missing). A secret that is not the base64 of 32 bytes, or a bridge address without its token, stops the start.
+# None of the three secrets, and no authentication code, is ever logged.
+cs2:
+  steam-api-key: ${STEAM_WEB_API_KEY:}
+  # Steam's own address; only a fake stack points it elsewhere.
+  steam-api-url: ${CS2_STEAM_API_URL:https://api.steampowered.com}
+  steam-timeout: 10s
+  bridge-url: ${CS2_BRIDGE_URL:}
+  # The secret the bridge was started with as BRIDGE_TOKEN; required when bridge-url is set.
+  bridge-token: ${CS2_BRIDGE_TOKEN:}
+  # The bridge waits up to 15 seconds for the game coordinator, after its queue; a call that takes longer is tried later.
+  bridge-timeout: 30s
+  # The key the authentication codes are sealed with (AES-256-GCM): the base64 of exactly 32 random bytes, such as the
+  # output of `openssl rand -base64 32`. A changed secret leaves every stored link BAD_AUTH_CODE (the player links again).
+  link-secret: ${CS2_LINK_SECRET:}
+  sync:
+    # How often the job runs, counted from the end of the last run.
+    interval: 2m
+    # Per run: the most links it walks, and the most steps on one link (a step: the bridge for the code that is pending,
+    # then Steam for the next code). Steam is asked at most once a second, by the job and the link request together.
+    links-per-run: 5
+    steps-per-link: 5
+    # When Steam has no newer code, the link is asked again after this long.
+    idle-recheck: 15m
+    # When the replay of a match is not ready yet, the bridge is asked again after this long (it answers "expired" by
+    # itself once the match is two hours old).
+    not-ready-recheck: 5m
 # The thresholds of the analysis of a parsed demo (analysis/AnalysisProperties). All of them are positive numbers of
 # seconds, checked when the backend starts. They are plain values, not ${VARIABLE:default} placeholders and not part of
 # .env: a change here is a change of the rules (an environment variable such as ANALYSIS_TRADE_WINDOW_SECONDS still

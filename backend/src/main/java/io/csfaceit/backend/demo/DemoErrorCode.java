@@ -35,5 +35,13 @@ public enum DemoErrorCode {
      * The demo is FAILED and nothing of it was analyzed, so the statistics and the highlights of the match are not
      * replaced; uploading or importing the right file starts over.
      */
-    WRONG_MATCH
+    WRONG_MATCH,
+
+    /**
+     * A matchmaking match that the walk along a player's CS2 match sharing codes found ({@code cs2/Cs2ChainJob}) has no
+     * replay any more: Valve keeps the replay files for a limited time only, and the game coordinator no longer gives an
+     * address for this one. The demo row was made FAILED with this code when the match was found, and the site never
+     * asks for it again; the player can still upload the file if they kept it.
+     */
+    REPLAY_EXPIRED
 }

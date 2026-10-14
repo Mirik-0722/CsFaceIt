@@ -155,6 +155,61 @@ looking at it, so whoever can reach it can sign in as `s1mple`, and with an answ
 `docker-compose.fake.yml` publishes it on `127.0.0.1` only, and why the backend's own settings default to Steam's real
 addresses: a stack started without this override signs in with the real Steam.
 
+## CS2 matchmaking
+
+Linking a CS2 match history (see "CS2 matchmaking" in the main README) needs Steam's Web API and the bridge to the game
+coordinator. `docker-compose.fake.yml` turns the feature on with fakes of both: this WireMock plays Steam's
+`GetNextMatchSharingCode` (`CS2_STEAM_API_URL=http://fake-faceit:8080/steam/webapi`, `mappings/steam-webapi.json`), and
+the real bridge runs in its fake mode as the service `gcbridge`, where the last group of a sharing code chooses the answer
+(`READY` or any other: the replay; `NOTYT`: not ready yet; `GONE5`: expired; `UNKWN`: no such match; see
+`gcbridge/README.md`). Every code below is made up, and the stubs answer for any SteamID.
+
+| `knowncode` (or `steamidkey`) | Steam's answer | The bridge's answer for the code |
+| --- | --- | --- |
+| `steamidkey` `BADA-BADAB-BADA` | 403: the authentication code is refused | |
+| `CSGO-Qw7Mn-Zp5Xc-Hy9Rt-Ab3Kd-AAAAA` (chain A) | 200, next `CSGO-Qw7Mn-Zp5Xc-Hy9Rt-Ab3Kd-READY` | 200, a replay |
+| `CSGO-Qw7Mn-Zp5Xc-Hy9Rt-Ab3Kd-READY` | 202, `n/a` | 200, a replay |
+| `CSGO-Tr8Vs-Nk4Pw-Jd6Fq-Cx2Hm-UNKWN` (chain B) | 200, next `…-GONE5` | 404 `MATCH_UNKNOWN` |
+| `CSGO-Tr8Vs-Nk4Pw-Jd6Fq-Cx2Hm-GONE5` | 200, next `…-NOTYT` | 410 `REPLAY_EXPIRED` |
+| `CSGO-Tr8Vs-Nk4Pw-Jd6Fq-Cx2Hm-NOTYT` | 202, `n/a` | 409 `REPLAY_NOT_READY`, always |
+| `CSGO-Ye3Wb-Rp9Kt-Mf5Ns-Dq7Lz-UNKWN` (chain C) | 200, next `…-BADKN` | 404 `MATCH_UNKNOWN` |
+| any code ending in `-BADKN` | 412: not one of this player's codes | 200, a replay |
+| any other code | 412 | 200, a replay |
+
+So linking with any authentication code (of the shape `xxxx-xxxxx-xxxx`) and the chain A code brings two matches, the
+chain B code leaves one match `FAILED` with `REPLAY_EXPIRED` and a third code that is asked for again and again, and the
+chain C code ends in `BAD_SHARE_CODE`.
+
+The stubs accept only the stack's made-up key, `fake-steam-key`: with any other `STEAM_WEB_API_KEY` both
+`GetNextMatchSharingCode` and `ISteamUser/GetPlayerSummaries/v2` (the backend's check of its key after a `403`) answer
+`403`. To see what a refused key does, give the backend another key in a Compose file of your own (for example
+`services: {backend: {environment: {STEAM_WEB_API_KEY: revoked-steam-key}}}` as a further `-f`): the walk ends with one
+`ERROR` naming `STEAM_WEB_API_KEY` and changes no link, and a link request answers `503 CS2_STEAM_UNAVAILABLE`.
+
+The replay address the fake bridge answers with is `http://fake-faceit:8080/valve/730/<match id>_1.dem.bz2`
+(`BRIDGE_FAKE_REPLAY_URL` with `{matchId}`), Valve's name of the match, which the backend checks before it downloads.
+`mappings/valve-replays.json` serves every such address with `__files/demos/local.dem.bz2`: a bzip2 copy of the real demo
+of "Serving a real demo instead" below, git-ignored like it. Make it once:
+
+```bash
+bzip2 -k dev/fake-faceit/__files/demos/local.dem
+```
+
+Without it the fake answers those addresses with an error, and each brought match ends `FAILED` (`IMPORT_FAILED`) after
+the import's three attempts. With it, the demo is parsed and then checked against the match's owner: the user who
+linked has to be one of the demo's players, or the match ends `WRONG_MATCH`. The fake Steam's `s1mple`
+(`76561198000000001`) is not one of them; for the whole way to `ANALYZED`, sign in with the SteamID of one of the demo's
+players (change it in the callback as described in "The fake Steam" above).
+
+```bash
+# Signed in as in "Trying it without Steam" of the main README (jar.txt holds the session cookie). Made-up codes.
+curl -b jar.txt -X POST -H 'Origin: http://localhost:3000' -H 'Content-Type: application/json' \
+  -d '{"authCode": "Fk7Q-Lm3Rt-Wz9P", "shareCode": "CSGO-Qw7Mn-Zp5Xc-Hy9Rt-Ab3Kd-AAAAA"}' \
+  http://localhost:3000/api/v1/cs2/link
+# {"state":"ACTIVE","linkedAt":"...","checkedAt":"..."}   (201); the walk runs every 2 minutes
+curl -b jar.txt http://localhost:3000/api/v1/cs2/link
+```
+
 ## The placeholder demo
 
 `__files/demos/sample.dem` is 1024 bytes of arbitrary data starting with a text banner. It is **not** a real CS2 demo,

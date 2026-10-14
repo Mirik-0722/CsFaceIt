@@ -17,3 +17,6 @@ recorder/work/
 # would not ignore it.
 dev/fake-faceit/__files/demos/local.dem
 dev/fake-faceit/mappings/local-*.json
+# Its bzip2 copy, which the fake serves as the replay of every matchmaking match the fake bridge names
+# (mappings/valve-replays.json; made with `bzip2 -k dev/fake-faceit/__files/demos/local.dem`).
+dev/fake-faceit/__files/demos/local.dem.bz2

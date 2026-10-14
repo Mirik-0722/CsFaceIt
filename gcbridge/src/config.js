@@ -127,10 +127,11 @@ function loadConfig(env) {
   let steam = null;
   if (fakeEnabled) {
     // The settings of the fake mode are looked at only when it is on.
+    // The address may hold {matchId}, which each answer replaces by the id of its match (see fake.js).
     fake.replayUrl = readTrimmed(env, 'BRIDGE_FAKE_REPLAY_URL') || DEFAULT_FAKE_REPLAY_URL;
     fake.delayMs = readInteger(env, 'BRIDGE_FAKE_DELAY_MS', DEFAULT_FAKE_DELAY_MS, 0, 60000, problems);
     try {
-      const url = new URL(fake.replayUrl);
+      const url = new URL(fake.replayUrl.split('{matchId}').join('0'));
       if (url.protocol !== 'http:' && url.protocol !== 'https:') {
         throw new Error('not http');
       }
