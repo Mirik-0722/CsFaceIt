@@ -150,6 +150,10 @@ export function createDemoCache(config: Config, api: Pick<Api, 'openDemo'>): Dem
     others.sort((a, b) => b.usedAt - a.usedAt)
     for (const { name } of others.slice(config.demoCacheItems - 1)) {
       await rm(join(dir, name), { force: true })
+      // What a recorder keeps beside a demo (`<name>.csdm-analyzed`, CS Demo Manager's `<name>.json`) goes with it.
+      for (const companion of entries.filter((entry) => entry.startsWith(`${name}.`) && !entry.endsWith('.part'))) {
+        await rm(join(dir, companion), { force: true })
+      }
       log.info(`Demo ${name}: removed from the cache, which keeps ${config.demoCacheItems}`)
     }
   }

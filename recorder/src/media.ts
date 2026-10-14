@@ -15,9 +15,21 @@ export interface Probe {
   sizeBytes: number
 }
 
+/** What a recording is made of, as far as joining it with others and serving it in a browser goes. */
+export interface Streams {
+  /** The length of the file, in seconds. */
+  seconds: number
+  /** The first video stream: `codec` as ffprobe names it (`h264`), `pixelFormat` (`yuv420p`). */
+  video: { codec: string; pixelFormat: string; width: number; height: number } | undefined
+  /** The first audio stream, if there is one. */
+  audio: { codec: string } | undefined
+}
+
 export interface Media {
   /** The length and the picture size of a video, read from the file itself by ffprobe, never taken on trust. */
   probe(path: string, signal?: AbortSignal): Promise<Probe>
+  /** The codecs, the picture and the length of a recording, read by ffprobe. */
+  streams(path: string, signal?: AbortSignal): Promise<Streams>
   /** Writes a JPEG, 640 pixels wide, of the frame one second into the video (its first frame if it is shorter). */
   thumbnail(path: string, outPath: string, signal?: AbortSignal): Promise<void>
 }
@@ -54,6 +66,31 @@ export function createMedia(ffmpegPath: string, ffprobePath: string): Media {
       }
     },
 
+    async streams(path, signal) {
+      const output = await run(ffprobePath, [
+        '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', path,
+      ], signal)
+      const { format, streams } = parseProbe(output)
+      const video = streams.find((stream) => stream.codec_type === 'video')
+      const audio = streams.find((stream) => stream.codec_type === 'audio')
+      const seconds = Number(format.duration)
+      if (video?.width === undefined || video.height === undefined || !Number.isFinite(seconds) || seconds <= 0) {
+        throw new RecorderError('The recording is not a video with a length and a picture', true, {
+          detail: `ffprobe found no video stream or no duration in ${basename(path)}`,
+        })
+      }
+      return {
+        seconds,
+        video: {
+          codec: video.codec_name ?? '',
+          pixelFormat: video.pix_fmt ?? '',
+          width: video.width,
+          height: video.height,
+        },
+        audio: audio === undefined ? undefined : { codec: audio.codec_name ?? '' },
+      }
+    },
+
     async thumbnail(path, outPath, signal) {
       let lastError: unknown
       // A video shorter than that point has no frame there and ffmpeg writes nothing, so the first frame is taken.
@@ -85,7 +122,7 @@ export function createMedia(ffmpegPath: string, ffprobePath: string): Media {
 
 interface ProbeOutput {
   format: { duration?: string }
-  streams: { codec_type?: string; width?: number; height?: number }[]
+  streams: { codec_type?: string; codec_name?: string; pix_fmt?: string; width?: number; height?: number }[]
 }
 
 function parseProbe(output: string): ProbeOutput {

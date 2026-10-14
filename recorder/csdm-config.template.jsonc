@@ -1,0 +1,68 @@
+// The configuration the recorder gives CS Demo Manager for every clip, as `csdm video --config-file <file>`.
+// Its shape is VideoCommandConfig of CS Demo Manager 3.20.1 (src/cli/commands/video-command.ts in its repository) with
+// sequences of the type Sequence (src/common/types/sequence.ts). With a config file CS Demo Manager reads no flag, and
+// what the file leaves out it takes from its own settings.json.
+//
+// Only whole lines may be comments, starting with two slashes. No value may hold a hash sign or two slashes: CS Demo
+// Manager cuts both out of the file as comments, inside strings too.
+//
+// For every clip the recorder fills in demoPath, outputFolderPath, width, height and framerate, and makes one sequence
+// per segment of the clip from the first sequence below (its number, startTick, endTick, playerCameras and cameras
+// are the clip's). Whatever is written here, it also sets what it depends on: recordingSystem HLAE, recordingOutput
+// video, encoderSoftware FFmpeg, concatenateSequences false (the recorder joins the sequences itself, in the order of
+// the clip), closeGameAfterRecording true, and ffmpegSettings.videoContainer mp4. The rest is for the operator to tune;
+// a change counts from the next clip.
+//
+// With demoPath, outputFolderPath and the sequence filled in by hand, the file is also what the first trial gives to
+// `csdm video --config-file` (see README.md, Windows).
+{
+  "demoPath": "C:\\csfaceit\\trial\\demo.dem",
+  "outputFolderPath": "C:\\csfaceit\\trial",
+  "recordingSystem": "HLAE",
+  "recordingOutput": "video",
+  "encoderSoftware": "FFmpeg",
+  "framerate": 60,
+  "width": 1280,
+  "height": 720,
+  "closeGameAfterRecording": true,
+  "concatenateSequences": false,
+  // The game's prediction of the player's own view (cl_demo_predict) stays off, as in CS Demo Manager's defaults.
+  "trueView": false,
+  "outputFileName": "clip",
+  // The whole object replaces the FFmpeg settings of CS Demo Manager, so every field is given. HLAE encodes each
+  // sequence with videoCodec, yuv420p and constantRateFactor; the sound of the game is encoded with audioCodec. The
+  // recorder encodes the clip once more only when it has to (slow motion, 9:16, a title), so the sequences are kept
+  // at a high quality (18). An empty customExecutableLocation is the FFmpeg that CS Demo Manager installed itself.
+  "ffmpegSettings": {
+    "audioBitrate": 256,
+    "constantRateFactor": 18,
+    "customLocationEnabled": false,
+    "customExecutableLocation": "",
+    "videoContainer": "mp4",
+    "videoCodec": "libx264",
+    "audioCodec": "aac",
+    "inputParameters": "",
+    "outputParameters": ""
+  },
+  "sequences": [
+    {
+      "number": 1,
+      "startTick": 1000,
+      "endTick": 1320,
+      // No x-ray: a clip shows what the player saw.
+      "showXRay": false,
+      "showAssists": true,
+      // Of the HUD only the kill feed, each kill kept 5 seconds.
+      "showOnlyDeathNotices": true,
+      "deathNoticesDuration": 5,
+      "playersOptions": [],
+      // The player the camera follows (a made-up SteamID here); the recorder puts the clip's player at the first tick
+      // of every segment, where CS Demo Manager's own player sequences put him.
+      "playerCameras": [{ "tick": 1000, "playerSteamId": "76561198000000001", "playerName": "" }],
+      "cameras": [],
+      // The voices of the players are not recorded: they are other people's conversations.
+      "playerVoicesEnabled": false,
+      "recordAudio": true
+    }
+  ]
+}
