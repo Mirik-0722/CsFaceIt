@@ -142,21 +142,22 @@ demo:
     connect-timeout: 5s
     # How long a download may stall: the longest silence between two reads of the response, not the whole transfer.
     read-timeout: 120s
-    # The most a download may transfer, and the most a gzip demo may expand to.
+    # The most a download may transfer, and the most a gzip or bzip2 demo may expand to.
     max-size: 1GB
   # A demo link that a player pastes (POST .../demo/import with {"url": ...}) is fetched by the server itself, so it may lead
-  # only to these origins (scheme://host or scheme://host:port; the host exact, or *. and a domain for any name under it),
-  # and every address its host resolves to has to be public. Every redirect is held to the same rules before it is
-  # followed (demo/LinkGuard). The size and stall limits above apply too; the whole download, redirects included, may take
+  # only to these origins (scheme://host or scheme://host:port; the host exact, *. and a domain for any name under it, or a
+  # first label with one * in it and a domain, as replay*.valve.net: Valve's replay servers, which serve plain http), and
+  # every address its host resolves to has to be public. Every redirect is held to the same rules before it is followed
+  # (demo/LinkGuard). The size and stall limits above apply too; the whole download, redirects included, may take
   # max-duration. A refused host is named in the answer and logged; the link itself never is.
   link:
-    allowed-origins: ${DEMO_LINK_ALLOWED_ORIGINS:https://*.faceit-cdn.net,https://*.backblazeb2.com}
+    allowed-origins: ${DEMO_LINK_ALLOWED_ORIGINS:https://*.faceit-cdn.net,https://*.backblazeb2.com,http://replay*.valve.net}
     # Exact host names whose addresses do not have to be public. Only for the stack with the fake FACEIT, which is on a
     # private network (docker-compose.fake.yml); empty on a server. A WARN at startup says when it is not empty.
     private-hosts: ${DEMO_LINK_PRIVATE_HOSTS:}
     max-duration: 10m
   upload:
-    # The most a manual upload may be, and the most a gzip upload may expand to. Nginx has a limit of its own for the
+    # The most a manual upload may be, and the most a gzip or bzip2 upload may expand to. Nginx has a limit of its own for the
     # upload path (frontend/nginx.conf); keep the two in step.
     max-size: ${DEMO_UPLOAD_MAX_SIZE:1GB}
   # Before a parsed demo is analyzed, its players are compared with the roster of the match (analysis/RosterCheck), so

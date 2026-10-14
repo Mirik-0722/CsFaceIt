@@ -128,8 +128,8 @@ Then edit `.env`:
 | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | MinIO credentials; the `minio` service is created with them, the backend and the parser log in with them. | `minioadmin` / `minioadmin` |
 | `MINIO_BUCKET` | Bucket the demo files go to; the backend creates it when it is missing. | `csfaceit` |
 | `MINIO_IMAGE` | MinIO server image of the Compose stack (see [Operational notes](#operational-notes)). Commented out in `.env.example`. | a digest-pinned `alpine/minio` build |
-| `DEMO_UPLOAD_MAX_SIZE` | The most a manual demo upload may be, and the most a gzip upload may expand to: a size with a unit such as `1GB` or `512MB`. Nginx accepts 1 GB for the upload path (`frontend/nginx.conf`); raise both to allow more. | `1GB` |
-| `DEMO_LINK_ALLOWED_ORIGINS` | Where a demo link that a player pastes may lead (`demo.link.allowed-origins`): origins `scheme://host` or `scheme://host:port`, comma separated, the host exact or `*.` and a domain for any name under it. The link and every redirect of it have to be on the list, and every address of the host has to be public (see [Bringing a demo by a link](#bringing-a-demo-by-a-link)). | `https://*.faceit-cdn.net,https://*.backblazeb2.com` |
+| `DEMO_UPLOAD_MAX_SIZE` | The most a manual demo upload may be, and the most a gzip or bzip2 upload may expand to: a size with a unit such as `1GB` or `512MB`. Nginx accepts 1 GB for the upload path (`frontend/nginx.conf`); raise both to allow more. | `1GB` |
+| `DEMO_LINK_ALLOWED_ORIGINS` | Where a demo link that a player pastes may lead (`demo.link.allowed-origins`): origins `scheme://host` or `scheme://host:port`, comma separated, the host exact, `*.` and a domain for any name under it, or a first label with one `*` in it and a domain (`replay*.valve.net`: Valve's replay servers, plain `http`). The link and every redirect of it have to be on the list, and every address of the host has to be public (see [Bringing a demo by a link](#bringing-a-demo-by-a-link)). | `https://*.faceit-cdn.net,https://*.backblazeb2.com,http://replay*.valve.net` |
 | `DEMO_RETENTION_DAYS` | Stored demo files older than this many days are deleted once a day; the parsed facts and the demo's status stay. `0` keeps the files forever. | `30` |
 | `DEMO_RETENTION_CRON` | When that clean-up runs: Spring's six cron fields (second minute hour day month weekday), server time. Normally left alone. Commented out in `.env.example`; keep the quotes there, the value has spaces and asterisks. | `0 0 4 * * *` |
 | `CLIP_UPLOAD_MAX_SIZE` | The most a recorder may upload for one clip (the video and the thumbnail each): a size with a unit such as `1GB` or `512MB`. Nginx accepts 1 GB for the upload path (`frontend/nginx.conf`); raise both to allow more. | `1GB` |
@@ -514,6 +514,7 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | --- | --- | --- |
 | 400 | `VALIDATION_ERROR` | A nickname, id, highlight `type` or paging parameter is malformed; for the upload also a bad file name, an empty or corrupt file, or a multipart body that is malformed or was cut off. |
 | 400 | `DEMO_LINK_INVALID`, `DEMO_LINK_HOST_NOT_ALLOWED`, `DEMO_LINK_MISMATCH` | A pasted demo link is not usable (not `http` or `https`, a user name in it, an IP address instead of a host name, a host that does not resolve), leads to a host that is not on `DEMO_LINK_ALLOWED_ORIGINS` or that resolves to an address that is not public, or names the file of another match; see [Bringing a demo by a link](#bringing-a-demo-by-a-link). |
+| 400 | `DEMO_FILE_MISMATCH` | The first upload of a matchmaking match the site does not know yet has a file whose name is not Valve's name of that match; see [Matchmaking matches](#matchmaking-matches). |
 | 401 | `UNAUTHORIZED` | A protected request has neither a valid `X-API-Key` header nor (where a session is enough) a live session; a request to the recorder's API (`/api/worker/**`) is missing a valid `X-Worker-Token` header. |
 | 403 | `FORBIDDEN` | The request has a valid credential that its path does not accept: the admin key on the recorder's API, the session of a `USER` on a request that needs the admin key or an administrator. |
 | 403 | `FACEIT_NOT_LINKED`, `NOT_IN_MATCH`, `NOT_YOUR_PLAYER`, `NOT_YOUR_CLIP` | A signed-in `USER` asked for something that is not theirs: no FACEIT player is linked to them; they are not in the roster of the match; the clip was asked for another player; the clip was ordered by someone else (see [What a signed-in player can do](#what-a-signed-in-player-can-do)). |
@@ -525,7 +526,7 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 409 | `DEMO_ALREADY_PARSED`, `DEMO_ALREADY_ANALYZED` | A signed-in player uploaded a file over a demo that is `PARSED` or `ANALYZED`, or asked for the analysis of a demo that is `ANALYZED`; both are the admin key's and an administrator's to do. |
 | 409 | `DEMO_NOT_AVAILABLE`, `PLAYER_STEAM_ID_UNKNOWN`, `NO_KILLS`, `CLIP_TOO_LONG` | A new clip was requested but the demo file is not stored, the player's SteamID is unknown, the player made no kill of an enemy in the match (a compilation), or the clip would be longer than allowed; see [Video clips](#video-clips). |
 | 409 | `CLIP_IN_PROGRESS` | A clip was to be deleted while a recorder works on it; see [Video clips](#video-clips). |
-| 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip file expands beyond it), or a recorder's video or thumbnail is larger than `CLIP_UPLOAD_MAX_SIZE`. |
+| 413 | `PAYLOAD_TOO_LARGE` | An uploaded demo is larger than `DEMO_UPLOAD_MAX_SIZE` (also when a gzip or bzip2 file expands beyond it), or a recorder's video or thumbnail is larger than `CLIP_UPLOAD_MAX_SIZE`. |
 | 416 | `RANGE_NOT_SATISFIABLE` | The `Range` of a request for a clip's video starts at or beyond its end; see [Video clips](#video-clips). |
 | 429 | `CLIP_QUEUE_FULL` | A new clip was requested but the queue of clips is full; see [Video clips](#video-clips). |
 | 429 | `UPLOAD_LIMIT_REACHED`, `IMPORT_LIMIT_REACHED`, `CLIP_LIMIT_REACHED` | A signed-in player has started as many demo uploads, demo imports or clip orders as a day allows. The body also has `retryAt` and the answer a `Retry-After` header; see [Limits per day](#limits-per-day). |
@@ -556,9 +557,37 @@ or about a player known only from demos:
 - The breakdown, the highlights, the editor and the clips read the database for every match already.
 - Who may act on it (a session): its owner always; once its demo is `ANALYZED`, also a user whose SteamID is among the
   demo's players (`403 NOT_IN_MATCH` otherwise). No FACEIT link is needed. A clip may be ordered for `steam:<own
-  SteamID>` as for one's own FACEIT player.
+  SteamID>` as for one's own FACEIT player. A match the site does not know yet is brought by whoever brings its first
+  demo (below).
 - The wrong-demo check of the analysis: the owner's SteamID has to be among the demo's players, or the demo is `FAILED`
-  with `WRONG_MATCH`; a match without an owner is not checked.
+  with `WRONG_MATCH`; a match without an owner is not checked. The map that the parser wrote from such a demo is
+  forgotten with it (a matchmaking match has no map but its demo's), so that the right demo sets it again.
+
+**How a matchmaking match comes into being.** The site learns of it from its first demo. An upload
+(`POST /api/v1/matches/mm-<id>/demo/upload`) or an import by link (`POST .../demo/import` with `{"url": "..."}`) for an
+`mm-` id the database does not know makes the match, when:
+
+- the request has a session (any signed-in user; no FACEIT link is needed) or the admin key. A visitor with neither
+  gets the `401` of every write.
+- the name of the file (of a link: the last segment of its path) is Valve's name of this very match. Valve's replay
+  servers name a demo `<match id>_<reservation id>.dem.bz2`, the match id zero-padded to 21 digits
+  (`003712345678901234567_1234567890.dem.bz2` is the demo of `mm-3712345678901234567`); `.dem` or another compression
+  instead of `.bz2` is read the same. The CS2 client keeps a demo it downloaded in its replays folder as
+  `match730_<match id>_<n>_<n>.dem`: that form is written from memory, not from a real file. The id of the match is the
+  decimal match id without its zeros: 15 to 20 digits (CS2's match ids are 19 digits long) and at most 2^64 - 1, so a
+  file named like `20261014_1.dem` is not taken for a matchmaking demo. The counter a browser adds to a file it saves
+  twice (`... (1).dem.bz2`) does not matter. Otherwise `400 DEMO_FILE_MISMATCH` (upload) or `400 DEMO_LINK_MISMATCH`
+  (link).
+- the limit per day has a place: an upload counts as an upload and a link as an import, as for a FACEIT match.
+
+The `matches` row (`source` `MATCHMAKING`, the acting user as its owner, no map and no time yet) is written in the same
+transaction as the demo's row, after all of these, so a refused request leaves no match behind: neither does an upload
+whose file turns out too large (`413`, also a small bzip2 file that expands beyond the limit) or damaged (`400`). The
+parser fills in the map, and a match without a start is placed at the moment its demo arrived. **With the admin key the
+match has no owner**, and the wrong-demo check above is then skipped with a `WARN`. Two first demos at once make one
+row: the second follows the rules of a stored match (its owner, or after the analysis a player of its demo). For an
+`mm-` id the database does not know, an import without a link and every other request is `404 MATCH_NOT_FOUND`. FACEIT
+is not asked at any step.
 - The player endpoints that read the database (`/players/{playerId}`, `/overview`, `/matches`, `/stats`,
   `/highlights`, `/clips`) take `steam:<SteamID>` as `playerId` (1 to 20 digits); `/history` stays FACEIT's. All of them
   read the same row for it: the placeholder `steam:<SteamID>` when there is one, else the FACEIT player that carries the
@@ -583,6 +612,13 @@ from the database, paged by `offset` and `limit` (`before` is not needed). A mat
 `faction1`/`faction2` like FACEIT's, empty until the demo is analyzed, and its `result` follows the rounds his team won.
 
 ```bash
+# The first demo of a match, uploaded with the admin key (a session works the same, and the match is then the user's).
+curl -X POST -H 'X-API-Key: dev-admin-key' -F 'file=@003712345678901234567_1234567890.dem.bz2' \
+  http://localhost:3000/api/v1/matches/mm-3712345678901234567/demo/upload
+# Or by the link of Valve's replay server (made up), signed in as in "Trying it without Steam".
+curl -b jar.txt -X POST -H 'Origin: http://localhost:3000' -H 'Content-Type: application/json' \
+  -d '{"url": "http://replay123.valve.net/730/003712345678901234567_1234567890.dem.bz2"}' \
+  http://localhost:3000/api/v1/matches/mm-3712345678901234567/demo/import
 curl "http://localhost:3000/api/v1/matches/mm-3000000000000000001"
 curl "http://localhost:3000/api/v1/players/steam:76561190000000042/matches"
 curl "http://localhost:3000/api/v1/players/<playerId>/matches?offset=20&limit=20&before=2026-10-01T18:00:00Z"
@@ -760,7 +796,7 @@ What a `USER` may ask for without the key, and when:
 | Request | Rule | Refused with |
 | --- | --- | --- |
 | `POST /api/v1/matches/{id}/demo/import` | they are in the roster of the match; with a link, the link passes its checks ([Bringing a demo by a link](#bringing-a-demo-by-a-link)) | `403 FACEIT_NOT_LINKED`, `403 NOT_IN_MATCH`; `400 DEMO_LINK_INVALID`, `400 DEMO_LINK_HOST_NOT_ALLOWED`, `400 DEMO_LINK_MISMATCH` |
-| `POST /api/v1/matches/{id}/demo/upload` | they are in the roster; the demo has not been parsed yet (the key and an administrator may upload over a `PARSED` or `ANALYZED` demo) | the same two; `409 DEMO_ALREADY_PARSED` |
+| `POST /api/v1/matches/{id}/demo/upload` | they are in the roster; the demo has not been parsed yet (the key and an administrator may upload over a `PARSED` or `ANALYZED` demo) | the same two; `409 DEMO_ALREADY_PARSED`; `400 DEMO_FILE_MISMATCH` (the first demo of a matchmaking match) |
 | `POST /api/v1/matches/{id}/demo/analyze` | they are in the roster; the demo is `PARSED`, that is, its analysis is missing (the key and an administrator may have an `ANALYZED` demo analyzed again) | the same two; `409 DEMO_ALREADY_ANALYZED` (and `409 DEMO_NOT_PARSED` as for anyone) |
 | `POST /api/v1/highlights/{id}/clips`, `POST /api/v1/matches/{id}/clips`, `POST /api/v1/matches/{id}/montages` | the highlight's player, or the `playerId` of the compilation or the montage, is their own FACEIT player | `403 FACEIT_NOT_LINKED`, `403 NOT_YOUR_PLAYER` |
 | `DELETE /api/v1/clips/{id}` | they ordered the clip | `403 NOT_YOUR_CLIP` |
@@ -771,7 +807,8 @@ What a `USER` may ask for without the key, and when:
   `502 FACEIT_UNAVAILABLE`: a roster that cannot be read lets nobody in. The roster is checked before anything is stored,
   so a refused upload leaves no file and a refused import no match. The key and an administrator are not checked, and
   cost no call for it. A matchmaking match (`mm-…`) has no FACEIT roster: its owner and, once its demo is parsed, the
-  users whose SteamID is among the demo's players are its members (see [Matchmaking matches](#matchmaking-matches)).
+  users whose SteamID is among the demo's players are its members, and one the site does not know yet is any signed-in
+  user's to bring, whose match it then is (see [Matchmaking matches](#matchmaking-matches)).
 - **Their own player** is the FACEIT player linked to the user at the sign-in (`playerId` of `/api/v1/auth/me`), or the
   player known from demos only whose id is `steam:` and the user's own SteamID. A user with neither
   (`403 FACEIT_NOT_LINKED`) can bring no FACEIT demo and order no clip; another `steam:<SteamID>` is not theirs.
@@ -1045,7 +1082,8 @@ curl http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
 ```
 
 Upload the demo yourself when FACEIT's cannot be downloaded (no demo URL, no access to the Downloads API, a `404`). The multipart part is
-named `file` and the file name must end in `.dem`, `.dem.gz` or `.dem.zst`; it is stored as zstd whatever it came as.
+named `file` and the file name must end in `.dem`, `.dem.gz`, `.dem.zst` or `.dem.bz2`; it is stored as zstd whatever it
+came as (raw, gzip, zstd or bzip2, told by its first bytes and not by its name; a damaged gzip or bzip2 file is a `400`).
 The demo becomes `STORED` at once, from any status, and is announced to the parser. Uploading for a `PARSED` demo
 deliberately parses it again, and the rows of the earlier parse are replaced; that is the admin key's and an
 administrator's to do, and a signed-in player who uploads over a `PARSED` or `ANALYZED` demo is answered
@@ -1059,7 +1097,8 @@ curl -X POST -H 'X-API-Key: dev-admin-key' -F 'file=@match.dem' \
 Both the import and the upload need the FACEIT API (or its fake, or a cached answer of an earlier request): the match
 and the SteamIDs of its roster are loaded before anything else, because the parser knows the players by SteamID only,
 so an upload for a match FACEIT does not know is a `404 MATCH_NOT_FOUND`. The upload replaces only the download of the
-demo file. Through Nginx an upload may be up to 1 GB (see `DEMO_UPLOAD_MAX_SIZE`).
+demo file. Through Nginx an upload may be up to 1 GB (see `DEMO_UPLOAD_MAX_SIZE`). A matchmaking match (`mm-…`) needs no
+FACEIT, and its first upload or link makes it (see [Matchmaking matches](#matchmaking-matches)).
 
 #### Bringing a demo by a link
 
@@ -1071,16 +1110,20 @@ downloads the file itself, so the link is held to strict rules, all of them chec
    spelling, `http://169.254.169.254/` or `http://[::1]/` as much as `http://2130706433/`). Otherwise `400 DEMO_LINK_INVALID`;
    so is a host that does not resolve, and a link longer than 2048 characters.
 2. **Allow-list**: the scheme, host and port are one of `demo.link.allowed-origins` (`DEMO_LINK_ALLOWED_ORIGINS`, by
-   default `https://*.faceit-cdn.net,https://*.backblazeb2.com`; `*.` stands for any name under the domain, a port that is
-   not written is the scheme's own). Otherwise `400 DEMO_LINK_HOST_NOT_ALLOWED`, with the host named in the message.
+   default `https://*.faceit-cdn.net,https://*.backblazeb2.com,http://replay*.valve.net`; `*.` stands for any name under
+   the domain, and a `*` inside the first label for any letters, digits and hyphens there, so `replay*.valve.net` takes
+   `replay123.valve.net` and neither `xreplay1.valve.net` nor `replay1.evil.net`; a port that is not written is the
+   scheme's own). Valve's replay servers serve plain `http`, which is held to every rule here as `https` is. Otherwise
+   `400 DEMO_LINK_HOST_NOT_ALLOWED`, with the host named in the message.
 3. **Addresses**: every address the host resolves to is public. Loopback, link-local (the cloud metadata address
    `169.254.169.254` among them), private (`10/8`, `172.16/12`, `192.168/16`), multicast, `0.0.0.0/8`,
    `100.64.0.0/10`, `192.0.0.0/24`, `198.18.0.0/15`, `240.0.0.0/4`, `fc00::/7` and `64:ff9b::/96`, also inside an IPv6
    address that carries an IPv4 one, are refused, one is enough: `400 DEMO_LINK_HOST_NOT_ALLOWED`. The download then
    connects to the very addresses that were checked; the name is not looked up again in between.
 4. **The match**: the file the link names (the last segment of its path, the query aside) has to be this match's demo,
-   `<match id>-1-1.dem` or a compressed `.dem.gz`, `.dem.zst`: otherwise `400 DEMO_LINK_MISMATCH`. Only the first map is
-   taken, as everywhere on the site.
+   `<match id>-1-1.dem` or a compressed `.dem.gz`, `.dem.zst`, and for a matchmaking match Valve's name of it
+   (`<match id>_<reservation id>.dem.bz2`, see [Matchmaking matches](#matchmaking-matches)): otherwise
+   `400 DEMO_LINK_MISMATCH`. Only the first map is taken, as everywhere on the site.
 
 The first three are asked again when the worker downloads the link, and for every redirect before it is followed (at
 most five). A redirect that breaks a rule, an answer `401`, `403`, `404` or `410` (the link has expired), a file larger

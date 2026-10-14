@@ -146,6 +146,12 @@ public class AnalysisPersistence {
      * it, and a second delivery of the same message that comes after the first has failed the demo finds it FAILED and
      * writes nothing, so the failure is neither undone nor repeated (the claim of a FAILED demo is empty to begin with).
      *
+     * <p>The parser writes the map of the demo onto a match that has none ({@code matches.map_name}) when it parses,
+     * before this check. A matchmaking match has no map but its demo's, so a first demo that is another game's would
+     * leave that game's map on the match for good (the parser fills only an empty map): for a matchmaking match the
+     * map is forgotten here, in the same transaction, and the right demo fills it again. A FACEIT match keeps its map,
+     * which is FACEIT's.
+     *
      * @return false when nothing was written
      */
     @Transactional
@@ -156,6 +162,7 @@ public class AnalysisPersistence {
         }
         demo.fail(error, DemoErrorCode.WRONG_MATCH);
         demos.saveAndFlush(demo);
+        matches.clearMatchmakingMap(claim.matchRowId());
         return true;
     }
 

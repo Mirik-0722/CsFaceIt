@@ -182,7 +182,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     /**
      * An upload larger than {@code spring.servlet.multipart.max-file-size} or {@code max-request-size}: Tomcat
      * stops reading it and Spring raises this, so it is answered here instead of with Tomcat's error page or a 500.
-     * Also raised by the demo upload itself, when a gzip file expands beyond the allowed size.
+     * Also raised by the demo upload itself, when a gzip or bzip2 file expands beyond the allowed size.
      */
     @Override
     protected ResponseEntity<Object> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException ex,

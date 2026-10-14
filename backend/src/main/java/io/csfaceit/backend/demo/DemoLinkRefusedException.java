@@ -1,6 +1,7 @@
 package io.csfaceit.backend.demo;
 
 import io.csfaceit.backend.common.api.BadRequestException;
+import io.csfaceit.backend.match.MatchSource;
 
 /**
  * A demo link that a player pasted is refused before anything connects to it: 400 with one of three codes. The message
@@ -36,9 +37,12 @@ public class DemoLinkRefusedException extends BadRequestException {
                 "The demo link is not usable: its host " + host + " does not resolve");
     }
 
-    static DemoLinkRefusedException mismatch(String faceitMatchId) {
+    static DemoLinkRefusedException mismatch(String matchId) {
+        String name = MatchSource.isMatchmaking(matchId)
+                ? "Valve's name of the match's demo, <match id>_<number>.dem.bz2"
+                : "the match's id followed by -1-1.dem";
         return new DemoLinkRefusedException(DEMO_LINK_MISMATCH,
-                "The file of the demo link is not the demo of match " + faceitMatchId
-                        + ": the name of the file has to be the match's id followed by -1-1.dem");
+                "The file of the demo link is not the demo of match " + matchId + ": the name of the file has to be "
+                        + name);
     }
 }
