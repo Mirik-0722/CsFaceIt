@@ -4,6 +4,7 @@ import io.csfaceit.backend.match.Match;
 import io.csfaceit.backend.match.MatchRepository;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
@@ -90,7 +91,22 @@ public class DemoPersistence {
      */
     @Transactional
     public Optional<Queued> queue(long matchRowId, boolean demoUrlAvailable, Consumer<Publish> beforeQueued) {
+        return queue(matchRowId, demoUrlAvailable, true, beforeQueued);
+    }
+
+    /**
+     * Like {@link #queue(long, boolean, Consumer)}; with {@code reviveExisting} false a demo that already has a row is
+     * reported as it is, whatever its status: nothing is revived, announced or touched. It is the automatic sync's
+     * way of asking, which never takes up a FAILED demo (only a person asking does) and leaves a lost message to the
+     * sweep, and which holds also when the row was created or failed after the sync looked.
+     */
+    @Transactional
+    public Optional<Queued> queue(long matchRowId, boolean demoUrlAvailable, boolean reviveExisting,
+                                  Consumer<Publish> beforeQueued) {
         Demo existing = demos.findByMatchIdForUpdate(matchRowId).orElse(null);
+        if (existing != null && !reviveExisting) {
+            return Optional.of(new Queued(existing, Publish.NOTHING));
+        }
         if (existing == null) {
             if (!demoUrlAvailable) {
                 return Optional.empty();
@@ -149,6 +165,54 @@ public class DemoPersistence {
         demo.touch();
         demos.saveAndFlush(demo);
         return Optional.of(new ImportClaim(demoId, demo.getMatch().getFaceitMatchId()));
+    }
+
+    /**
+     * The heartbeat of an import that is running: a QUEUED demo is touched, so that a download that takes long never
+     * looks like a lost message to the sweep. Any other status is left alone.
+     */
+    @Transactional
+    public void touchQueued(long demoId) {
+        Demo demo = demos.findByIdForUpdate(demoId).orElse(null);
+        if (demo != null && demo.getStatus() == DemoStatus.QUEUED) {
+            demo.touch();
+            demos.saveAndFlush(demo);
+        }
+    }
+
+    /**
+     * Takes a demo that looks lost for the sweep: under the row's lock, a demo that is still QUEUED and has not been
+     * touched since {@code before} is touched, so that it is republished at most once per {@link #STALE_AFTER} and
+     * only one of several backends gets it.
+     *
+     * @return whether this caller has the demo
+     */
+    @Transactional
+    public boolean claimStaleQueued(long demoId, Instant before) {
+        Demo demo = demos.findByIdForUpdate(demoId).orElse(null);
+        if (demo == null || demo.getStatus() != DemoStatus.QUEUED || !demo.getUpdatedAt().isBefore(before)) {
+            return false;
+        }
+        demo.touch();
+        demos.saveAndFlush(demo);
+        return true;
+    }
+
+    /**
+     * Marks a demo FAILED when it is QUEUED and has not been touched since {@code before}, checked under the row's
+     * lock.
+     *
+     * @return whether the demo was marked
+     */
+    @Transactional
+    public boolean failStaleQueued(long demoId, Instant before, String error, DemoErrorCode errorCode) {
+        Demo demo = demos.findByIdForUpdate(demoId).orElse(null);
+        if (demo == null || demo.getStatus() != DemoStatus.QUEUED || !demo.getUpdatedAt().isBefore(before)) {
+            return false;
+        }
+        demo.fail(error, errorCode);
+        demos.saveAndFlush(demo);
+        return true;
     }
 
     /**

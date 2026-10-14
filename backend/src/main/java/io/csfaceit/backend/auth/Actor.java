@@ -6,11 +6,13 @@ package io.csfaceit.backend.auth;
  * <ul>
  *   <li>{@link Kind#KEY}: the request carried the admin key ({@code X-API-Key}). The key wins when a session cookie
  *       comes with it, so {@code user} is {@code null}: what the key does is done by nobody in particular.
+ *   <li>{@link Kind#SYSTEM}: the site itself, for what it does without a request ({@link #system()}); like the key it
+ *       has no user, and no request can become it.
  *   <li>{@link Kind#ADMIN}: a session whose SteamID is in {@code auth.admin-steam-ids} now.
  *   <li>{@link Kind#USER}: any other session.
  * </ul>
  *
- * @param user the signed-in user of a session; {@code null} for the key
+ * @param user the signed-in user of a session; {@code null} for the key and the system
  */
 public record Actor(Kind kind, SignedInUser user) {
 
@@ -47,12 +49,12 @@ public record Actor(Kind kind, SignedInUser user) {
         return new Actor(user.role() == UserRole.ADMIN ? Kind.ADMIN : Kind.USER, user);
     }
 
-    /** The id of the user who acts, to record who did something; {@code null} for the key. */
+    /** The id of the user who acts, to record who did something; {@code null} for the key and the system. */
     public Long userId() {
         return user == null ? null : user.id();
     }
 
-    /** Whether no limit per day applies: true for the key and for an administrator. */
+    /** Whether no limit per day applies: true for the key, the system and an administrator. */
     public boolean unlimited() {
         return kind != Kind.USER;
     }

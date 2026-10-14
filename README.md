@@ -1116,9 +1116,16 @@ admin key alone included), counts against no limit, and answers `202 {"enabled":
 `min-user-interval` of the player's last sync it queues nothing and answers `queued: 0`. If FACEIT cannot be read the
 answer is the same with what was queued, and the player is tried again at the next run.
 
+A match whose import failed, at the sync or later (also when the broker was down when it was queued), is not tried again
+by the sync: the player asks for it by hand. Every attempt to sync a player, successful or not, counts for
+`min-user-interval`, so a FACEIT outage is retried after that time and a player FACEIT keeps refusing does not hold up
+the others.
+
 The same job publishes again the import message of a demo that has stayed `QUEUED` for more than 10 minutes (a message
-the broker lost). A demo that was queued for a pasted link that the backend has forgotten (a restart) and that FACEIT has
-no address for ends `FAILED` with the "link is no longer known" reason instead.
+the broker lost). A running import touches its demo every minute, so a long download never looks lost, and a demo is
+republished at most once per 10 minutes, by one backend. A demo queued for a pasted link that this backend does not hold
+(a restart, or another backend) and that FACEIT has no address for is left for 30 minutes and then ends `FAILED` with the
+"link is no longer known" reason; one whose match FACEIT does not know ends `FAILED` at once.
 
 | Setting (`faceit.sync.*`) | Default | Meaning |
 |---|---|---|

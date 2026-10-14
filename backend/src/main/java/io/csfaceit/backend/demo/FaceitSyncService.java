@@ -10,12 +10,12 @@ import io.csfaceit.backend.faceit.dto.FaceitHistoryItem;
 import io.csfaceit.backend.faceit.dto.FaceitMatchHistory;
 import io.csfaceit.backend.messaging.DemoImportWorker;
 import io.csfaceit.backend.messaging.DemoMetrics;
-import java.net.URI;
+import io.csfaceit.backend.faceit.FaceitRejectedException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
@@ -36,7 +36,10 @@ import org.springframework.stereotype.Service;
  * for the same thing twice. For the others, at most {@code matches-per-user} imports are queued through
  * {@link DemoService#requestImport}, which is the path a member's own import takes, as {@link Actor#system()}, whose
  * imports no player's limit counts. A match that FACEIT has no demo for yet gets no row and is looked at again next
- * time. Then {@code users.faceit_synced_at} is set; a FACEIT failure leaves it as it was, so the next run tries again.
+ * time. Then {@code users.faceit_synced_at} is set, after every attempt whatever its outcome: a FACEIT outage is tried
+ * again after {@code min-user-interval}, and a player FACEIT keeps refusing goes to the back of the line instead of
+ * holding the front of it. A request of the system never takes up a demo that has a row, FAILED or not, also when the
+ * row appears or fails after the history was read ({@link DemoPersistence#queue}).
  *
  * <p>Two backends, an overlapping run and a request that comes with a run cannot queue a match twice, because queueing
  * is {@link DemoPersistence#queue}: it takes the lock of the match's {@code demos} row, and a match that has none is
@@ -46,13 +49,25 @@ import org.springframework.stereotype.Service;
  * time.
  *
  * <p>The same run republishes the import messages that look lost: a demo that has stayed QUEUED for longer than
- * {@link DemoPersistence#STALE_AFTER} (its row has not been touched, and an import touches it when it starts).
+ * {@link DemoPersistence#STALE_AFTER}. A running import touches its demo every minute (the worker's heartbeat), so a
+ * live one never looks lost, and the sweep takes a demo ({@link DemoPersistence#claimStaleQueued}, which touches it
+ * under the row's lock) before it publishes, so a demo is republished at most once per that time and by one backend.
+ * A demo with neither a pasted link held by this backend nor a FACEIT demo address is left for 30 minutes (twice the
+ * link's lifetime, so that a link held by another backend is not given up on) and is then FAILED with the "link no
+ * longer known" reason. A demo whose match FACEIT does not know, or refuses, is FAILED at once; a failure that may go
+ * away (FACEIT or the broker unavailable) leaves the demo touched, which sends it to the back of the line.
  */
 @Service
 public class FaceitSyncService {
 
     /** How much of a player's history is read; the matches wanted are the newest, the page is a little more. */
     private static final int HISTORY_PAGE = 20;
+
+    /** How many demos that look lost one run looks at; at most {@code matches-per-run} of them are republished. */
+    private static final int LOST_PAGE = 50;
+
+    /** A demo queued for a pasted link that nobody holds is given up when untouched for twice the link's lifetime. */
+    private static final Duration GIVE_UP_AFTER = PastedLinks.TTL.multipliedBy(2);
 
     private static final Logger log = LoggerFactory.getLogger(FaceitSyncService.class);
 
@@ -153,11 +168,21 @@ public class FaceitSyncService {
             return 0;
         }
         try {
+            return queueMissing(playerId, limit);
+        } finally {
+            // Every attempt counts, whatever came of it: see the class comment.
+            users.markSynced(userId, clock.instant());
+            syncing.remove(userId);
+        }
+    }
+
+    private int queueMissing(String playerId, int limit) {
+        {
             FaceitMatchHistory history;
             try {
                 history = faceit.getHistory(playerId, 0, HISTORY_PAGE);
             } catch (RuntimeException e) {
-                log.warn("FACEIT sync: could not read the history of user {}: {}", userId, e.toString());
+                log.warn("FACEIT sync: could not read the history of a player: {}", e.getClass().getSimpleName());
                 return 0;
             }
             long startedAfter = clock.instant().minus(settings.maxAge()).getEpochSecond();
@@ -184,47 +209,74 @@ public class FaceitSyncService {
                 } catch (NotFoundException e) {
                     log.debug("FACEIT sync: FACEIT does not know match {}", item.matchId());
                 } catch (RuntimeException e) {
-                    log.warn("FACEIT sync: could not queue match {} of user {}: {}", item.matchId(), userId,
-                            e.toString());
+                    log.warn("FACEIT sync: could not queue match {}: {}", item.matchId(),
+                            e.getClass().getSimpleName());
                     return queued;
                 }
             }
-            users.markSynced(userId, clock.instant());
             return queued;
-        } finally {
-            syncing.remove(userId);
         }
     }
 
     /**
-     * Publishes again the import message of each demo that has stayed QUEUED for longer than
-     * {@link DemoPersistence#STALE_AFTER}, at most {@code matches-per-run} of them. It is {@link DemoService#requestImport}
-     * that does it, which under the row's lock touches a demo that is that stale and tells at most one caller to
-     * publish. A demo whose pasted link is still held is sent with it; one whose link is gone goes the way an import
-     * without a link goes: FACEIT's own address when the match has one, and when it has none (the demo was queued for
-     * the link alone) it is FAILED here with the reason the worker would have given.
+     * Looks at the demos that have stayed QUEUED for longer than {@link DemoPersistence#STALE_AFTER} (see the class
+     * comment for the rules). The page looked at is larger than what one run may republish, so that demos waiting for
+     * their 30 minutes do not hide the others.
      */
     private void republishLostImports() {
-        Instant staleBefore = clock.instant().minus(DemoPersistence.STALE_AFTER);
-        List<Demo> lost = demos.findUntouchedSince(DemoStatus.QUEUED, staleBefore,
-                PageRequest.of(0, settings.matchesPerRun()));
+        Instant now = clock.instant();
+        Instant staleBefore = now.minus(DemoPersistence.STALE_AFTER);
+        Instant giveUpBefore = now.minus(GIVE_UP_AFTER);
+        List<Demo> lost = demos.findUntouchedSince(DemoStatus.QUEUED, staleBefore, PageRequest.of(0, LOST_PAGE));
+        int budget = settings.matchesPerRun();
         for (Demo demo : lost) {
+            if (budget <= 0) {
+                break;
+            }
             long demoId = demo.getId();
             String matchId = demo.getMatch().getFaceitMatchId();
-            Optional<URI> link = pastedLinks.peek(demoId);
+            String demoUrl;
             try {
-                demoService.requestImport(matchId, link.orElse(null), Actor.system());
-                log.warn("FACEIT sync: demo {} of match {} has been QUEUED for a long time; published its import again",
-                        demoId, matchId);
-            } catch (ConflictException e) {
-                if (persistence.failIfStatus(demoId, DemoStatus.QUEUED, DemoImportWorker.PASTED_LINK_GONE)) {
+                demoUrl = demoService.faceitDemoUrl(matchId);
+            } catch (NotFoundException | FaceitRejectedException e) {
+                // FACEIT does not know the match or refuses to tell: asking again changes nothing.
+                if (persistence.failStaleQueued(demoId, staleBefore,
+                        "FACEIT does not give this match any more, so its demo cannot be imported",
+                        DemoErrorCode.IMPORT_FAILED)) {
+                    metrics.failed(DemoMetrics.STAGE_IMPORT);
+                    log.warn("FACEIT sync: demo {} of match {} was queued for a match FACEIT does not give; FAILED",
+                            demoId, matchId);
+                }
+                continue;
+            } catch (RuntimeException e) {
+                // May go away: the demo is taken (touched) so that it goes to the back of the line.
+                persistence.claimStaleQueued(demoId, staleBefore);
+                log.warn("FACEIT sync: could not ask FACEIT about match {} for its lost demo {}: {}", matchId, demoId,
+                        e.getClass().getSimpleName());
+                continue;
+            }
+            boolean hasAddress = demoUrl != null && !demoUrl.isBlank();
+            if (!hasAddress && pastedLinks.peek(demoId).isEmpty()) {
+                // Queued for a pasted link that this backend does not hold. Another backend may hold it, so the demo is
+                // given up only when the link must have expired everywhere.
+                if (persistence.failStaleQueued(demoId, giveUpBefore, DemoImportWorker.PASTED_LINK_GONE, null)) {
                     metrics.failed(DemoMetrics.STAGE_IMPORT);
                     log.warn("FACEIT sync: demo {} of match {} was queued for a pasted link that is gone; FAILED", demoId,
                             matchId);
                 }
+                continue;
+            }
+            if (!persistence.claimStaleQueued(demoId, staleBefore)) {
+                continue;
+            }
+            try {
+                demoService.republishImport(demoId, matchId, demoUrl);
+                budget--;
+                log.warn("FACEIT sync: demo {} of match {} has been QUEUED for a long time; published its import again",
+                        demoId, matchId);
             } catch (RuntimeException e) {
                 log.warn("FACEIT sync: could not publish the import of demo {} of match {} again: {}", demoId, matchId,
-                        e.toString());
+                        e.getClass().getSimpleName());
             }
         }
     }

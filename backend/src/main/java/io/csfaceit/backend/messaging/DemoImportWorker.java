@@ -15,7 +15,15 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
@@ -58,6 +66,18 @@ public class DemoImportWorker {
 
     private static final Logger log = LoggerFactory.getLogger(DemoImportWorker.class);
 
+    /** How often an import that is running touches its demo; far shorter than {@code DemoPersistence.STALE_AFTER}. */
+    static final Duration HEARTBEAT = Duration.ofSeconds(60);
+
+    /** The demos this process is importing right now. */
+    private final Set<Long> importing = ConcurrentHashMap.newKeySet();
+
+    private final ScheduledExecutorService heartbeats = Executors.newSingleThreadScheduledExecutor(task -> {
+        Thread thread = new Thread(task, "demo-import-heartbeat");
+        thread.setDaemon(true);
+        return thread;
+    });
+
     private final DemoPersistence persistence;
     private final DemoDownloader downloader;
     private final FaceitDownloadsApi downloadsApi;
@@ -85,25 +105,59 @@ public class DemoImportWorker {
 
     /**
      * Two consumers, so that the automatic sync of FACEIT demos (a few demos at once) does not leave a demo that a
-     * player asked for by hand waiting behind a long download. Two messages for the same demo cannot run side by side:
-     * {@link DemoPersistence#claimForImport} takes the row's lock and only a QUEUED demo is imported.
+     * player asked for by hand waiting behind a long download. The claim ({@link DemoPersistence#claimForImport}) does
+     * not exclude a second import of the same demo: the demo stays QUEUED while it downloads. Three things keep two
+     * consumers from importing it at once:
+     * <ul>
+     *   <li>the demos this process is importing are kept in a set, and a second message for one of them is dropped;
+     *   <li>while an import runs it touches the demo every {@link #HEARTBEAT}, so the sweep that republishes the
+     *       messages of demos QUEUED for more than {@link DemoPersistence#STALE_AFTER} never takes a live import for a
+     *       lost one, however long the download takes, and a demo is republished at most once per that time;
+     *   <li>the sweep republishes a demo only after it has taken it ({@link DemoPersistence#claimStaleQueued}).
+     * </ul>
+     * Two backends that consume two copies of one message at the same moment remain possible, but a copy exists only
+     * after a republish, and the heartbeat rules that out while the first import is alive.
      */
     @RabbitListener(queues = DemoMessages.Q_IMPORT, concurrency = "2")
     public void onImportRequested(DemoImportRequested message) {
         long demoId = message.demoId();
-        Optional<ImportClaim> claim = persistence.claimForImport(demoId);
-        if (claim.isEmpty()) {
-            announceIfStored(demoId);
+        if (!importing.add(demoId)) {
+            log.info("Dropping {} for demo {}: this process is importing it already", DemoMessages.Q_IMPORT, demoId);
             return;
         }
-        // The import stage is timed from the claim to the end of the work, whatever the outcome; a message that was
-        // ignored above is not an import.
-        Timer.Sample sample = metrics.startImport();
         try {
-            importDemo(message, claim.get().faceitMatchId());
+            Optional<ImportClaim> claim = persistence.claimForImport(demoId);
+            if (claim.isEmpty()) {
+                announceIfStored(demoId);
+                return;
+            }
+            // The import stage is timed from the claim to the end of the work, whatever the outcome; a message that was
+            // ignored above is not an import.
+            Timer.Sample sample = metrics.startImport();
+            ScheduledFuture<?> heartbeat = heartbeats.scheduleWithFixedDelay(() -> beat(demoId), HEARTBEAT.toSeconds(),
+                    HEARTBEAT.toSeconds(), TimeUnit.SECONDS);
+            try {
+                importDemo(message, claim.get().faceitMatchId());
+            } finally {
+                heartbeat.cancel(false);
+                metrics.importFinished(sample);
+            }
         } finally {
-            metrics.importFinished(sample);
+            importing.remove(demoId);
         }
+    }
+
+    private void beat(long demoId) {
+        try {
+            persistence.touchQueued(demoId);
+        } catch (RuntimeException e) {
+            log.warn("Could not touch demo {} while it is imported: {}", demoId, e.toString());
+        }
+    }
+
+    @PreDestroy
+    void stopHeartbeats() {
+        heartbeats.shutdownNow();
     }
 
     /** Downloads, stores and announces the demo this worker has claimed. */
