@@ -47,9 +47,17 @@ export interface TeamResponse {
 }
 
 /**
+ * Where a match comes from: FACEIT (`1-<uuid>`), or Valve's matchmaking (Premier, Competitive, Wingman; `mm-<Valve match
+ * id>`), which exists from its demo alone. The id tells the two apart as well (see `lib/matchSource.ts`).
+ */
+export type MatchSource = 'FACEIT' | 'MATCHMAKING'
+
+/**
  * Match details. `mapName`, `status`, `startedAt`, `finishedAt`, `demoUrl` and `winner` are null while FACEIT has not
  * published them (a match that is still being set up or played). `winner` is a faction key (`"faction1"` or
- * `"faction2"`) that matches `TeamResponse.factionId`.
+ * `"faction2"`) that matches `TeamResponse.factionId`. A matchmaking match is answered from its demo: `faction1` is the
+ * team that started on CT, `faction2` the one that started on T, both empty until the demo is parsed; `demoUrl` is null.
+ * `source` is left out by a backend that has no matchmaking yet.
  */
 export interface MatchResponse {
   matchId: string
@@ -60,6 +68,7 @@ export interface MatchResponse {
   demoUrl: string | null
   teams: TeamResponse[]
   winner: string | null
+  source?: MatchSource
 }
 
 export interface PlayerStatsResponse {

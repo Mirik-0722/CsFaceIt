@@ -7,6 +7,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
+import { isSteamPlayer } from '@/lib/matchSource'
 import { refreshMe } from './auth'
 import { type ApiError, apiGet, apiPost, apiUpload } from './client'
 import type { PlayerMatchPageResponse, PlayerMatchResponse, PlayerOverviewResponse } from './overviewTypes'
@@ -86,11 +87,24 @@ export function isParsedStalled(seen: ParsedSeen, match: PlayerMatchResponse, no
 }
 
 /**
+ * Where a page of a player's matches starts: the `offset` into the FACEIT history, and `before`, the start of the last
+ * row of the page before it (null for the first page). The backend shows the person's matchmaking matches of a page's
+ * stretch of time with it, and needs `before` to know where that stretch ends.
+ */
+export interface MatchesPageParam {
+  offset: number
+  before: string | null
+}
+
+/**
  * A player's matches with their demos, highlights and clips, one page of `limit` at a time, as `usePlayerHistory` pages
  * the history: `fetchNextPage` appends the page that starts at `offset + limit`, and a page shorter than `limit` is the
- * last one. On the visitor's own page (`own`) the pages are asked for again every 5 seconds while a loaded match has a
- * demo on its way, except a PARSED one that has been so for 30 minutes (`seen` holds when each was first seen); on any
- * page they are asked for every 15 seconds while a loaded match has a clip in progress.
+ * last one. Matchmaking matches come merged into a page of FACEIT matches (so a page may hold more rows than `limit`):
+ * the next page is asked for with `before`, the start of the last row loaded. A player known only from demos
+ * (`steam:<SteamID>`) has matchmaking matches alone, paged by `offset`, and is asked for without `before`. On the
+ * visitor's own page (`own`) the pages are asked for again every 5 seconds while a loaded match has a demo on its way,
+ * except a PARSED one that has been so for 30 minutes (`seen` holds when each was first seen); on any page they are asked
+ * for every 15 seconds while a loaded match has a clip in progress.
  */
 export function usePlayerMatches(
   playerId: string,
@@ -101,16 +115,30 @@ export function usePlayerMatches(
   return useInfiniteQuery<
     PlayerMatchPageResponse,
     ApiError,
-    InfiniteData<PlayerMatchPageResponse, number>,
+    InfiniteData<PlayerMatchPageResponse, MatchesPageParam>,
     QueryKey,
-    number
+    MatchesPageParam
   >({
     queryKey: ['player-matches', playerId, limit],
     queryFn: ({ pageParam }) =>
-      apiGet<PlayerMatchPageResponse>(`/players/${playerId}/matches`, { offset: pageParam, limit }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
-      lastPage.items.length < limit ? undefined : lastPageParam + limit,
+      apiGet<PlayerMatchPageResponse>(`/players/${playerId}/matches`, {
+        offset: pageParam.offset,
+        limit,
+        ...(pageParam.before === null ? {} : { before: pageParam.before }),
+      }),
+    initialPageParam: { offset: 0, before: null },
+    getNextPageParam: (lastPage, _allPages, lastPageParam) => {
+      // The FACEIT rows of a page are at most `limit`; the matchmaking rows merged in come on top of them. A page that
+      // has fewer rows than `limit` in all is the last one either way.
+      if (lastPage.items.length < limit) {
+        return undefined
+      }
+      const last = lastPage.items[lastPage.items.length - 1]
+      return {
+        offset: lastPageParam.offset + limit,
+        before: isSteamPlayer(playerId) ? null : last.startedAt,
+      }
+    },
     // Only while some loaded match has a demo or a clip on its way; a list without one is not asked for again by itself.
     refetchInterval: (query) => {
       const items = query.state.data?.pages.flatMap((page) => page.items) ?? []

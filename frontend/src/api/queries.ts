@@ -59,9 +59,10 @@ const HISTORY_PAGE_SIZE = 20
 
 /**
  * A player's match history, one page of `limit` matches at a time; `fetchNextPage` appends the page that starts at
- * `offset + limit`. A page shorter than `limit` is the last one, so `hasNextPage` turns false.
+ * `offset + limit`. A page shorter than `limit` is the last one, so `hasNextPage` turns false. `enabled: false` asks for
+ * nothing, for a player FACEIT has no history of (`steam:<SteamID>`).
  */
-export function usePlayerHistory(playerId: string, limit = HISTORY_PAGE_SIZE) {
+export function usePlayerHistory(playerId: string, limit = HISTORY_PAGE_SIZE, enabled = true) {
   return useInfiniteQuery<
     MatchHistoryResponse,
     ApiError,
@@ -75,6 +76,7 @@ export function usePlayerHistory(playerId: string, limit = HISTORY_PAGE_SIZE) {
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
       lastPage.items.length < limit ? undefined : lastPageParam + limit,
+    enabled,
     retry: retryUnlessClientError,
   })
 }

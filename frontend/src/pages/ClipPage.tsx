@@ -23,6 +23,7 @@ import { formatInteger } from '@/lib/formatNumber'
 import { formatDuration } from '@/lib/highlightLabels'
 import { mapSceneryUrl } from '@/lib/mapArt'
 import { mapLabel, mapScene } from '@/lib/mapTint'
+import { isSteamPlayer } from '@/lib/matchSource'
 import { cn } from '@/lib/utils'
 import { useHasUnlinkedNotice, useViewer } from '@/lib/viewer'
 import { isKnife, weaponLabel } from '@/lib/weapons'
@@ -505,8 +506,8 @@ function ClipVideo({ clip, video, started, belowNotice, onStart, onError }: Clip
 }
 
 /**
- * The line under the title as the board draws it: the player's picture and nickname (the link to the profile, which a
- * player the backend knows only from the demo does not have), the FACEIT level and ELO in mono, the link to the match
+ * The line under the title as the board draws it: the player's picture and nickname (the link to the profile; a player
+ * the backend knows only from the demo has one too, without FACEIT's facts), the FACEIT level and ELO in mono, the link to the match
  * with the match itself as its text (`team_A 13 : 9 team_B`), then the round and the date. The level, the ELO and the
  * picture come from the player, the teams and the score from the stats of the match: both are asked for here, only as
  * decoration, so that while they load, or when one fails or has nothing (no FACEIT player, a match FACEIT does not
@@ -515,9 +516,10 @@ function ClipVideo({ clip, video, started, belowNotice, onStart, onError }: Clip
 function ClipByline({ clip }: { clip: ClipResponse }) {
   const t = useT()
   const locale = useLocale()
-  // A player the backend knows only from the demo (`steam:<SteamID>`) is not one of FACEIT's: nothing to ask for.
-  const profile = !clip.playerId.startsWith('steam:')
-  const player = usePlayer(clip.playerId, profile).data
+  // A player the backend knows only from the demo (`steam:<SteamID>`) is not one of FACEIT's: no level, ELO or picture
+  // to ask for, though the profile (from the database) is there to link to.
+  const faceit = !isSteamPlayer(clip.playerId)
+  const player = usePlayer(clip.playerId, faceit).data
   const teams = useMatchStats(clip.matchId).data?.teams
   const elo = player && player.elo !== null ? formatInteger(player.elo, locale) : null
   const facts = player ? t.clip.page.faceitFacts(player.level, elo) : ''
@@ -536,16 +538,12 @@ function ClipByline({ clip }: { clip: ClipResponse }) {
       {/* On a phone the player has the first row to itself, as the phone board draws it, with the facts or without
           them yet, so that the line is two rows from the start and does not grow when the facts arrive. */}
       <div className="flex max-w-full flex-wrap items-center gap-x-3.5 max-sm:basis-full">
-        {profile ? (
-          <Link
-            to={`/players/${encodeURIComponent(clip.playerId)}`}
-            className="inline-flex min-h-11 items-center gap-2.5 font-semibold text-foreground underline-offset-4 hover:underline"
-          >
-            {who}
-          </Link>
-        ) : (
-          <span className="inline-flex min-h-11 items-center gap-2.5 font-semibold text-foreground">{who}</span>
-        )}
+        <Link
+          to={`/players/${encodeURIComponent(clip.playerId)}`}
+          className="inline-flex min-h-11 items-center gap-2.5 font-semibold text-foreground underline-offset-4 hover:underline"
+        >
+          {who}
+        </Link>
         {facts && (
           // The ring is 20px: inside the 44px line, so it makes the line no taller.
           <span className="inline-flex items-center gap-2 font-mono text-xs">

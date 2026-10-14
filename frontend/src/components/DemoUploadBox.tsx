@@ -46,7 +46,7 @@ export default function DemoUploadBox({ onFile, onLink }: DemoUploadBoxProps) {
       <input
         ref={fileInput}
         type="file"
-        accept=".dem,.gz,.zst"
+        accept=".dem,.gz,.zst,.bz2"
         multiple
         tabIndex={-1}
         aria-hidden="true"

@@ -82,7 +82,7 @@ const PLAIN =
 /**
  * A player's matches, one link per row to the match page; the whole row is the link, so its name carries the score,
  * which ends it. With `details` a row is drawn as a row of the matches table (`MatchesTable`): the map's emblem, its
- * name and under it the `FACEIT` tag with the date, the figures and the strongest highlight. While the details are on
+ * name and under it the tag of where the match is from with the date, the figures and the strongest highlight. While the details are on
  * their way the map's place is kept (the emblem's square, no name); without them (their request failed) the rows keep
  * the date and the result only.
  */
@@ -128,6 +128,7 @@ export default function MatchList({ items, details }: { items: MatchSummary[]; d
               className={cn(DETAILED, 'hover:bg-secondary', RESULT_ROW[match.result])}
             >
               <MatchMapCell
+                matchId={match.matchId}
                 mapName={stored?.mapName ?? null}
                 name={known ? (mapLabel(stored?.mapName ?? null) ?? t.match.unknownMap) : null}
                 date={date}

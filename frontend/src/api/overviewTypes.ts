@@ -1,4 +1,4 @@
-import type { DemoStatus, HighlightType, MatchResult } from './types.ts'
+import type { DemoStatus, HighlightType, MatchResult, MatchSource } from './types.ts'
 
 // The answers of the two reads in `overview.ts`. They are a file of their own because the E2E fixtures type their
 // answers with them, and the fixtures are compiled for Node, which can follow this file (no imports but `types.ts`,
@@ -41,7 +41,9 @@ export interface ClipCounts {
  * map yet; `kills`, `deaths` and `assists` are null while there is no row of statistics for the player; `adr` is null
  * unless the player's numbers in the match come from the analysis of a demo, which an analyzed match does not
  * guarantee (a demo that does not hold the player leaves it null); `demoStatus` is null for a match without a demo,
- * else the stage the demo is in.
+ * else the stage the demo is in. `source` says where the match is from (left out by a backend without matchmaking): a
+ * matchmaking match comes wholly from the database, and its `startedAt` is the moment its demo arrived when the start
+ * is not known.
  */
 export interface PlayerMatchResponse {
   matchId: string
@@ -57,6 +59,7 @@ export interface PlayerMatchResponse {
   demoStatus: DemoStatus | null
   highlights: HighlightCount[]
   clips: ClipCounts
+  source?: MatchSource
 }
 
 /** A page of a player's matches, newest first; `offset` and `limit` echo the request. */

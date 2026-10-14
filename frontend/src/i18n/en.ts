@@ -269,7 +269,7 @@ export const en = {
     // or a file dropped anywhere on the page; the feed above the rows says how each one goes.
     bring: {
       title: 'Upload a demo',
-      text: 'Drop a .dem or .dem.zst file here. A FACEIT demo is downloaded from the match room.',
+      text: 'Drop a .dem, .dem.zst or .dem.bz2 file here. A FACEIT demo is downloaded from the match room.',
       choose: 'Choose a file',
       linkLabel: 'Demo link',
       linkPlaceholder: 'Or paste a link',
@@ -362,7 +362,7 @@ export const en = {
     },
     manage: 'Manage',
     adminKey: 'Admin key',
-    fileLabel: 'Demo file (.dem, .dem.gz, .dem.zst)',
+    fileLabel: 'Demo file (.dem, .dem.gz, .dem.zst, .dem.bz2)',
     upload: 'Upload',
     importFromFaceit: 'Import from FACEIT',
     analyze: 'Analyze',
@@ -371,7 +371,7 @@ export const en = {
     sending: 'Sending the request…',
     uploading: 'Uploading the file…',
     accepted: 'Request accepted. The page updates by itself.',
-    invalidFile: 'The file must be a demo: .dem, .dem.gz or .dem.zst, and not empty.',
+    invalidFile: 'The file must be a demo: .dem, .dem.gz, .dem.zst or .dem.bz2, and not empty.',
     urlUnavailable: 'FACEIT has no demo file for this match.',
     // A demo that failed with the code DOWNLOAD_NEEDS_ACCESS: the site is not given the file, so the visitor fetches it.
     needsAccess:
@@ -727,5 +727,50 @@ export const en = {
     openInEditor: 'Open in the editor',
     // The mark of a montage that starts with a title card; shown in upper case.
     intro: 'Intro',
+  },
+  // CS2 matchmaking (plan 6c): the tag of a matchmaking match, and the section of the matches page that links the
+  // visitor's matchmaking games so that their demos come by themselves.
+  cs2: {
+    // The tag of a matchmaking match, the same in every language (shown in upper case); `tagName` is what a screen
+    // reader hears for it.
+    tag: 'CS2 MM',
+    tagName: 'CS2 matchmaking',
+    // The section's label, shown in upper case.
+    title: 'CS2 matchmaking',
+    intro: 'Have the demos of your Premier, Competitive and Wingman matches come by themselves: enter two codes once.',
+    // Steam's own names of the two codes, as its pages write them.
+    authLabel: 'Authentication code',
+    shareLabel: 'Match sharing code',
+    authPlaceholder: 'AAAA-AAAAA-AAAA',
+    sharePlaceholder: 'CSGO-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx',
+    showCode: 'Show the code',
+    hideCode: 'Hide the code',
+    codesLink: 'Get both codes on Steam',
+    link: 'Link',
+    // The same request for a link whose code stopped working.
+    relink: 'Update',
+    linking: 'Linking…',
+    // Why a code was not sent: its form is wrong.
+    authFormat: 'The code has the form AAAA-AAAAA-AAAA.',
+    shareFormat: 'The code starts with CSGO- and has five groups of five characters.',
+    // The two 422 refusals of the link.
+    authRefused: 'Steam did not accept this authentication code. Check it, or get a new one on Steam.',
+    shareRefused:
+      'Steam did not recognise this match sharing code with this authentication code. Enter the code of your last match.',
+    active: 'Linked — new matches come by themselves',
+    // A link in a state this page does not know.
+    linked: 'Linked',
+    checkedAt: 'Last check',
+    linkedAt: 'Linked',
+    notYet: 'Not yet',
+    badAuthTitle: 'The authentication code does not work',
+    badAuthText: 'Steam refused the code: it was revoked or replaced. Get a new code on Steam and enter it below.',
+    badShareTitle: 'The match sharing code does not fit',
+    badShareText:
+      'The last code is not a match of this account, or it is too old. Get the code of your last match from Steam and enter it below.',
+    unlink: 'Unlink',
+    unlinkQuestion: 'Unlink? New matches will stop coming.',
+    unlinkYes: 'Yes, unlink',
+    unlinkNo: 'No',
   },
 }

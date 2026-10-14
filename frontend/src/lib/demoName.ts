@@ -8,15 +8,24 @@ const MATCH_ID = '1-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 const COPY = '(?: ?\\(\\d+\\))?'
 const DEMO_NAME = new RegExp(`^(${MATCH_ID})(?:-\\d+-\\d+)?${COPY}\\.dem${COPY}(?:\\.[a-z0-9]+${COPY})*$`, 'i')
 
+// Valve names the replay of a matchmaking match `<match id>_<number>.dem.bz2`, the match id written with leading zeros
+// (`003744426367741165791_1234567890.dem.bz2`). Its match on this site is `mm-` and the id without them, as the
+// coordinator gives it.
+const VALVE_DEMO_NAME = new RegExp(`^0*(\\d{1,20})_\\d+${COPY}\\.dem${COPY}(?:\\.[a-z0-9]+${COPY})*$`, 'i')
+
 /**
- * The match a demo file belongs to, from its name: `<FACEIT match id>-1-1.dem`, `….dem.zst` or `….dem.gz`. The folders
- * before the name (a pasted path) are ignored. Null for a name that carries no match id: a demo the visitor has
- * renamed, or one that does not come from FACEIT.
+ * The match a demo file belongs to, from its name: `<FACEIT match id>-1-1.dem`, `….dem.zst` or `….dem.gz`, or Valve's
+ * `<match id>_<number>.dem.bz2` for a matchmaking match (`mm-<match id>`). The folders before the name (a pasted path)
+ * are ignored. Null for a name that carries no match id: a demo the visitor has renamed.
  */
 export function matchIdFromDemoName(name: string): string | null {
   const file = name.slice(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1)
-  const found = DEMO_NAME.exec(file)
-  return found ? found[1].toLowerCase() : null
+  const faceit = DEMO_NAME.exec(file)
+  if (faceit) {
+    return faceit[1].toLowerCase()
+  }
+  const valve = VALVE_DEMO_NAME.exec(file)
+  return valve ? `mm-${valve[1]}` : null
 }
 
 /**
