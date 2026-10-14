@@ -35,6 +35,8 @@ import {
   statsFixture,
   unlinkedBreakdownFixture,
 } from './fixtures.ts'
+// The CS2 block at the bottom.
+import type { Cs2LinkResponse } from '../src/api/cs2Types.ts'
 
 /**
  * A screenshot tool, not a test: it opens the pages of the app in every scenario, at the scenario's widths and
@@ -91,6 +93,8 @@ interface Backend {
   providers: AuthProvidersResponse
   /** The answers to the writes that bring a demo in, by `METHOD path`; every other write is left unanswered. */
   uploads: [string, Reply][]
+  /** More answers by `METHOD path?query`, over the ones above (the CS2 block at the bottom uses them). */
+  extra: [string, Reply][]
 }
 
 interface ShotPage {
@@ -169,7 +173,8 @@ const PAGES = [
   { name: 'menu', path: '/clips', open: openAccountMenu, tabs: 1, signedIn: true },
 ] as const satisfies readonly ShotPage[]
 
-type PageName = (typeof PAGES)[number]['name']
+// The pages of the CS2 block at the bottom are names too.
+type PageName = (typeof PAGES)[number]['name'] | (typeof CS2_PAGES)[number]['name']
 
 const LONG_NICKNAME = 'ThirtyTwo_Characters_Nickname_01'
 const LONG_TEAM_NAMES = [
@@ -249,6 +254,7 @@ const DEFAULT_BACKEND: Backend = {
   me: null,
   providers: { steam: true, faceit: false },
   uploads: [],
+  extra: [],
 }
 
 /** A visitor signed in with Steam whose FACEIT player was found: the nav has the player's pages. */
@@ -851,6 +857,7 @@ function answersFor(backend: Backend): Map<string, Reply> {
         ? { body: backend.breakdown }
         : { status: 500, body: { code: 'INTERNAL_ERROR', message: 'Internal error' } },
     ],
+    ...backend.extra,
   ])
 }
 
@@ -956,9 +963,9 @@ async function scrollScoreboard(page: Page) {
 
 /** One test per scenario, page, width and language. */
 function defineShots() {
-  for (const scenario of SCENARIOS) {
+  for (const scenario of [...SCENARIOS, ...CS2_SCENARIOS]) {
     const backend: Backend = { ...DEFAULT_BACKEND, ...scenario.backend }
-    const pages = PAGES.filter(
+    const pages = [...PAGES, ...CS2_PAGES].filter(
       (shotPage) =>
         (scenario.pages ? scenario.pages.includes(shotPage.name) : !('onRequest' in shotPage)) &&
         (!('signedIn' in shotPage) || backend.me !== null),
@@ -990,6 +997,443 @@ function defineShots() {
     }
   }
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// CS2 matchmaking (plan 6c), in a block of its own so that it merges apart from the rows other plans add to the tables
+// above: `defineShots` takes CS2_PAGES and CS2_SCENARIOS with PAGES and SCENARIOS, and `extra` carries the answers. The
+// backend of the link (tasks C2 and C3) does not exist yet, so every answer here is made up after the plan's contract,
+// as are the ids, nicknames and SteamIDs.
+
+/** A Valve matchmaking match whose demo is analyzed: the team that started on CT (the player's) won 13 : 10. */
+const MM_MATCH_ID = 'mm-3744426367741165791'
+
+/** A matchmaking match whose demo has been read but not analyzed yet: until it is, the match has no teams and no score. */
+const MM_PENDING_ID = 'mm-3744426367741165802'
+
+/** A player of a matchmaking demo whom FACEIT does not know: `steam:` and a made-up SteamID of the fixtures' range. */
+function demoOnlyPlayer(number: number, nickname: string) {
+  return { playerId: `steam:765611980000000${String(number).padStart(2, '0')}`, nickname }
+}
+
+/** The player known only from demos whose page is photographed; he started on T in the analyzed match, and lost it. */
+const STEAM_PLAYER = demoOnlyPlayer(16, 'mm_only_guy')
+
+const CS2_PAGES = [
+  { name: 'mm-match', path: `/matches/${MM_MATCH_ID}`, tabs: 0, onRequest: true },
+  { name: 'mm-pending', path: `/matches/${MM_PENDING_ID}`, tabs: 0, onRequest: true },
+  { name: 'steam-player', path: `/players/${STEAM_PLAYER.playerId}`, tabs: 0, onRequest: true },
+] as const satisfies readonly ShotPage[]
+
+const MM_PLAYER = { playerId: PLAYER_ID, nickname: playerFixture.nickname }
+
+// The two teams of the analyzed match in the order of their rows of statistics (most kills first).
+const MM_CT_START = [
+  MM_PLAYER,
+  demoOnlyPlayer(11, 'k1tten_flip'),
+  demoOnlyPlayer(12, 'borsch_enjoyer'),
+  demoOnlyPlayer(13, 'NoScopeNodir'),
+  demoOnlyPlayer(14, 'smoke_criminal'),
+]
+const MM_T_START = [
+  STEAM_PLAYER,
+  demoOnlyPlayer(17, 'tashkent_lurker'),
+  demoOnlyPlayer(18, 'eco_frag'),
+  demoOnlyPlayer(19, 'Ravshan_01'),
+  demoOnlyPlayer(20, 'flashbang_lover'),
+]
+
+const MM_ROUNDS = 23
+const MM_HALF = 12
+// The rounds the team that started on CT won: seven of the first half, six of the second, the last one among them.
+const MM_CT_START_WINS = [1, 2, 4, 5, 8, 9, 11, 14, 16, 17, 19, 21, 23]
+// No `Z`, as the rows of `playerMatchesFixture`: both are read on the browser's clock, so they sort together.
+const MM_STARTED = '2026-10-10T18:20:00'
+const MM_PENDING_STARTED = '2026-10-09T18:05:00'
+
+type MmLine = [kills: number, deaths: number, assists: number, headshots: number, adr: number]
+
+function mmStatRow(player: { playerId: string; nickname: string }, [kills, deaths, assists, headshots, adr]: MmLine) {
+  const ratio = (value: number) => Math.round(value * 100) / 100
+  return {
+    ...player,
+    kills,
+    deaths,
+    assists,
+    headshots,
+    kdRatio: ratio(kills / Math.max(deaths, 1)),
+    krRatio: ratio(kills / MM_ROUNDS),
+    adr,
+  }
+}
+
+/** A roster as the backend sends it: by nickname, whatever the case. */
+function byNickname(players: { playerId: string; nickname: string }[]) {
+  return [...players].sort((a, b) => a.nickname.localeCompare(b.nickname, 'en', { sensitivity: 'base' }))
+}
+
+const MM_MATCH: MatchResponse = {
+  matchId: MM_MATCH_ID,
+  mapName: 'de_ancient',
+  status: 'FINISHED',
+  startedAt: MM_STARTED,
+  finishedAt: '2026-10-10T19:01:00',
+  demoUrl: null,
+  teams: [
+    { factionId: 'faction1', name: 'CT', players: byNickname(MM_CT_START) },
+    { factionId: 'faction2', name: 'T', players: byNickname(MM_T_START) },
+  ],
+  winner: 'faction1',
+  source: 'MATCHMAKING',
+}
+
+const MM_CT_LINES: MmLine[] = [
+  [24, 15, 4, 11, 92.3],
+  [19, 16, 6, 8, 81.0],
+  [17, 17, 3, 9, 74.6],
+  [15, 16, 7, 5, 69.2],
+  [11, 18, 5, 4, 58.8],
+]
+const MM_T_LINES: MmLine[] = [
+  [21, 17, 5, 10, 88.1],
+  [18, 18, 4, 7, 79.4],
+  [16, 19, 3, 6, 70.3],
+  [13, 19, 8, 5, 64.0],
+  [10, 20, 2, 3, 51.7],
+]
+
+const MM_STATS: MatchStatsResponse = {
+  matchId: MM_MATCH_ID,
+  mapName: 'de_ancient',
+  rounds: MM_ROUNDS,
+  teams: [
+    {
+      teamId: 'faction1',
+      name: 'CT',
+      score: 13,
+      win: true,
+      players: MM_CT_START.map((player, index) => mmStatRow(player, MM_CT_LINES[index])),
+    },
+    {
+      teamId: 'faction2',
+      name: 'T',
+      score: 10,
+      win: false,
+      players: MM_T_START.map((player, index) => mmStatRow(player, MM_T_LINES[index])),
+    },
+  ],
+}
+
+const MM_BREAKDOWN: MatchBreakdownResponse = {
+  matchId: MM_MATCH_ID,
+  rounds: Array.from({ length: MM_ROUNDS }, (_, index) => {
+    const number = index + 1
+    const ctStartWon = MM_CT_START_WINS.includes(number)
+    // The team that started on CT plays T after the half.
+    const firstHalf = number <= MM_HALF
+    return {
+      number,
+      winnerSide: ctStartWon === firstHalf ? 'CT' : 'T',
+      winnerPlayerIds: (ctStartWon ? MM_CT_START : MM_T_START).map((player) => player.playerId),
+    }
+  }),
+  players: [...MM_CT_START, ...MM_T_START].map((player, index) => ({
+    playerId: player.playerId,
+    kast: [78.3, 73.9, 69.6, 65.2, 56.5, 74.0, 69.6, 65.2, 60.9, 52.2][index],
+    entryKills: [4, 2, 3, 1, 1, 3, 2, 2, 1, 0][index],
+    tradeKills: [3, 3, 2, 2, 1, 2, 3, 1, 2, 1][index],
+    clutchWins: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0][index],
+    clutchAttempts: [2, 1, 0, 1, 0, 3, 1, 0, 1, 0][index],
+  })),
+}
+
+function mmHighlight(...args: Parameters<typeof highlightFixture>): HighlightResponse {
+  return { ...highlightFixture(...args), matchId: MM_MATCH_ID, mapName: 'de_ancient', startedAt: MM_STARTED }
+}
+
+// The highlights of the analyzed match: the player's, another's of his team, and two of the player known only from
+// demos (in the second half his team played CT).
+const MM_HIGHLIGHTS: HighlightResponse[] = [
+  mmHighlight(201, 'K4', MM_PLAYER, 8, 'CT', [
+    [18, 'm4a1_silencer', true],
+    [22, 'm4a1_silencer'],
+    [31, 'm4a1_silencer', true],
+    [40, 'usp_silencer'],
+  ]),
+  mmHighlight(202, 'SMOKE_KILL', MM_CT_START[2], 11, 'CT', [[47, 'ak47']]),
+  mmHighlight(203, 'CLUTCH_1V2', STEAM_PLAYER, 13, 'CT', [
+    [62, 'm4a1', true],
+    [70, 'm4a1'],
+  ]),
+  mmHighlight(204, 'K3', STEAM_PLAYER, 20, 'CT', [
+    [25, 'm4a1'],
+    [28, 'm4a1', true],
+    [36, 'm4a1'],
+  ]),
+]
+
+/** The answers of a match page: the match, its statistics, its rounds, its demo and highlights; no clip. */
+function matchAnswers(
+  match: MatchResponse,
+  stats: MatchStatsResponse,
+  breakdown: MatchBreakdownResponse,
+  demo: DemoResponse,
+  highlights: HighlightResponse[],
+): [string, Reply][] {
+  const path = `/api/v1/matches/${match.matchId}`
+  return [
+    [`GET ${path}`, { body: match }],
+    [`GET ${path}/stats`, { body: stats }],
+    [`GET ${path}/breakdown`, { body: breakdown }],
+    [`GET ${path}/demo`, { body: demo }],
+    [`GET ${path}/highlights`, { body: highlights }],
+    [`GET ${path}/clips`, { body: [] }],
+  ]
+}
+
+type MatchRow = PlayerMatchPageResponse['items'][number]
+
+const NO_CLIPS = { done: 0, active: 0, failed: 0 }
+
+// The two matches as rows of the player's list: the analyzed one, and the one whose analysis is awaited (no result,
+// no score, no figures yet).
+const MM_ROW: MatchRow = {
+  matchId: MM_MATCH_ID,
+  mapName: 'de_ancient',
+  startedAt: MM_STARTED,
+  finishedAt: '2026-10-10T19:01:00',
+  result: 'WIN',
+  score: { faction1: 13, faction2: 10 },
+  kills: 24,
+  deaths: 15,
+  assists: 4,
+  adr: 92.3,
+  demoStatus: 'ANALYZED',
+  highlights: [{ type: 'K4', count: 1 }],
+  clips: NO_CLIPS,
+  source: 'MATCHMAKING',
+}
+const MM_PENDING_ROW: MatchRow = {
+  matchId: MM_PENDING_ID,
+  mapName: 'de_nuke',
+  startedAt: MM_PENDING_STARTED,
+  finishedAt: '2026-10-09T18:44:00',
+  result: 'UNKNOWN',
+  score: {},
+  kills: null,
+  deaths: null,
+  assists: null,
+  adr: null,
+  demoStatus: 'PARSED',
+  highlights: [],
+  clips: NO_CLIPS,
+  source: 'MATCHMAKING',
+}
+
+/** A page of the player's matches with the two matchmaking ones merged in by start, as the backend merges them. */
+function withMatchmakingRows(page: PlayerMatchPageResponse): PlayerMatchPageResponse {
+  const items = [...page.items, MM_ROW, MM_PENDING_ROW].sort(
+    (a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt),
+  )
+  return { ...page, items }
+}
+
+/** A matchmaking match of the player known only from demos: `[own, other]` rounds, `[kills, deaths, assists]`. */
+function steamRow(
+  id: string,
+  mapName: string,
+  startedAt: string,
+  [own, other]: [number, number],
+  [kills, deaths, assists]: [number, number, number],
+  adr: number,
+  highlights: MatchRow['highlights'],
+): MatchRow {
+  const won = own > other
+  return {
+    matchId: id,
+    mapName,
+    startedAt,
+    finishedAt: new Date(Date.parse(startedAt) + 40 * 60 * 1000).toISOString(),
+    result: won ? 'WIN' : 'LOSS',
+    score: won ? { faction1: own, faction2: other } : { faction1: other, faction2: own },
+    kills,
+    deaths,
+    assists,
+    adr,
+    demoStatus: 'ANALYZED',
+    highlights,
+    clips: NO_CLIPS,
+    source: 'MATCHMAKING',
+  }
+}
+
+const STEAM_ROWS: MatchRow[] = [
+  {
+    ...MM_ROW,
+    result: 'LOSS',
+    kills: 21,
+    deaths: 17,
+    assists: 5,
+    adr: 88.1,
+    highlights: [
+      { type: 'CLUTCH_1V2', count: 1 },
+      { type: 'K3', count: 1 },
+    ],
+  },
+  steamRow('mm-3744426367741165655', 'de_mirage', '2026-10-08T20:10:00', [13, 8], [19, 12, 3], 84.5, [{ type: 'K3', count: 1 }]),
+  steamRow('mm-3744426367741165512', 'de_inferno', '2026-10-06T21:30:00', [13, 11], [17, 14, 6], 77.2, []),
+  steamRow('mm-3744426367741165407', 'de_ancient', '2026-10-04T19:45:00', [9, 13], [14, 16, 4], 69.8, []),
+  steamRow('mm-3744426367741165301', 'de_nuke', '2026-10-02T22:05:00', [13, 6], [22, 9, 2], 101.4, [{ type: 'ACE', count: 1 }]),
+]
+
+/** The answers of the page of the player known only from demos: no FACEIT history, his list is the stored one. */
+function steamPlayerAnswers(): [string, Reply][] {
+  const path = `/api/v1/players/${encodeURIComponent(STEAM_PLAYER.playerId)}`
+  const player: PlayerResponse = { ...STEAM_PLAYER, avatar: null, country: null, elo: null, level: null }
+  const stats: PlayerAggregateStatsResponse = {
+    playerId: STEAM_PLAYER.playerId,
+    matches: 5,
+    analyzedMatches: 5,
+    winRate: 60,
+    kd: 1.38,
+    hsPercent: 44.1,
+    adr: 84.2,
+    kast: 71.2,
+    entryKillsPerMatch: 1.8,
+    tradeKillsPerMatch: 1.4,
+    clutchPercent: 20,
+    clutchAttempts: 5,
+    clutchWins: 1,
+  }
+  const overview: PlayerOverviewResponse = {
+    playerId: STEAM_PLAYER.playerId,
+    maps: [
+      { mapName: 'de_ancient', matches: 2, wins: 0, kd: 1.06, adr: 79.0 },
+      { mapName: 'de_nuke', matches: 1, wins: 1, kd: 2.44, adr: 101.4 },
+      { mapName: 'de_mirage', matches: 1, wins: 1, kd: 1.58, adr: 84.5 },
+      { mapName: 'de_inferno', matches: 1, wins: 1, kd: 1.21, adr: 77.2 },
+    ],
+    highlights: [
+      { type: 'K3', count: 2 },
+      { type: 'CLUTCH_1V2', count: 1 },
+      { type: 'ACE', count: 1 },
+    ],
+  }
+  const highlights = MM_HIGHLIGHTS.filter((highlight) => highlight.playerId === STEAM_PLAYER.playerId)
+  return [
+    [`GET ${path}`, { body: player }],
+    [`GET ${path}/stats`, { body: stats }],
+    [`GET ${path}/overview`, { body: overview }],
+    [`GET ${path}/matches?offset=0&limit=20`, { body: { items: STEAM_ROWS, offset: 0, limit: 20 } }],
+    [`GET ${path}/highlights?offset=0&limit=6`, { body: { items: highlights, offset: 0, limit: 6 } }],
+    [`GET ${path}/clips?offset=0&limit=12`, { body: { items: [], offset: 0, limit: 12 } }],
+  ]
+}
+
+const CS2_ANSWERS: [string, Reply][] = [
+  ...matchAnswers(MM_MATCH, MM_STATS, MM_BREAKDOWN, { ...demoFixture, demoId: 41, matchId: MM_MATCH_ID }, MM_HIGHLIGHTS),
+  ...matchAnswers(
+    {
+      ...MM_MATCH,
+      matchId: MM_PENDING_ID,
+      mapName: 'de_nuke',
+      startedAt: MM_PENDING_STARTED,
+      finishedAt: '2026-10-09T18:44:00',
+      teams: [],
+      winner: null,
+    },
+    { matchId: MM_PENDING_ID, mapName: 'de_nuke', rounds: 0, teams: [] },
+    { matchId: MM_PENDING_ID, rounds: [], players: [] },
+    { ...demoFixture, demoId: 42, matchId: MM_PENDING_ID, status: 'PARSED' },
+    [],
+  ),
+  ...steamPlayerAnswers(),
+]
+
+// What `GET /cs2/link` answers: no link (any 404 but CS2_DISABLED), the feature off on the server, or a link.
+const LINK_ANSWER = 'GET /api/v1/cs2/link'
+const NOT_LINKED: Reply = { status: 404, body: { code: 'CS2_LINK_NOT_FOUND', message: 'No CS2 link' } }
+const LINK_OFF: Reply = { status: 404, body: { code: 'CS2_DISABLED', message: 'CS2 matchmaking is turned off' } }
+
+function linkIn(state: string): Reply {
+  const link: Cs2LinkResponse = { state, linkedAt: '2026-10-11T09:12:00Z', checkedAt: '2026-10-14T10:42:00Z' }
+  return { body: link }
+}
+
+/**
+ * The signed-in player with the matchmaking matches in the list of his own matches, and his link in `link`'s state;
+ * `writes` answers the link's writes.
+ */
+function cs2Backend(link: Reply, writes: [string, Reply][] = []): Partial<Backend> {
+  return {
+    me: MEMBER,
+    playerMatches: withMatchmakingRows(playerMatchesFixture),
+    extra: [...CS2_ANSWERS, [LINK_ANSWER, link], ...writes],
+  }
+}
+
+/** Types the two codes into the CS2 section (the one section with a password field) and sends them. */
+function sendCodes(authCode: string, shareCode: string) {
+  return async (page: Page) => {
+    const section = page.locator('section').filter({ has: page.locator('input[type="password"]') })
+    await section.locator('input').nth(0).fill(authCode)
+    await section.locator('input').nth(1).fill(shareCode)
+    await section.locator('button[type="submit"]').click()
+    await settle(page)
+  }
+}
+
+/** Presses "Unlink" of the CS2 section: the question comes in its place. */
+async function askToUnlink(page: Page) {
+  await page.getByRole('button', { name: /^(Uzish|Unlink)$/ }).click()
+}
+
+const BOTH_LANGUAGES: Language[] = ['uz', 'en']
+
+const CS2_SCENARIOS: Scenario[] = [
+  // The section of the player's own matches page in each state of the link, beside a table with two matchmaking rows
+  // (one analyzed, one whose demo waits for its analysis).
+  { name: 'cs2-unlinked', pages: ['matches'], languages: BOTH_LANGUAGES, backend: cs2Backend(NOT_LINKED) },
+  { name: 'cs2-active', pages: ['matches'], languages: BOTH_LANGUAGES, backend: cs2Backend(linkIn('ACTIVE')) },
+  { name: 'cs2-badauth', pages: ['matches'], languages: BOTH_LANGUAGES, backend: cs2Backend(linkIn('BAD_AUTH_CODE')) },
+  { name: 'cs2-badshare', pages: ['matches'], languages: BOTH_LANGUAGES, backend: cs2Backend(linkIn('BAD_SHARE_CODE')) },
+  // The feature is off on the server: no section at all.
+  { name: 'cs2-disabled', pages: ['matches'], languages: BOTH_LANGUAGES, backend: cs2Backend(LINK_OFF) },
+  // Codes of the wrong form: the reason under each field, and nothing sent.
+  {
+    name: 'cs2-format',
+    pages: ['matches'],
+    languages: BOTH_LANGUAGES,
+    backend: cs2Backend(NOT_LINKED),
+    before: sendCodes('abcd-efgh', 'CSGO-12345'),
+  },
+  // Codes of the right form, the match sharing code refused by Steam: the reason under its field, which keeps the code;
+  // the authentication code has left its field.
+  {
+    name: 'cs2-refused',
+    pages: ['matches'],
+    languages: BOTH_LANGUAGES,
+    backend: cs2Backend(NOT_LINKED, [
+      ['POST /api/v1/cs2/link', { status: 422, body: { code: 'CS2_SHARE_CODE_REFUSED', message: 'Share code refused' } }],
+    ]),
+    before: sendCodes('ABCD-EFGHJ-KLMN', 'CSGO-a2b3c-d4e5f-g6h7j-k8m9n-p2q3r'),
+  },
+  // "Unlink" pressed on an active link: the question and its two answers.
+  {
+    name: 'cs2-unlink',
+    pages: ['matches'],
+    languages: BOTH_LANGUAGES,
+    backend: cs2Backend(linkIn('ACTIVE')),
+    before: askToUnlink,
+  },
+  // The profile with the matchmaking matches in its history, the two matchmaking matches' pages (analyzed, and before
+  // the analysis), and the page of the player known only from demos.
+  {
+    name: 'cs2',
+    pages: ['player', 'mm-match', 'mm-pending', 'steam-player'],
+    languages: BOTH_LANGUAGES,
+    backend: cs2Backend(NOT_LINKED),
+  },
+]
 
 if (process.env.SHOTS) {
   defineShots()
