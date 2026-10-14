@@ -198,7 +198,7 @@ cs2:
   link-secret: ${CS2_LINK_SECRET:}
   sync:
     # How often the job runs, counted from the end of the last run.
-    interval: ${CS2_SYNC_INTERVAL:2m}
+    interval: 2m
     # Per run: the most links it walks, and the most steps on one link (a step: the bridge for the code that is pending,
     # then Steam for the next code). Steam is asked at most once a second, by the job and the link request together.
     links-per-run: 5
@@ -207,7 +207,7 @@ cs2:
     idle-recheck: 15m
     # When the replay of a match is not ready yet, the bridge is asked again after this long (it answers "expired" by
     # itself once the match is two hours old).
-    not-ready-recheck: ${CS2_SYNC_NOT_READY_RECHECK:5m}
+    not-ready-recheck: 5m
 # The thresholds of the analysis of a parsed demo (analysis/AnalysisProperties). All of them are positive numbers of
 # seconds, checked when the backend starts. They are plain values, not ${VARIABLE:default} placeholders and not part of
 # .env: a change here is a change of the rules (an environment variable such as ANALYSIS_TRADE_WINDOW_SECONDS still
