@@ -2,8 +2,8 @@ package io.csfaceit.backend.clip;
 
 import static io.csfaceit.backend.match.MatchController.MATCH_ID_MESSAGE;
 import static io.csfaceit.backend.match.MatchController.MATCH_ID_PATTERN;
-import static io.csfaceit.backend.player.PlayerController.PLAYER_ID_MESSAGE;
-import static io.csfaceit.backend.player.PlayerController.PLAYER_ID_PATTERN;
+import static io.csfaceit.backend.player.PlayerController.ANY_PLAYER_ID_MESSAGE;
+import static io.csfaceit.backend.player.PlayerController.ANY_PLAYER_ID_PATTERN;
 
 import io.csfaceit.backend.auth.Access;
 import io.csfaceit.backend.clip.ClipService.ClipCreation;
@@ -13,6 +13,7 @@ import io.csfaceit.backend.clip.dto.ClipResponse;
 import io.csfaceit.backend.clip.dto.CompilationRequest;
 import io.csfaceit.backend.clip.dto.MontageRequest;
 import io.csfaceit.backend.clip.dto.RecorderStatusResponse;
+import io.csfaceit.backend.player.PlayerService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -54,11 +55,13 @@ public class ClipController {
     private final ClipService clips;
     private final ClipQueryService queries;
     private final Access access;
+    private final PlayerService players;
 
-    public ClipController(ClipService clips, ClipQueryService queries, Access access) {
+    public ClipController(ClipService clips, ClipQueryService queries, Access access, PlayerService players) {
         this.clips = clips;
         this.queries = queries;
         this.access = access;
+        this.players = players;
     }
 
     /** 201 for the clip this request queued, 200 for the one that already stood for the highlight at that quality. */
@@ -131,10 +134,12 @@ public class ClipController {
 
     @GetMapping("/players/{playerId}/clips")
     public ClipPageResponse getPlayerClips(
-            @PathVariable @Pattern(regexp = PLAYER_ID_PATTERN, message = PLAYER_ID_MESSAGE) String playerId,
+            @PathVariable @Pattern(regexp = ANY_PLAYER_ID_PATTERN, message = ANY_PLAYER_ID_MESSAGE) String playerId,
             @RequestParam(defaultValue = "0") @Min(0) @Max(MAX_OFFSET) int offset,
             @RequestParam(defaultValue = "20") @Min(1) @Max(MAX_LIMIT) int limit) {
-        return queries.forPlayer(playerId, offset, limit, access.viewerId());
+        // A steam: id reads the row that stands for it, as its profile does.
+        return queries.forPlayer(PlayerService.isSteamPlayerId(playerId) ? players.resolveSteamPlayerId(playerId)
+                : playerId, offset, limit, access.viewerId());
     }
 
     /** Whether a recorder is online to take the clips that wait, and how many wait and are being recorded. */

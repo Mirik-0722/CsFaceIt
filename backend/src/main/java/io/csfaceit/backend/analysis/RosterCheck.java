@@ -7,6 +7,7 @@ import io.csfaceit.backend.faceit.FaceitNotFoundException;
 import io.csfaceit.backend.faceit.dto.FaceitMatch;
 import io.csfaceit.backend.faceit.dto.FaceitMatchTeam;
 import io.csfaceit.backend.faceit.dto.FaceitRosterPlayer;
+import io.csfaceit.backend.match.MatchSource;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
@@ -39,6 +40,10 @@ import org.springframework.stereotype.Component;
  * and the counts. A match FACEIT no longer knows has no roster, and is skipped the same way; a FACEIT that cannot be
  * reached is no verdict, so its exception goes to the caller, and the analysis is tried again like for any other failure.
  *
+ * <p>A matchmaking match ({@code mm-<id>}) has no roster but its demo, and FACEIT is not asked about it. Its rule is the
+ * owner's: the SteamID of the user who brought the match in has to be among the demo's players; a match without an owner
+ * is skipped.
+ *
  * <p>No SteamID or nickname is written to a log or to a sentence that is stored: they are real people's.
  */
 @Component
@@ -59,6 +64,13 @@ public class RosterCheck {
             FROM players
             WHERE id IN (:ids)""";
 
+    /** The SteamID of the user who brought a matchmaking match in; no row when the match has no owner. */
+    private static final String OWNER_STEAM_ID_SQL = """
+            SELECT u.steam_id
+            FROM matches m
+            JOIN users u ON u.id = m.owner_user_id
+            WHERE m.faceit_match_id = :matchId""";
+
     private static final Logger log = LoggerFactory.getLogger(RosterCheck.class);
 
     /** What the check made of a demo. */
@@ -74,9 +86,15 @@ public class RosterCheck {
     /**
      * The result: {@code rosterPlayers} players in the roster, {@code known} of them with a known SteamID,
      * {@code demoPlayers} players of the demo with a real SteamID and {@code present} roster SteamIDs among them (the
-     * last two are 0 when the check was skipped before the demo's players were read).
+     * last two are 0 when the check was skipped before the demo's players were read). {@code ownerRule} is set for a
+     * matchmaking match, whose "roster" is its owner alone.
      */
-    public record Verdict(Kind kind, int rosterPlayers, int known, int demoPlayers, int present) {
+    public record Verdict(Kind kind, int rosterPlayers, int known, int demoPlayers, int present, boolean ownerRule) {
+
+        /** A verdict on a FACEIT match, by its roster. */
+        public Verdict(Kind kind, int rosterPlayers, int known, int demoPlayers, int present) {
+            this(kind, rosterPlayers, known, demoPlayers, present, false);
+        }
 
         /** What {@code present} is measured against: the smaller of the known roster SteamIDs and the demo's. */
         public int compared() {
@@ -89,6 +107,10 @@ public class RosterCheck {
 
         /** The sentence that goes to {@code demos.error} of a demo that is another match's. */
         public String sentence() {
+            if (ownerRule) {
+                return "The demo is not a game of the player this matchmaking match belongs to: they are not among its "
+                        + demoPlayers + " players";
+            }
             return "The players of the demo are not the players of this match: only " + present + " of the " + compared()
                     + " SteamIDs compared are among them";
         }
@@ -116,6 +138,9 @@ public class RosterCheck {
      *         of the match
      */
     public Verdict check(String faceitMatchId, MatchFacts facts) {
+        if (MatchSource.isMatchmaking(faceitMatchId)) {
+            return checkOwner(faceitMatchId, facts);
+        }
         Roster roster = roster(faceitMatchId);
         int known = roster.steamIds().size();
         if (known < MIN_KNOWN_STEAM_IDS) {
@@ -136,6 +161,25 @@ public class RosterCheck {
         boolean enough = (double) present / compared >= properties.minShare();
         return new Verdict(enough ? Kind.SAME_MATCH : Kind.WRONG_MATCH, roster.players(), known, demoSteamIds.size(),
                 present);
+    }
+
+    /**
+     * The rule for a matchmaking match, which has no roster anywhere but its demo: the SteamID of the user who brought
+     * the match in (its owner) has to be among the demo's players, or the demo is another game's. FACEIT is not asked. A
+     * match without an owner (or whose owner has no SteamID) has nothing to compare, and is skipped with a WARN.
+     */
+    private Verdict checkOwner(String matchId, MatchFacts facts) {
+        String ownerSteamId = jdbc.sql(OWNER_STEAM_ID_SQL).param("matchId", matchId).query(String.class)
+                .optional().orElse(null);
+        if (ownerSteamId == null || !STEAM_ID.matcher(ownerSteamId).matches()) {
+            log.warn("Not checking the demo of matchmaking match {}: the match has no owner with a SteamID to look for "
+                    + "among its players", matchId);
+            return new Verdict(Kind.SKIPPED, 0, 0, 0, 0, true);
+        }
+        Set<String> demoSteamIds = demoSteamIds(facts);
+        int present = demoSteamIds.contains(ownerSteamId) ? 1 : 0;
+        return new Verdict(present == 1 ? Kind.SAME_MATCH : Kind.WRONG_MATCH, 1, 1, demoSteamIds.size(), present,
+                true);
     }
 
     /** The roster of the match: how many players it lists and the distinct SteamIDs among them that are usable. */

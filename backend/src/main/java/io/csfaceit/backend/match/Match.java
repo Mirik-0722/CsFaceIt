@@ -2,6 +2,8 @@ package io.csfaceit.backend.match;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -27,6 +29,19 @@ public class Match {
 
     @Column(name = "finished_at")
     private Instant finishedAt;
+
+    /** Where the match comes from; every match written through this constructor is FACEIT's. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", nullable = false, length = 16)
+    private MatchSource source = MatchSource.FACEIT;
+
+    /** The match sharing code a matchmaking match was found by; {@code null} for a FACEIT match. */
+    @Column(name = "share_code", length = 64)
+    private String shareCode;
+
+    /** The user whose matchmaking games brought the match in ({@code users.id}); {@code null} for a FACEIT match. */
+    @Column(name = "owner_user_id")
+    private Long ownerUserId;
 
     protected Match() {
     }
@@ -68,5 +83,17 @@ public class Match {
 
     public void setFinishedAt(Instant finishedAt) {
         this.finishedAt = finishedAt;
+    }
+
+    public MatchSource getSource() {
+        return source;
+    }
+
+    public String getShareCode() {
+        return shareCode;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
     }
 }

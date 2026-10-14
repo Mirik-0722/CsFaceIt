@@ -67,6 +67,7 @@ public class MatchService {
      * FACEIT call runs with no transaction open; only the write is transactional (see {@link MatchPersistence}).
      */
     public MatchResponse getMatch(String matchId) {
+        refuseMatchmaking(matchId);
         FaceitMatch found = loadMatch(matchId);
         String mapName = mapName(found);
         Instant startedAt = instant(found.startedAt());
@@ -81,12 +82,25 @@ public class MatchService {
      * same rows.
      */
     public MatchStatsResponse getStats(String matchId) {
+        refuseMatchmaking(matchId);
         if (matches.findByFaceitMatchId(matchId).isEmpty()) {
             getMatch(matchId);
         }
         MatchStatsResponse response = toStatsResponse(matchId, loadStats(matchId));
         persistWithRetry("stats of match " + matchId, () -> persistence.storeStats(matchId, response));
         return response;
+    }
+
+    /**
+     * FACEIT knows nothing of a matchmaking match ({@code mm-<id>}), and must never be asked about one: such a match is
+     * read from the database ({@link DemoScoreboard}). A caller that gets here with one has a bug, which this makes loud
+     * before any FACEIT call instead of letting it reach FACEIT.
+     */
+    private static void refuseMatchmaking(String matchId) {
+        if (MatchSource.isMatchmaking(matchId)) {
+            throw new IllegalArgumentException("Match " + matchId + " is a matchmaking match, which FACEIT does not "
+                    + "know; read it with DemoScoreboard");
+        }
     }
 
     private FaceitMatch loadMatch(String matchId) {
@@ -130,7 +144,8 @@ public class MatchService {
                 .toList();
         String demoUrl = match.demoUrl() == null || match.demoUrl().isEmpty() ? null : match.demoUrl().get(0);
         String winner = match.results() == null ? null : match.results().winner();
-        return new MatchResponse(matchId, mapName, match.status(), startedAt, finishedAt, demoUrl, teams, winner);
+        return new MatchResponse(matchId, mapName, match.status(), startedAt, finishedAt, demoUrl, teams, winner,
+                MatchSource.FACEIT);
     }
 
     private static TeamResponse toTeamResponse(String factionId, FaceitMatchTeam team) {

@@ -6,6 +6,7 @@ import io.csfaceit.backend.demo.DemoStatus;
 import io.csfaceit.backend.faceit.dto.FaceitMatch;
 import io.csfaceit.backend.faceit.dto.FaceitMatchTeam;
 import io.csfaceit.backend.faceit.dto.FaceitRosterPlayer;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,7 +26,10 @@ import org.springframework.stereotype.Component;
  * their own player and clips:
  * <ul>
  *   <li>{@link #requireMatchMember}: the user's FACEIT player is in one of the rosters FACEIT gives for the match
- *   <li>{@link #requireOwnPlayer}: the player something is ordered for is the user's own
+ *   <li>{@link #requireMatchmakingMember}: for a matchmaking match, which FACEIT does not know, the user brought it in
+ *       or is among the players of its analyzed demo
+ *   <li>{@link #requireOwnPlayer}: the player something is ordered for is the user's own (their FACEIT player, or
+ *       {@code steam:} and their SteamID)
  *   <li>{@link #requireClipOwner}: the clip was ordered by this user ({@code clips.requested_by})
  *   <li>{@link #requireDemoReplaceable} and {@link #requireDemoAwaitingAnalysis}: a demo that has been parsed is not
  *       replaced, and an analysis that has been done is not done again, by a user
@@ -46,6 +50,9 @@ public class Access {
     public static final String DEMO_ALREADY_ANALYZED = "DEMO_ALREADY_ANALYZED";
 
     private static final String KEY_AUTHORITY = "ROLE_" + ApiKeyAuthFilter.ROLE;
+
+    /** The id of a player known only from demos is {@code steam:<SteamID>}. */
+    private static final String STEAM_PLAYER_PREFIX = "steam:";
 
     private static final Logger log = LoggerFactory.getLogger(Access.class);
 
@@ -124,14 +131,43 @@ public class Access {
     }
 
     /**
-     * The player is the actor's own.
+     * The actor played the matchmaking match ({@code mm-<id>}), which FACEIT knows nothing of: the user who brought it in
+     * (its owner) always; once its demo has been analyzed, also a user whose SteamID is among the demo's players. Until
+     * then the demo's players are not trusted (the wrong-demo check runs between parse and analysis), so only the owner
+     * gets in. No FACEIT player is needed for any of it.
      *
-     * @param playerId the FACEIT id of the player something is asked for ({@code steam:<SteamID>} for a player known
-     *        from a demo only, which is nobody's own)
+     * @param ownerUserId {@code matches.owner_user_id}; {@code null} for a match nobody brought in
+     * @param demoSteamIds the SteamIDs of the players of the match's analyzed demo, asked only when the owner rule does
+     *        not let the actor in; empty until the demo is analyzed
+     * @throws ForbiddenException {@code NOT_IN_MATCH}
+     */
+    public void requireMatchmakingMember(Actor actor, Long ownerUserId, Supplier<Set<String>> demoSteamIds) {
+        if (actor.unlimited()) {
+            return;
+        }
+        if (ownerUserId != null && ownerUserId.equals(actor.userId())) {
+            return;
+        }
+        String steamId = actor.user().steamId();
+        if (steamId != null && !steamId.isBlank() && demoSteamIds.get().contains(steamId)) {
+            return;
+        }
+        throw refused(actor, NOT_IN_MATCH, "You did not play this match, so you cannot bring or analyze its demo");
+    }
+
+    /**
+     * The player is the actor's own: the user's linked FACEIT player, or {@code steam:<SteamID>} with the user's own
+     * SteamID, which is how a player known only from demos (a matchmaking player) is named.
+     *
+     * @param playerId the FACEIT id of the player something is asked for, or {@code steam:<SteamID>}
      * @throws ForbiddenException {@code FACEIT_NOT_LINKED} or {@code NOT_YOUR_PLAYER}
      */
     public void requireOwnPlayer(Actor actor, String playerId) {
         if (actor.unlimited()) {
+            return;
+        }
+        String steamId = actor.user().steamId();
+        if (steamId != null && !steamId.isBlank() && (STEAM_PLAYER_PREFIX + steamId).equals(playerId)) {
             return;
         }
         if (!requireLinkedPlayer(actor).equals(playerId)) {
