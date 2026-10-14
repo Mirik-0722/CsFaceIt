@@ -25,9 +25,10 @@ import java.util.regex.Pattern;
  * </ul>
  *
  * The two Valve names give {@code mm-<match id>}, the id in decimal without its zeros, by the one rule for such ids
- * ({@link MatchSource#matchmakingId}). A Valve name may carry the counter a browser adds to a file it saves a second
+ * ({@link MatchSource#matchmakingId}: 15 to 20 digits, so that a name such as {@code 20261014_1.dem} is no Valve name
+ * but a file someone named by a date). A Valve name may carry the counter a browser adds to a file it saves a second
  * time ({@code ... (1).dem.bz2}, also without the space and between or after the extensions), as the page reads it:
- * a dropped file whose match the page found is not refused here for that. Folders before the name are ignored.
+ * a dropped file whose match the page finds is not refused here for that. Folders before the name are ignored.
  */
 public final class DemoFileName {
 

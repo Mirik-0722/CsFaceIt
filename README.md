@@ -574,9 +574,10 @@ or about a player known only from demos:
   (`003712345678901234567_1234567890.dem.bz2` is the demo of `mm-3712345678901234567`); `.dem` or another compression
   instead of `.bz2` is read the same. The CS2 client keeps a demo it downloaded in its replays folder as
   `match730_<match id>_<n>_<n>.dem`: that form is written from memory, not from a real file. The id of the match is the
-  decimal match id without its zeros, 1 to 20 digits, not 0, at most 2^64 - 1; the counter a browser adds to a file it
-  saves twice (`... (1).dem.bz2`) does not matter, as on the page. Otherwise `400 DEMO_FILE_MISMATCH` (upload) or
-  `400 DEMO_LINK_MISMATCH` (link).
+  decimal match id without its zeros: 15 to 20 digits (CS2's match ids are 19 digits long) and at most 2^64 - 1, so a
+  file named like `20261014_1.dem` is not taken for a matchmaking demo. The counter a browser adds to a file it saves
+  twice (`... (1).dem.bz2`) does not matter. Otherwise `400 DEMO_FILE_MISMATCH` (upload) or `400 DEMO_LINK_MISMATCH`
+  (link).
 - the limit per day has a place: an upload counts as an upload and a link as an import, as for a FACEIT match.
 
 The `matches` row (`source` `MATCHMAKING`, the acting user as its owner, no map and no time yet) is written in the same

@@ -23,6 +23,12 @@ public enum MatchSource {
     /** The start of the public id of every matchmaking match. */
     public static final String MATCHMAKING_PREFIX = "mm-";
 
+    /** The fewest digits of a Valve match id: those of CS2 are 19 digits long, so a short number is no match id. */
+    private static final int MIN_VALVE_MATCH_ID_DIGITS = 15;
+
+    /** The most digits of a Valve match id, an unsigned 64-bit number (2^64 - 1 has 20). */
+    private static final int MAX_VALVE_MATCH_ID_DIGITS = 20;
+
     /** The source a public match id stands for. */
     public static MatchSource ofMatchId(String matchId) {
         return matchId != null && matchId.startsWith(MATCHMAKING_PREFIX) ? MATCHMAKING : FACEIT;
@@ -35,9 +41,10 @@ public enum MatchSource {
 
     /**
      * The public id of the matchmaking match whose Valve match id is {@code digits}: {@code mm-} and the id in decimal,
-     * without the zeros Valve pads it with in a file name. Valve's match id is an unsigned 64-bit number, so after the
-     * zeros it is 1 to 20 digits, not 0, and at most 2^64 - 1; anything else names no match. This is the one rule for
-     * such ids: every place that turns a Valve match id into a match of this site goes through it.
+     * without the zeros Valve pads it with in a file name. Valve's match id is an unsigned 64-bit number, and those of
+     * CS2 are 19 digits long, so after the zeros it is 15 to 20 digits and at most 2^64 - 1. Anything else names no
+     * match, so that a file named like {@code 20261014_1.dem} (a date and a counter) is not taken for one. This is the
+     * one rule for such ids: every place that turns a Valve match id into a match of this site goes through it.
      *
      * @param digits the match id as Valve writes it, decimal digits only, possibly zero-padded
      * @return {@code mm-<id>}, or empty when {@code digits} is not a Valve match id
@@ -51,7 +58,7 @@ public enum MatchSource {
             start++;
         }
         String id = digits.substring(start);
-        if (id.isEmpty() || id.length() > 20) {
+        if (id.length() < MIN_VALVE_MATCH_ID_DIGITS || id.length() > MAX_VALVE_MATCH_ID_DIGITS) {
             return Optional.empty();
         }
         try {
