@@ -153,7 +153,8 @@ public class DemoDownloader {
         for (int redirects = 0; ; redirects++) {
             LinkGuard.CheckedHop hop = checkHop(uri, redirects);
             long left = deadline - System.nanoTime();
-            if (left <= 0) {
+            // OkHttp rounds the call timeout down to whole milliseconds and reads 0 as no timeout at all.
+            if (left < 1_000_000) {
                 throw tookTooLong();
             }
             HttpUrl url = HttpUrl.parse(hop.uri().toASCIIString());

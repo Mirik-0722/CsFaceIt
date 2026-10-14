@@ -103,6 +103,10 @@ public class DemoImportWorker {
                     link.get().getHost());
         } else {
             log.info("Importing the demo {} of match {}", demoId, faceitMatchId);
+            if (message.demoUrl() == null || message.demoUrl().isBlank()) {
+                // Only a pasted link queues a demo without a FACEIT address, so the link has expired or was lost.
+                log.info("The demo {} of match {} was queued with a pasted link that is gone", demoId, faceitMatchId);
+            }
         }
 
         Path file = null;
@@ -125,7 +129,9 @@ public class DemoImportWorker {
             }
             throw new AmqpRejectAndDontRequeueException(e.getMessage(), e);
         } catch (RuntimeException e) {
-            // The message is tried again, and the next attempt needs the link as much as this one did.
+            // The message is tried again, and the next attempt needs the link as much as this one did. The worker cannot
+            // see the attempt number, so after the last attempt the link stays until its time is up. A later import of
+            // the demo may use it; it is checked again like any link, and its file was already checked for this match.
             link.ifPresent(uri -> pastedLinks.put(demoId, uri));
             throw e;
         } finally {

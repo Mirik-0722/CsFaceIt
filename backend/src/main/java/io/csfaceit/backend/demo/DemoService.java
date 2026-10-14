@@ -217,18 +217,19 @@ public class DemoService {
     }
 
     /**
-     * Refuses a pasted link before anything is stored: its shape, host and addresses ({@link LinkGuard}), then the name
-     * of its file. A refusal is logged with the code and the host at most, never the link.
+     * Refuses a pasted link before anything is stored: the name of its file first, then its shape, host and addresses
+     * ({@link LinkGuard}). A refusal is logged with the code and the host at most, never the link.
      */
     private void checkLink(String faceitMatchId, URI link, Actor actor) {
         try {
+            // The name first: it costs nothing, and a link of another match is refused without a DNS lookup.
+            if (!DemoFileName.matchIdOfLink(link).map(faceitMatchId::equalsIgnoreCase).orElse(false)) {
+                throw DemoLinkRefusedException.mismatch(faceitMatchId);
+            }
             try {
                 linkGuard.check(link);
             } catch (UnknownHostException e) {
                 throw DemoLinkRefusedException.unresolved(link.getHost());
-            }
-            if (!DemoFileName.matchIdOfLink(link).map(faceitMatchId::equalsIgnoreCase).orElse(false)) {
-                throw DemoLinkRefusedException.mismatch(faceitMatchId);
             }
         } catch (DemoLinkRefusedException e) {
             log.info("Refused a demo link for match {} from {}: {} [{}]", faceitMatchId, describe(actor),

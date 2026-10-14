@@ -21,7 +21,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class PastedLinks {
 
-    /** How long a link waits for the worker; far longer than the queue ever waits, far shorter than a link lives. */
+    /**
+     * How long a link waits for the worker; far shorter than a link lives. It is not a bound on the queue: the import
+     * queue has one consumer, and a download may take minutes, so a demo can wait longer. Then the link is gone when the
+     * worker claims the demo: the import goes the way of one without a link (FACEIT's own address, when the match has
+     * one) or fails with "no longer known", and the worker logs that it was queued with a link.
+     */
     static final Duration TTL = Duration.ofMinutes(15);
 
     private record Entry(URI link, Instant expiresAt) {
