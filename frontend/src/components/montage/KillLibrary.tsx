@@ -112,7 +112,7 @@ export default function KillLibrary({ source, segments, onAdd, onSelect, classNa
                 </Button>
               </div>
               <ul className="flex flex-col pb-1">
-                {roundKills.map(({ kill }) => {
+                {roundKills.map(({ kill }, at) => {
                   const holder = segmentWith(segments, round.number, kill.tick)
                   const time = formatDuration(secondsOf(kill.tick - round.startTick, source.tickRate))
                   const weapon = isKnife(kill.weapon) ? t.highlight.knife : weaponLabel(kill.weapon)
@@ -123,7 +123,8 @@ export default function KillLibrary({ source, segments, onAdd, onSelect, classNa
                     kill.throughSmoke && t.montage.marks.smoke,
                   ].filter((mark): mark is string => typeof mark === 'string')
                   return (
-                    <li key={kill.tick}>
+                    // Two kills can share a tick (one bullet through two players): the place tells them apart.
+                    <li key={`${kill.tick}-${at}`}>
                       <button
                         type="button"
                         aria-label={

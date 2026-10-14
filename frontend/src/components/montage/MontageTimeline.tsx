@@ -21,7 +21,7 @@ const PX_PER_SECOND = 12
 /** How far the mouse has to move with a segment held before the press is a drag and not a click. */
 const DRAG_THRESHOLD = 4
 
-/** How close to the end a ruler label is drawn left of its line: the width of `0:45` at the narrowest scale. */
+/** How close to the end a ruler tick goes without its label: the width of `0:45` at the narrowest scale. */
 const END_LABEL_SECONDS = 2.5
 
 // The colour of the line on top of a segment: the player's side in its round; a round without a known side is plain.
@@ -97,6 +97,7 @@ export default function MontageTimeline({
   const t = useT()
   const hintId = useId()
   const trackRef = useRef<HTMLDivElement>(null)
+  const rulerRef = useRef<HTMLDivElement>(null)
   const optionRefs = useRef(new Map<number, HTMLDivElement>())
   // Set by a key of the list box: the newly selected option takes the focus once it is drawn.
   const focusSelected = useRef(false)
@@ -153,8 +154,22 @@ export default function MontageTimeline({
   }
 
   function onListKey(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape' && drag) {
+      // A drag let go of with Escape puts the segment back where it was.
+      event.preventDefault()
+      setDrag(null)
+      return
+    }
+    // The selection follows the focus (see the options' `onFocus`), so the focused option is the selected one.
     const index = parts.findIndex((part) => part.segment.id === focusable)
     if (index < 0) {
+      return
+    }
+    if ((event.key === 'Delete' || event.key === 'Backspace') && parts.length === 1) {
+      // The last segment goes, and the lane with it: the focus moves to the ruler rather than to nowhere.
+      event.preventDefault()
+      onRemove(parts[0].segment.id)
+      rulerRef.current?.focus()
       return
     }
     let next: number | null = null
@@ -166,11 +181,11 @@ export default function MontageTimeline({
       next = 0
     } else if (event.key === 'End') {
       next = parts.length - 1
-    } else if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId !== null) {
+    } else if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault()
       // The page selects the neighbour, which then takes the focus.
       focusSelected.current = true
-      onRemove(selectedId)
+      onRemove(parts[index].segment.id)
       return
     }
     if (next !== null) {
@@ -185,6 +200,8 @@ export default function MontageTimeline({
     if (event.button !== 0 || event.pointerType === 'touch') {
       return
     }
+    // A drag that ended where no click followed (off the segment, in some browsers) must not swallow this press's.
+    suppressClick.current = false
     event.currentTarget.setPointerCapture(event.pointerId)
     setDrag({
       kind: 'move',
@@ -220,6 +237,10 @@ export default function MontageTimeline({
     }
     event.stopPropagation()
     event.currentTarget.setPointerCapture(event.pointerId)
+    // The segment being trimmed is the one the inspector shows.
+    if (segment.id !== selectedId) {
+      onSelect(segment.id)
+    }
     const width = trackRef.current?.getBoundingClientRect().width ?? 0
     trimRef.current = { kind: 'trim', edge, startX: event.clientX, original: segment, secondsPerPx: width > 0 ? span / width : 0 }
   }
@@ -276,6 +297,7 @@ export default function MontageTimeline({
           >
             {/* The ruler, which is also the playhead's slider: a press or a drag puts the playhead there. */}
             <div
+              ref={rulerRef}
               role="slider"
               tabIndex={0}
               aria-label={t.montage.timeline.playhead}
@@ -308,15 +330,13 @@ export default function MontageTimeline({
                   className="absolute bottom-0 flex h-3 items-start border-l border-line-strong pl-1"
                   style={{ left: at(tick) }}
                 >
-                  <span
-                    className={cn(
-                      '-mt-3.5 font-mono text-[10px] leading-none text-subtle tabular-nums',
-                      // A label at the very end would be cut by the lane's edge: it stands left of its line instead.
-                      total - tick < END_LABEL_SECONDS && '-translate-x-[calc(100%+0.5rem)]',
-                    )}
-                  >
-                    {formatDuration(tick)}
-                  </span>
+                  {/* A label at the very end would be cut by the lane's edge, or run into the one before it if moved
+                      left: the tick there keeps its line only. */}
+                  {(tick === 0 || total - tick >= END_LABEL_SECONDS) && (
+                    <span className="-mt-3.5 font-mono text-[10px] leading-none text-subtle tabular-nums">
+                      {formatDuration(tick)}
+                    </span>
+                  )}
                 </span>
               ))}
             </div>
@@ -364,6 +384,13 @@ export default function MontageTimeline({
                       aria-selected={selected}
                       aria-label={name}
                       tabIndex={segment.id === focusable ? 0 : -1}
+                      // The selection follows the focus: Tab into the lane selects the segment it lands on, and the
+                      // inspector shows it.
+                      onFocus={() => {
+                        if (!selected) {
+                          onSelect(segment.id)
+                        }
+                      }}
                       onClick={() => {
                         if (suppressClick.current) {
                           suppressClick.current = false
@@ -375,8 +402,11 @@ export default function MontageTimeline({
                       onPointerMove={onSegmentMove}
                       onPointerUp={onSegmentUp}
                       onPointerCancel={() => setDrag(null)}
+                      // A capture lost without an up or a cancel (the window lost the focus) ends the drag as well.
+                      onLostPointerCapture={() => setDrag(null)}
                       className={cn(
-                        'group absolute inset-y-0 cursor-grab overflow-hidden border-t-2 border-r border-r-background bg-secondary select-none -outline-offset-2',
+                        // The focus ring stands 6px inside, apart from the selection's 2px ring at the edge.
+                        'group absolute inset-y-0 cursor-grab overflow-hidden border-t-2 border-r border-r-background bg-secondary select-none -outline-offset-[6px]',
                         round?.side ? SIDE_BORDER[round.side] : 'border-t-line-strong',
                         selected && 'z-10 ring-2 ring-foreground ring-inset',
                         moving && 'z-20 cursor-grabbing opacity-80 shadow-lg',
@@ -402,9 +432,10 @@ export default function MontageTimeline({
                           0.5×
                         </span>
                       )}
-                      {kills.map((moment) => (
+                      {kills.map((moment, index) => (
                         <span
-                          key={moment.kill.tick}
+                          // Two kills can share a tick: the place tells them apart.
+                          key={`${moment.kill.tick}-${index}`}
                           aria-hidden="true"
                           className="pointer-events-none absolute top-5 bottom-4 w-0.5 bg-rec"
                           style={{ left: `${((moment.time - part.from) / (length || 1)) * 100}%` }}
@@ -418,11 +449,14 @@ export default function MontageTimeline({
                           onPointerMove={onHandleMove}
                           onPointerUp={onHandleUp}
                           onPointerCancel={onHandleUp}
+                          onLostPointerCapture={onHandleUp}
                           onClick={(event) => event.stopPropagation()}
                           className={cn(
                             'absolute inset-y-0 w-2 cursor-ew-resize touch-none bg-foreground/60 opacity-0 transition-opacity group-hover:opacity-100',
                             edge === 'start' ? 'left-0' : 'right-0',
-                            selected && 'opacity-100',
+                            // On a touch screen an unseen handle would trim where a finger means to scroll: only the
+                            // selected segment's handles, which are drawn, take a touch.
+                            selected ? 'opacity-100' : 'pointer-coarse:pointer-events-none',
                           )}
                         />
                       ))}

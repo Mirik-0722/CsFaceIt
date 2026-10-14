@@ -583,6 +583,8 @@ export const en = {
     signIn: 'Sign in',
     // The bar that stays at the bottom of a phone's screen.
     orderBar: 'Order',
+    staleDraft: 'The saved draft no longer fits this demo, so the editor starts afresh.',
+    staleDraftOk: 'OK',
     library: {
       title: 'Kills',
       filterLabel: 'Filter the kills',

@@ -118,11 +118,12 @@ export default function MontageMonitor({
                         ),
                   )}
                 >
-                  {feed.map((moment) => {
+                  {feed.map((moment, at) => {
                     const side = round?.side ?? null
                     return (
                       <KillFeedRow
-                        key={`${moment.part.segment.id}-${moment.kill.tick}`}
+                        // Two kills can share a tick: the place in the feed tells them apart.
+                        key={`${moment.part.segment.id}-${moment.kill.tick}-${at}`}
                         killer={source.player.nickname}
                         killerSide={side}
                         weapon={isKnife(moment.kill.weapon) ? t.highlight.knife : weaponLabel(moment.kill.weapon)}

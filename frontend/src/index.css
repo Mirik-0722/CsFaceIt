@@ -449,6 +449,14 @@
     }
 }
 
+/* Below `lg` the montage editor's order bar stays at the bottom of the screen (`data-order-bar`): a control that takes
+   the focus is scrolled clear of it, not under it. */
+@media (width < 64rem) {
+    html:has([data-order-bar]) {
+        scroll-padding-bottom: 5rem;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .animate-rec,
     .animate-scene-in,

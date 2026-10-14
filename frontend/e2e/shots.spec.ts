@@ -175,11 +175,12 @@ const PAGES = [
   { name: 'menu', path: '/clips', open: openAccountMenu, tabs: 1, signedIn: true },
   // The montage editor (plan 7), for the scenarios that name it: empty as it opens without a draft; with a draft of four
   // segments, the second selected and the playhead past two of its kills; the same draft vertical with the intro, the
-  // playhead on the intro card; and the order of the draft.
+  // playhead on the intro card; the order of the draft; and a draft that no longer fits the demo.
   { name: 'montage', path: MONTAGE_PATH, tabs: 0, onRequest: true },
   { name: 'montage-edit', path: MONTAGE_PATH, open: openMontageEdit, tabs: 0, onRequest: true },
   { name: 'montage-vertical', path: MONTAGE_PATH, open: openMontageVertical, tabs: 0, onRequest: true },
   { name: 'montage-order', path: MONTAGE_PATH, open: openMontageOrder, tabs: 0, onRequest: true },
+  { name: 'montage-stale', path: MONTAGE_PATH, open: openMontageStale, tabs: 0, onRequest: true },
 ] as const satisfies readonly ShotPage[]
 
 type PageName = (typeof PAGES)[number]['name']
@@ -888,7 +889,7 @@ const SCENARIOS: Scenario[] = [
   // The montage editor (plan 7) as a visitor who is not signed in sees it: the order is "Sign in" or the admin key.
   {
     name: 'montage',
-    pages: ['montage', 'montage-edit', 'montage-vertical'],
+    pages: ['montage', 'montage-edit', 'montage-vertical', 'montage-stale'],
     languages: ['uz', 'en'],
   },
   // The same editor as the signed-in player whose kills they are: "Record the montage", and its order dialog.
@@ -1090,12 +1091,17 @@ async function scrollScoreboard(page: Page) {
 }
 
 /** Puts a draft where the montage editor keeps it and opens the editor again, so that it starts from the draft. */
-async function openWithDraft(page: Page, draft: object) {
+async function openWithDraft(page: Page, draft: object, fits = true) {
   const key = `csfaceit.montage.${WON_MATCH_ID}.${PLAYER_ID}`
   await page.evaluate(`localStorage.setItem(${JSON.stringify(key)}, ${JSON.stringify(JSON.stringify(draft))})`)
   await page.reload()
   await settle(page)
-  await page.getByRole('listbox').waitFor()
+  await page.getByRole(fits ? 'listbox' : 'status').first().waitFor()
+}
+
+/** A draft whose music the backend no longer offers: the editor opens empty and says why, once. */
+async function openMontageStale(page: Page) {
+  await openWithDraft(page, { ...MONTAGE_DRAFT, musicTrack: 'a-track-that-was-removed' }, false)
 }
 
 /**
@@ -1152,7 +1158,8 @@ function defineShots() {
                 await settle(page)
               }
               await scenario.before?.(page, shotPage)
-              await page.screenshot({ path: `shots/${name}.png`, fullPage: true, animations: 'disabled' })            })
+              await page.screenshot({ path: `shots/${name}.png`, fullPage: true, animations: 'disabled' })
+            })
           }
         }
       })

@@ -21,6 +21,7 @@ import {
   secondsOf,
   segmentKills,
   segmentSeconds,
+  withoutControls,
 } from '@/lib/montage'
 import { cn } from '@/lib/utils'
 import { isKnife, weaponLabel } from '@/lib/weapons'
@@ -61,7 +62,7 @@ function Choice<T extends string>({ legend, name, options, value, label, hint, o
             />
             <span className="flex min-w-0 flex-col">
               <span className="font-mono text-[13px] font-semibold">{label(option)}</span>
-              {hint?.(option) && <span className="truncate text-xs text-muted-foreground">{hint(option)}</span>}
+              {hint?.(option) && <span className="text-xs leading-tight text-muted-foreground">{hint(option)}</span>}
             </span>
           </label>
         ))}
@@ -207,8 +208,9 @@ export default function MontageInspector({
                   <p className="text-[13px] text-muted-foreground">{t.montage.inspector.noKills}</p>
                 ) : (
                   <ul className="flex flex-col gap-1">
-                    {segmentKills(source, selected).map((kill) => (
-                      <li key={kill.tick} className="flex min-w-0 items-baseline gap-2 text-[13px]">
+                    {segmentKills(source, selected).map((kill, at) => (
+                      // Two kills can share a tick (one bullet through two players): the place tells them apart.
+                      <li key={`${kill.tick}-${at}`}className="flex min-w-0 items-baseline gap-2 text-[13px]">
                         <span className="shrink-0 font-mono">
                           {isKnife(kill.weapon) ? t.highlight.knife : weaponLabel(kill.weapon)}
                         </span>
@@ -267,7 +269,7 @@ export default function MontageInspector({
               maxLength={limits.titleMaxLength}
               placeholder={t.montage.inspector.titlePlaceholder}
               aria-describedby={ids.titleCount}
-              onChange={(event) => set({ title: event.target.value })}
+              onChange={(event) => set({ title: withoutControls(event.target.value) })}
             />
           </div>
           <label htmlFor={ids.intro} className="flex min-h-11 cursor-pointer items-center gap-3 text-sm">

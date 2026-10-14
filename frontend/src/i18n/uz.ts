@@ -512,6 +512,8 @@ export const uz: Messages = {
     signInToRecord: "O'z kill'laringizdan montaj yozish uchun kiring.",
     signIn: 'Kirish',
     orderBar: 'Buyurtma',
+    staleDraft: "Saqlangan qoralama bu demoga endi mos kelmaydi, shuning uchun muharrir boshidan ochildi.",
+    staleDraftOk: 'Tushunarli',
     library: {
       title: "Kill'lar",
       filterLabel: "Kill'larni saralash",

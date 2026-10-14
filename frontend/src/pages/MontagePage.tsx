@@ -322,9 +322,9 @@ function EditorSkeleton() {
       <p className="label-mono">{t.montage.loading}</p>
       <Skeleton className="h-20 w-full" />
       <div className="grid gap-3 lg:grid-cols-[260px_minmax(0,1fr)_280px] xl:grid-cols-[300px_minmax(0,1fr)_320px]">
-        <Skeleton className="h-[min(56dvh,40rem)] max-lg:order-3" />
-        <Skeleton className="h-[min(56dvh,40rem)] max-lg:order-1" />
-        <Skeleton className="h-[min(56dvh,40rem)] max-lg:order-2" />
+        <Skeleton className="h-[min(56dvh,40rem)] lg:col-start-2 lg:row-start-1" />
+        <Skeleton className="h-[min(56dvh,40rem)] lg:col-start-3 lg:row-start-1" />
+        <Skeleton className="h-[min(56dvh,40rem)] lg:col-start-1 lg:row-start-1" />
       </div>
     </div>
   )
@@ -355,9 +355,15 @@ function Workbench({ matchId, playerId, source }: WorkbenchProps) {
   const t = useT()
   const navigate = useNavigate()
   const key = draftKey(matchId, playerId)
-  const [montage, setMontage] = useState<Montage>(
-    () => parseDraft(readDraft(key), source) ?? emptyMontage(source),
-  )
+  // The montage the editor opens with, and whether a draft was kept that no longer fits the demo: the editor then
+  // says so once (until the notice is closed or the montage changes), instead of dropping the draft without a word.
+  const [initial] = useState(() => {
+    const raw = readDraft(key)
+    const parsed = parseDraft(raw, source)
+    return { montage: parsed ?? emptyMontage(source), stale: raw !== null && parsed === null }
+  })
+  const [montage, setMontage] = useState<Montage>(initial.montage)
+  const [staleNotice, setStaleNotice] = useState(initial.stale)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [order, setOrder] = useState<ClipOrder | null>(null)
   const [keyFirst, setKeyFirst] = useState(false)
@@ -503,15 +509,21 @@ function Workbench({ matchId, playerId, source }: WorkbenchProps) {
           <div className="max-lg:hidden">{orderAction('header')}</div>
         </div>
       </div>
+      {staleNotice && montage === initial.montage && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border border-line-strong bg-card px-4 py-2.5"
+        >
+          <p className="text-sm">{t.montage.staleDraft}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => setStaleNotice(false)}>
+            {t.montage.staleDraftOk}
+          </Button>
+        </div>
+      )}
+      {/* The panels in the order a phone shows them, which is also the order of Tab and of a screen reader: the monitor
+          and the timeline, the inspector, the library. From `lg` the grid puts the library in the first column. */}
       <div className="grid gap-3 lg:grid-cols-[260px_minmax(0,1fr)_280px] xl:grid-cols-[300px_minmax(0,1fr)_320px]">
-        <KillLibrary
-          source={source}
-          segments={montage.segments}
-          onAdd={add}
-          onSelect={select}
-          className="max-lg:order-3 lg:h-0 lg:min-h-full"
-        />
-        <div className="flex min-w-0 flex-col gap-3 max-lg:order-1">
+        <div className="flex min-w-0 flex-col gap-3 lg:col-start-2 lg:row-start-1">
           <MontageMonitor
             source={source}
             montage={montage}
@@ -546,15 +558,25 @@ function Workbench({ matchId, playerId, source }: WorkbenchProps) {
           onMoveSelected={moveSelected}
           onRemoveSelected={() => selected && remove(selected.id)}
           onOptionsChange={(options: MontageOptions) => setMontage((current) => ({ ...current, options }))}
-          className="max-lg:order-2 lg:h-0 lg:min-h-full"
+          className="lg:col-start-3 lg:row-start-1 lg:h-0 lg:min-h-full"
+        />
+        <KillLibrary
+          source={source}
+          segments={montage.segments}
+          onAdd={add}
+          onSelect={select}
+          className="lg:col-start-1 lg:row-start-1 lg:h-0 lg:min-h-full"
         />
       </div>
-      {/* On a phone the order stays at the bottom of the screen; the page keeps its room under the last panel. */}
-      <div aria-hidden="true" className="h-16 lg:hidden" />
+      {/* On a phone the order stays at the bottom of the screen while the page scrolls, and comes to rest at the end of
+          the page, above the footer, so it never covers anything there (the page drops its bottom padding for it, and
+          a focused control is scrolled clear of it: `data-order-bar` in index.css). It is the last element of the page,
+          so it is reached last. */}
       <div
         role="region"
         aria-label={t.montage.orderBar}
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 lg:hidden"
+        data-order-bar=""
+        className="sticky bottom-0 z-30 -mx-[clamp(16px,4vw,40px)] border-t border-border bg-card/95 lg:hidden"
       >
         <div className="flex min-h-16 items-center justify-between gap-3 px-[clamp(16px,4vw,40px)] py-2.5">
           <p
@@ -620,7 +642,7 @@ export default function MontagePage() {
   const [params] = useSearchParams()
   const playerId = params.get('player')
   return (
-    <main className={cn(PAGE, 'flex flex-col gap-4 pt-5 pb-18')}>
+    <main className={cn(PAGE, 'flex flex-col gap-4 pt-5 pb-18 max-lg:has-[[data-order-bar]]:pb-0')}>
       {matchId && (
         <nav aria-label={t.match.breadcrumb}>
           <ol className="flex min-h-11 items-center gap-2.5 text-sm">
