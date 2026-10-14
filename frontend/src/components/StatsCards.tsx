@@ -1,6 +1,6 @@
 import StatTile from '@/components/StatTile'
 import { useT } from '@/i18n'
-import { winShareFill } from '@/lib/winShare'
+import { winShareFill, winShareTone } from '@/lib/winShare'
 import type { PlayerAggregateStatsResponse } from '@/api/types'
 
 function percent(value: number | null): string | null {
@@ -35,6 +35,8 @@ export default function StatsCards({ stats }: { stats: PlayerAggregateStatsRespo
           label={t.statsCards.kd}
           value={hasMatches ? stats.kd.toFixed(2) : null}
           note={hasMatches ? t.statsCards.overMatches(matches) : undefined}
+          // Judged as it is written: 0.996 is written "1.00" and is good news.
+          tone={Number(stats.kd.toFixed(2)) >= 1 ? 'positive' : 'negative'}
         />
         <StatTile
           label={t.statsCards.hsPercent}
@@ -79,6 +81,7 @@ export default function StatsCards({ stats }: { stats: PlayerAggregateStatsRespo
           value={percent(stats.winRate)}
           percent={stats.winRate}
           barClass={stats.winRate === null ? undefined : winShareFill(stats.winRate)}
+          tone={stats.winRate === null ? undefined : winShareTone(stats.winRate)}
           note={line(stats.winRate, t.statsCards.overMatches(matches))}
         />
       </dl>
