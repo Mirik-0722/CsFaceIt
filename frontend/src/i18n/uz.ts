@@ -655,7 +655,7 @@ export const uz: Messages = {
     authLabel: 'Authentication code',
     shareLabel: 'Match sharing code',
     authPlaceholder: 'AAAA-AAAAA-AAAA',
-    sharePlaceholder: 'CSGO-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx',
+    sharePlaceholder: 'CSGO-xxxxx-xxxxx-…',
     showCode: "Kodni ko'rsatish",
     hideCode: 'Kodni yashirish',
     codesLink: "Ikkala kodni Steam'da olish",

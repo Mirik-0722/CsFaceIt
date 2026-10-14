@@ -742,7 +742,8 @@ export const en = {
     authLabel: 'Authentication code',
     shareLabel: 'Match sharing code',
     authPlaceholder: 'AAAA-AAAAA-AAAA',
-    sharePlaceholder: 'CSGO-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx',
+    // The start of the form only: the whole code does not fit in the side column, nor on a phone.
+    sharePlaceholder: 'CSGO-xxxxx-xxxxx-…',
     showCode: 'Show the code',
     hideCode: 'Hide the code',
     codesLink: 'Get both codes on Steam',

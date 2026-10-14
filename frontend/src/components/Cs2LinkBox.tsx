@@ -67,6 +67,14 @@ function LinkForm({ userId, submitLabel }: { userId: number; submitLabel: string
   const [sending, setSending] = useState(false)
   const authInput = useRef<HTMLInputElement>(null)
   const shareInput = useRef<HTMLInputElement>(null)
+  // The field a refusal is about takes the focus once the fields are enabled again: a disabled field cannot take it.
+  const focusAfterSending = useRef<HTMLInputElement | null>(null)
+  useEffect(() => {
+    if (!sending && focusAfterSending.current) {
+      focusAfterSending.current.focus()
+      focusAfterSending.current = null
+    }
+  }, [sending])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -96,11 +104,7 @@ function LinkForm({ userId, submitLabel }: { userId: number; submitLabel: string
       const found = errorsOf(error)
       setErrors(found)
       // The field the refusal is about takes the focus; the authentication code has to be typed again anyway.
-      if (found.share) {
-        shareInput.current?.focus()
-      } else if (found.auth) {
-        authInput.current?.focus()
-      }
+      focusAfterSending.current = found.share ? shareInput.current : found.auth ? authInput.current : null
     } finally {
       setSending(false)
     }
