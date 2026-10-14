@@ -1,10 +1,10 @@
 import { Check, Plus } from 'lucide-react'
 import { useId, useState } from 'react'
 import type { EditorRound, EditorSource } from '@/api/editorTypes'
-import { Badge } from '@/components/ui/badge'
+import HighlightTag from '@/components/HighlightTag'
 import { Button } from '@/components/ui/button'
 import { useT } from '@/i18n'
-import { formatDuration, highlightLabel } from '@/lib/highlightLabels'
+import { formatDuration } from '@/lib/highlightLabels'
 import {
   KILL_FILTERS,
   type KillFilter,
@@ -70,7 +70,8 @@ export default function KillLibrary({ source, segments, onAdd, onSelect, classNa
               onClick={() => setFilter(kind)}
               className="inline-flex min-h-11 min-w-0 items-center justify-between gap-2 px-2.5 text-left text-[13px] font-medium text-muted-foreground -outline-offset-2 hover:text-foreground aria-pressed:bg-secondary aria-pressed:text-foreground aria-pressed:shadow-[inset_0_-2px_0_var(--foreground)]"
             >
-              <span className="truncate">{labels[kind]}</span>
+              {/* A long name ("Highlight rounds") takes two lines rather than lose its end. */}
+              <span className="min-w-0 py-1 leading-tight">{labels[kind]}</span>
               <span className="font-mono text-xs text-subtle tabular-nums">
                 {kills.filter((item) => matchesFilter(item, kind, withHighlight)).length}
               </span>
@@ -95,9 +96,7 @@ export default function KillLibrary({ source, segments, onAdd, onSelect, classNa
                 )}
                 <span className="flex min-w-0 flex-1 flex-wrap gap-1 overflow-hidden">
                   {tags.map((highlight) => (
-                    <Badge key={highlight.id} variant={highlight.type === 'ACE' ? 'default' : 'outline'} className="h-5">
-                      {highlightLabel(highlight.type, t)}
-                    </Badge>
+                    <HighlightTag key={highlight.id} type={highlight.type} className="h-5" />
                   ))}
                 </span>
                 <Button

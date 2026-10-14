@@ -21,6 +21,9 @@ const PX_PER_SECOND = 12
 /** How far the mouse has to move with a segment held before the press is a drag and not a click. */
 const DRAG_THRESHOLD = 4
 
+/** How close to the end a ruler label is drawn left of its line: the width of `0:45` at the narrowest scale. */
+const END_LABEL_SECONDS = 2.5
+
 // The colour of the line on top of a segment: the player's side in its round; a round without a known side is plain.
 const SIDE_BORDER = { CT: 'border-t-side-ct', T: 'border-t-side-t' } as const
 
@@ -267,7 +270,8 @@ export default function MontageTimeline({
         <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain">
           <div
             ref={trackRef}
-            className="relative flex flex-col gap-1"
+            // Its own stacking context: the playhead and a dragged segment stay under the phone's fixed order bar.
+            className="relative isolate flex flex-col gap-1"
             style={{ width: `max(100%, ${Math.ceil(span * PX_PER_SECOND)}px)` }}
           >
             {/* The ruler, which is also the playhead's slider: a press or a drag puts the playhead there. */}
@@ -304,7 +308,13 @@ export default function MontageTimeline({
                   className="absolute bottom-0 flex h-3 items-start border-l border-line-strong pl-1"
                   style={{ left: at(tick) }}
                 >
-                  <span className="-mt-3.5 font-mono text-[10px] leading-none text-subtle tabular-nums">
+                  <span
+                    className={cn(
+                      '-mt-3.5 font-mono text-[10px] leading-none text-subtle tabular-nums',
+                      // A label at the very end would be cut by the lane's edge: it stands left of its line instead.
+                      total - tick < END_LABEL_SECONDS && '-translate-x-[calc(100%+0.5rem)]',
+                    )}
+                  >
                     {formatDuration(tick)}
                   </span>
                 </span>
@@ -431,26 +441,28 @@ export default function MontageTimeline({
             {/* The title lane: the intro card at the start, then the title over the rest. */}
             <div aria-hidden="true" className="relative h-8">
               {introEnd > 0 && (
-                <span
-                  className="absolute inset-y-0 flex items-center justify-center border border-line-strong bg-secondary font-mono text-[10px] tracking-[0.08em] uppercase"
-                  style={{ left: 0, width: at(introEnd) }}
-                >
-                  {t.montage.timeline.intro}
-                </span>
+                <span className="absolute inset-y-0 bg-line-strong" style={{ left: 0, width: at(introEnd) }} />
               )}
-              {title ? (
+              {title && (
                 <span
-                  className="absolute inset-y-1 flex items-center truncate border-l-2 border-foreground bg-foreground/8 px-2 text-xs"
+                  className={cn('absolute inset-y-1 bg-foreground/8', introEnd === 0 && 'border-l-2 border-foreground')}
                   style={{ left: at(introEnd), right: 0 }}
-                >
-                  {title}
+                />
+              )}
+              {introEnd > 0 || title ? (
+                // The words run over both blocks: two seconds of the intro are narrower than its name.
+                <span className="absolute inset-0 flex min-w-0 items-center gap-2 px-2 text-xs">
+                  {introEnd > 0 && (
+                    <span className="shrink-0 font-mono text-[10px] tracking-[0.08em] uppercase">
+                      {t.montage.timeline.intro}
+                    </span>
+                  )}
+                  {title && <span className="truncate">{title}</span>}
                 </span>
               ) : (
-                introEnd === 0 && (
-                  <span className="absolute inset-y-0 left-0 flex items-center text-xs text-subtle">
-                    {t.montage.timeline.noTitle}
-                  </span>
-                )
+                <span className="absolute inset-y-0 left-0 flex items-center text-xs text-subtle">
+                  {t.montage.timeline.noTitle}
+                </span>
               )}
             </div>
             {/* The music lane: the track over the whole video, or a dashed box that says there is none. */}

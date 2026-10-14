@@ -68,7 +68,7 @@ export default function MontageMonitor({
   const timecode = `${formatTimecode(time)} / ${formatTimecode(layout.total)}`
 
   const notice = (
-    <p className="max-w-[min(30rem,86%)] border border-line-strong bg-background/80 px-2.5 py-1.5 text-center font-mono text-[11px] leading-snug tracking-[0.08em] text-muted-foreground uppercase">
+    <p className="max-w-[min(30rem,86%)] border border-line-strong bg-background/80 px-2.5 py-1.5 text-center font-mono text-[11px] leading-snug tracking-[0.08em] text-muted-foreground uppercase max-sm:py-1 max-sm:text-[10px]">
       {t.montage.monitor.schematic}
     </p>
   )
@@ -86,7 +86,8 @@ export default function MontageMonitor({
         <ViewfinderFrame
           mapName={source.mapName}
           scenery={false}
-          size="large"
+          // A vertical frame is narrow: the small brackets leave its corner labels room.
+          size={vertical ? 'card' : 'large'}
           className={cn(vertical ? 'aspect-[9/16] h-full w-auto' : 'size-full')}
           picture={
             <div aria-hidden="true" className="absolute inset-0">
@@ -100,14 +101,21 @@ export default function MontageMonitor({
                     vertical ? 'top-11' : 'top-12',
                   )}
                 >
-                  <span className="max-w-full truncate bg-background/70 px-2 py-0.5 text-sm font-semibold">{title}</span>
+                  <span className="max-w-full truncate bg-background/70 px-2 py-0.5 text-sm font-semibold max-sm:text-xs">{title}</span>
                 </p>
               )}
               {feed.length > 0 && (
+                // Under the corner label, or under the title when there is one. A landscape stage on a phone is too low
+                // for that and the notice in the middle: there the newest two lines stand above the bottom corner labels.
                 <div
                   className={cn(
                     'absolute right-4 flex flex-col items-end gap-1',
-                    vertical ? 'top-20' : 'top-11',
+                    vertical
+                      ? 'top-20'
+                      : cn(
+                          'max-sm:bottom-9 max-sm:[&>*:nth-last-child(n+3)]:hidden',
+                          title && !inIntro ? 'sm:top-20' : 'sm:top-11',
+                        ),
                   )}
                 >
                   {feed.map((moment) => {
@@ -121,7 +129,7 @@ export default function MontageMonitor({
                         headshot={moment.kill.headshot}
                         victim={moment.kill.victimNickname}
                         victimSide={side ? OTHER_SIDE[side] : null}
-                        className={vertical ? 'text-[10px]' : undefined}
+                        className={vertical ? 'text-[10px]' : 'max-sm:text-[10px]'}
                       />
                     )
                   })}
@@ -141,7 +149,10 @@ export default function MontageMonitor({
               <span aria-hidden="true">{t.montage.monitor.segment(part.index + 1, layout.parts.length)}</span>
             ) : undefined
           }
-          bottomLeft={empty ? undefined : <span aria-hidden="true">{timecode}</span>}
+          bottomLeft={
+            // The vertical frame has no room for the whole length; the transport row says it.
+            empty ? undefined : <span aria-hidden="true">{vertical ? formatTimecode(time) : timecode}</span>
+          }
           bottomRight={<span aria-hidden="true">{`${options.quality} · ${options.aspect}`}</span>}
           center={
             <div className="flex max-w-full flex-col items-center gap-4 px-6">

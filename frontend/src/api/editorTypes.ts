@@ -1,7 +1,7 @@
 // The answer of `GET /api/v1/matches/{matchId}/editor?playerId=` and the body of `POST /api/v1/matches/{matchId}/montages`
 // (plan 7, "Shartnoma"). Kept apart from types.ts, as breakdownTypes.ts is, so that the file other work is changing
 // stays as it is.
-import type { ClipQuality, HighlightType } from './types'
+import type { ClipQuality, HighlightType } from './types.ts'
 
 /** The two shapes a montage can be recorded in: landscape and vertical. */
 export type MontageAspect = '16:9' | '9:16'
