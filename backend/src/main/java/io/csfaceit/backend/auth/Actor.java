@@ -16,14 +16,25 @@ public record Actor(Kind kind, SignedInUser user) {
 
     public enum Kind {
         KEY,
+        /** The site itself, see {@link Actor#system()}. */
+        SYSTEM,
         ADMIN,
         USER
     }
 
     public Actor {
-        if (kind == null || (kind == Kind.KEY) != (user == null)) {
-            throw new IllegalArgumentException("A session has a user and the admin key has none");
+        if (kind == null || (kind == Kind.KEY || kind == Kind.SYSTEM) != (user == null)) {
+            throw new IllegalArgumentException("A session has a user and the admin key and the system have none");
         }
+    }
+
+    /**
+     * The actor of what the site does by itself (the automatic sync of FACEIT demos): no request, no credential and no
+     * user, so no limit per day, and it passes the rules of {@link Access} like the key. It does not depend on the admin
+     * key's value.
+     */
+    public static Actor system() {
+        return new Actor(Kind.SYSTEM, null);
     }
 
     /** The actor of a request that carried the admin key. */

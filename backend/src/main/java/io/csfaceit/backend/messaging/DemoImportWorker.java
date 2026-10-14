@@ -48,6 +48,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class DemoImportWorker {
 
+    /**
+     * The reason a demo that was queued with a pasted link is FAILED when the link is gone (and FACEIT has no address
+     * of its own for it). Shared with the sweep that republishes lost import messages, which ends such a demo the same
+     * way without going through the queue.
+     */
+    public static final String PASTED_LINK_GONE = "Demo download rejected: the pasted demo link is no longer known. "
+            + "Paste it again, or upload the .dem manually.";
+
     private static final Logger log = LoggerFactory.getLogger(DemoImportWorker.class);
 
     private final DemoPersistence persistence;
@@ -75,7 +83,12 @@ public class DemoImportWorker {
         return "demos/" + faceitMatchId + ".dem.zst";
     }
 
-    @RabbitListener(queues = DemoMessages.Q_IMPORT)
+    /**
+     * Two consumers, so that the automatic sync of FACEIT demos (a few demos at once) does not leave a demo that a
+     * player asked for by hand waiting behind a long download. Two messages for the same demo cannot run side by side:
+     * {@link DemoPersistence#claimForImport} takes the row's lock and only a QUEUED demo is imported.
+     */
+    @RabbitListener(queues = DemoMessages.Q_IMPORT, concurrency = "2")
     public void onImportRequested(DemoImportRequested message) {
         long demoId = message.demoId();
         Optional<ImportClaim> claim = persistence.claimForImport(demoId);
@@ -155,8 +168,7 @@ public class DemoImportWorker {
         if (demoUrl == null || demoUrl.isBlank()) {
             // Queued for a link that is gone (the backend restarted, or the link waited too long) for a match FACEIT
             // has no demo address for.
-            throw new DemoDownloadRejectedException("Demo download rejected: the pasted demo link is no longer known. "
-                    + "Paste it again, or upload the .dem manually.");
+            throw new DemoDownloadRejectedException(PASTED_LINK_GONE);
         }
         if (downloadsApi.isConfigured()) {
             return downloader.download(downloadsApi.signedAddress(demoUrl));

@@ -1,7 +1,10 @@
 package io.csfaceit.backend.demo;
 
 import jakarta.persistence.LockModeType;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -13,6 +16,18 @@ public interface DemoRepository extends JpaRepository<Demo, Long> {
     Optional<Demo> findByMatchId(Long matchId);
 
     Optional<Demo> findByMatchFaceitMatchId(String faceitMatchId);
+
+    /** Whether the match has a demo row, in any state. */
+    boolean existsByMatchFaceitMatchId(String faceitMatchId);
+
+    /**
+     * The demos in {@code status} that nothing has touched since {@code before}, oldest first, with their matches
+     * loaded (the caller has no transaction open).
+     */
+    @Query("select d from Demo d join fetch d.match where d.status = :status and d.updatedAt < :before "
+            + "order by d.updatedAt")
+    List<Demo> findUntouchedSince(@Param("status") DemoStatus status, @Param("before") Instant before,
+                                  Pageable page);
 
     /**
      * Like {@link #findByMatchId} but locks the row until the surrounding transaction ends, so that concurrent

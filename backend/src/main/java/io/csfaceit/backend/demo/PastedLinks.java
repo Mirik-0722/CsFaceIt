@@ -46,6 +46,15 @@ public class PastedLinks {
         links.put(demoId, new Entry(link, now.plus(TTL)));
     }
 
+    /** The link held for the demo, left in place; empty when there is none or it has expired. */
+    public Optional<URI> peek(long demoId) {
+        Entry entry = links.get(demoId);
+        if (entry == null || entry.expiresAt().isBefore(clock.instant())) {
+            return Optional.empty();
+        }
+        return Optional.of(entry.link());
+    }
+
     /** Removes the link of the demo and gives it, unless there is none or it has expired. */
     public Optional<URI> take(long demoId) {
         Entry entry = links.remove(demoId);
