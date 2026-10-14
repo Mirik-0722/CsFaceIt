@@ -6,18 +6,20 @@ import io.csfaceit.backend.auth.UserRepository.SyncCandidate;
 import io.csfaceit.backend.common.api.ConflictException;
 import io.csfaceit.backend.common.api.NotFoundException;
 import io.csfaceit.backend.faceit.FaceitGateway;
+import io.csfaceit.backend.faceit.FaceitRejectedException;
 import io.csfaceit.backend.faceit.dto.FaceitHistoryItem;
 import io.csfaceit.backend.faceit.dto.FaceitMatchHistory;
 import io.csfaceit.backend.messaging.DemoImportWorker;
 import io.csfaceit.backend.messaging.DemoMetrics;
-import io.csfaceit.backend.faceit.FaceitRejectedException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -88,6 +90,13 @@ public class FaceitSyncService {
 
     /** The players being synced by this process right now. */
     private final Set<Long> syncing = ConcurrentHashMap.newKeySet();
+
+    /**
+     * The demos the sweep found with neither a held link nor a FACEIT address, and when to look at them again (when
+     * they may be given up): until then FACEIT is not asked about them at every run. Lost on a restart, which only
+     * means one more look.
+     */
+    private final Map<Long, Instant> waitingForLink = new ConcurrentHashMap<>();
 
     public FaceitSyncService(FaceitSyncProperties settings, FaceitDownloadsApi downloads, FaceitGateway faceit,
                              DemoRepository demos, DemoService demoService, DemoPersistence persistence,
@@ -168,54 +177,59 @@ public class FaceitSyncService {
             return 0;
         }
         try {
-            return queueMissing(playerId, limit);
+            try {
+                return queueMissing(playerId, limit);
+            } finally {
+                // Every attempt counts, whatever came of it: see the class comment. A failure to note it (the database
+                // is away) is logged and must neither hide the exception that is on its way nor skip the removal below.
+                try {
+                    users.markSynced(userId, clock.instant());
+                } catch (RuntimeException e) {
+                    log.warn("FACEIT sync: could not note that a player was synced: {}", e.getClass().getSimpleName());
+                }
+            }
         } finally {
-            // Every attempt counts, whatever came of it: see the class comment.
-            users.markSynced(userId, clock.instant());
             syncing.remove(userId);
         }
     }
 
     private int queueMissing(String playerId, int limit) {
-        {
-            FaceitMatchHistory history;
-            try {
-                history = faceit.getHistory(playerId, 0, HISTORY_PAGE);
-            } catch (RuntimeException e) {
-                log.warn("FACEIT sync: could not read the history of a player: {}", e.getClass().getSimpleName());
-                return 0;
-            }
-            long startedAfter = clock.instant().minus(settings.maxAge()).getEpochSecond();
-            List<FaceitHistoryItem> items = history.items() == null ? List.of() : history.items().stream()
-                    .filter(item -> item != null && item.matchId() != null && item.finishedAt() > 0
-                            && item.startedAt() >= startedAfter)
-                    .sorted(Comparator.comparingLong(FaceitHistoryItem::startedAt).reversed())
-                    .toList();
-
-            int queued = 0;
-            for (FaceitHistoryItem item : items) {
-                if (queued >= limit) {
-                    break;
-                }
-                if (demos.existsByMatchFaceitMatchId(item.matchId())) {
-                    continue;
-                }
-                try {
-                    demoService.requestImport(Actor.system(), item.matchId());
-                    queued++;
-                } catch (ConflictException e) {
-                    // FACEIT has no demo for the match (yet): no row was written, so a later sync looks again.
-                    log.debug("FACEIT sync: match {} has no demo yet", item.matchId());
-                } catch (NotFoundException e) {
-                    log.debug("FACEIT sync: FACEIT does not know match {}", item.matchId());
-                } catch (RuntimeException e) {
-                    log.warn("FACEIT sync: could not queue match {}: {}", item.matchId(),
-                            e.getClass().getSimpleName());
-                    return queued;
-                }
-            }
-            return queued;
+        FaceitMatchHistory history;
+        try {
+            history = faceit.getHistory(playerId, 0, HISTORY_PAGE);
+        } catch (RuntimeException e) {
+            log.warn("FACEIT sync: could not read the history of a player: {}", e.getClass().getSimpleName());
+            return 0;
         }
+        long startedAfter = clock.instant().minus(settings.maxAge()).getEpochSecond();
+        List<FaceitHistoryItem> items = history.items() == null ? List.of() : history.items().stream()
+                .filter(item -> item != null && item.matchId() != null && item.finishedAt() > 0
+                        && item.startedAt() >= startedAfter)
+                .sorted(Comparator.comparingLong(FaceitHistoryItem::startedAt).reversed())
+                .toList();
+
+        int queued = 0;
+        for (FaceitHistoryItem item : items) {
+            if (queued >= limit) {
+                break;
+            }
+            if (demos.existsByMatchFaceitMatchId(item.matchId())) {
+                continue;
+            }
+            try {
+                demoService.requestImport(Actor.system(), item.matchId());
+                queued++;
+            } catch (ConflictException e) {
+                // FACEIT has no demo for the match (yet): no row was written, so a later sync looks again.
+                log.debug("FACEIT sync: match {} has no demo yet", item.matchId());
+            } catch (NotFoundException e) {
+                log.debug("FACEIT sync: FACEIT does not know match {}", item.matchId());
+            } catch (RuntimeException e) {
+                log.warn("FACEIT sync: could not queue match {}: {}", item.matchId(), e.getClass().getSimpleName());
+                return queued;
+            }
+        }
+        return queued;
     }
 
     /**
@@ -228,25 +242,40 @@ public class FaceitSyncService {
         Instant staleBefore = now.minus(DemoPersistence.STALE_AFTER);
         Instant giveUpBefore = now.minus(GIVE_UP_AFTER);
         List<Demo> lost = demos.findUntouchedSince(DemoStatus.QUEUED, staleBefore, PageRequest.of(0, LOST_PAGE));
+        // Forget the demos that are no longer among the lost ones (imported, failed, gone).
+        waitingForLink.keySet().retainAll(lost.stream().map(Demo::getId).collect(Collectors.toSet()));
+        // The most FACEIT is asked about in one run, and the most messages one run publishes.
+        int reads = settings.matchesPerRun();
         int budget = settings.matchesPerRun();
         for (Demo demo : lost) {
-            if (budget <= 0) {
+            if (budget <= 0 || reads <= 0) {
                 break;
             }
             long demoId = demo.getId();
             String matchId = demo.getMatch().getFaceitMatchId();
+            // The cheap conditions come first: a demo that FACEIT had no address for waits out its time without asking
+            // FACEIT again at every run (a link held here changes that, so it is looked at).
+            Instant lookAgainAt = waitingForLink.get(demoId);
+            if (lookAgainAt != null && now.isBefore(lookAgainAt) && pastedLinks.peek(demoId).isEmpty()) {
+                continue;
+            }
+            reads--;
             String demoUrl;
             try {
                 demoUrl = demoService.faceitDemoUrl(matchId);
-            } catch (NotFoundException | FaceitRejectedException e) {
-                // FACEIT does not know the match or refuses to tell: asking again changes nothing.
-                if (persistence.failStaleQueued(demoId, staleBefore,
-                        "FACEIT does not give this match any more, so its demo cannot be imported",
-                        DemoErrorCode.IMPORT_FAILED)) {
-                    metrics.failed(DemoMetrics.STAGE_IMPORT);
-                    log.warn("FACEIT sync: demo {} of match {} was queued for a match FACEIT does not give; FAILED",
-                            demoId, matchId);
+            } catch (NotFoundException e) {
+                failForMatchFaceitDoesNotGive(demoId, matchId, staleBefore);
+                continue;
+            } catch (FaceitRejectedException e) {
+                if (!e.isCredentialRefusal()) {
+                    failForMatchFaceitDoesNotGive(demoId, matchId, staleBefore);
+                    continue;
                 }
+                // 401 and 403: the site's own key or token is wrong or revoked, which says nothing about the demo. It
+                // is never failed for that; it is taken (touched) like for any failure that may go away.
+                persistence.claimStaleQueued(demoId, staleBefore);
+                log.warn("FACEIT sync: FACEIT refused the site's credentials (HTTP {}) asking about match {} for its "
+                        + "lost demo {}", e.getStatus(), matchId, demoId);
                 continue;
             } catch (RuntimeException e) {
                 // May go away: the demo is taken (touched) so that it goes to the back of the line.
@@ -260,12 +289,16 @@ public class FaceitSyncService {
                 // Queued for a pasted link that this backend does not hold. Another backend may hold it, so the demo is
                 // given up only when the link must have expired everywhere.
                 if (persistence.failStaleQueued(demoId, giveUpBefore, DemoImportWorker.PASTED_LINK_GONE, null)) {
+                    waitingForLink.remove(demoId);
                     metrics.failed(DemoMetrics.STAGE_IMPORT);
                     log.warn("FACEIT sync: demo {} of match {} was queued for a pasted link that is gone; FAILED", demoId,
                             matchId);
+                } else {
+                    waitingForLink.put(demoId, demo.getUpdatedAt().plus(GIVE_UP_AFTER));
                 }
                 continue;
             }
+            waitingForLink.remove(demoId);
             if (!persistence.claimStaleQueued(demoId, staleBefore)) {
                 continue;
             }
@@ -278,6 +311,17 @@ public class FaceitSyncService {
                 log.warn("FACEIT sync: could not publish the import of demo {} of match {} again: {}", demoId, matchId,
                         e.getClass().getSimpleName());
             }
+        }
+    }
+
+    /** FACEIT does not know the match, or refuses the request itself: asking again changes nothing. */
+    private void failForMatchFaceitDoesNotGive(long demoId, String matchId, Instant staleBefore) {
+        if (persistence.failStaleQueued(demoId, staleBefore,
+                "FACEIT does not give this match any more, so its demo cannot be imported",
+                DemoErrorCode.IMPORT_FAILED)) {
+            metrics.failed(DemoMetrics.STAGE_IMPORT);
+            log.warn("FACEIT sync: demo {} of match {} was queued for a match FACEIT does not give; FAILED", demoId,
+                    matchId);
         }
     }
 }

@@ -51,7 +51,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
             + "AND (faceit_synced_at IS NULL OR faceit_synced_at < :syncedBefore)", nativeQuery = true)
     int countDueForSync(@Param("id") long id, @Param("syncedBefore") Instant syncedBefore);
 
-    /** Notes that the user's matches were fetched from FACEIT at {@code now}. */
+    /** Notes that a sync of the user's matches was attempted at {@code now}, whatever came of it. */
     @Transactional
     @Modifying
     @Query(value = "UPDATE users SET faceit_synced_at = :now WHERE id = :id", nativeQuery = true)

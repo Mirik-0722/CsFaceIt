@@ -7,7 +7,25 @@ package io.csfaceit.backend.faceit;
  */
 public class FaceitRejectedException extends FaceitUnavailableException {
 
+    private final int status;
+
     public FaceitRejectedException(String message) {
+        this(message, 0);
+    }
+
+    /** @param status the HTTP status FACEIT answered with; 0 when it is not known */
+    public FaceitRejectedException(String message, int status) {
         super(message);
+        this.status = status;
+    }
+
+    /** The HTTP status FACEIT answered with; 0 when it is not known. */
+    public int getStatus() {
+        return status;
+    }
+
+    /** Whether the refusal says that the site's own key is wrong or revoked (401 or 403), not that the request is. */
+    public boolean isCredentialRefusal() {
+        return status == 401 || status == 403;
     }
 }

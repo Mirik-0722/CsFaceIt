@@ -115,8 +115,11 @@ public class DemoImportWorker {
      *       lost one, however long the download takes, and a demo is republished at most once per that time;
      *   <li>the sweep republishes a demo only after it has taken it ({@link DemoPersistence#claimStaleQueued}).
      * </ul>
-     * Two backends that consume two copies of one message at the same moment remain possible, but a copy exists only
-     * after a republish, and the heartbeat rules that out while the first import is alive.
+     * What remains is the case of several backends. The heartbeat starts only when a message has been consumed, so a
+     * message that waits in the queue for more than {@link DemoPersistence#STALE_AFTER} (a long backlog) is republished,
+     * and the original and the copy can then be consumed by two backends at once; the set above is of one process. Both
+     * would download the file, and for a demo queued for a pasted link that only one backend holds, the other fails it.
+     * A single backend, which is what a deployment has today, is not affected.
      */
     @RabbitListener(queues = DemoMessages.Q_IMPORT, concurrency = "2")
     public void onImportRequested(DemoImportRequested message) {
