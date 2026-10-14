@@ -24,8 +24,8 @@ Prometheus --scrapes--> backend /actuator/prometheus, RabbitMQ :15692;  Grafana 
 - `parser/` - the Rust worker that parses stored demos ([`parser/README.md`](parser/README.md)).
 - `recorder/` - the recorder that turns the clips that were asked for into videos: it takes them from the backend's
   worker API, records them and uploads the MP4 and a thumbnail ([`recorder/README.md`](recorder/README.md)). Its fake
-  recording mode, a test pattern made by ffmpeg, runs the whole chain; the mode that plays the demo in CS2 on Windows
-  is not written yet (see [Video clips](#video-clips)).
+  recording mode, a test pattern made by ffmpeg, runs the whole chain; the mode that plays the demo in CS2 on Windows,
+  through CS Demo Manager, is written but has not run on a Windows machine yet (see [Video clips](#video-clips)).
 - `frontend/` - React + TypeScript single-page app built with Vite. In production Nginx serves it and proxies `/api/`
   to the backend. Its look follows the "A · REC" design: colours, type, components and screens are specified in
   [`docs/superpowers/specs/2026-10-11-web-ui-design.md`](docs/superpowers/specs/2026-10-11-web-ui-design.md), which
@@ -411,11 +411,11 @@ override, Grafana without a password does not stop with its message but restarts
 
 ### What this deployment does not do yet
 
-- **No clip is recorded.** "Record clip" queues a clip, but no recorder runs on the server. The recorder that plays the
-  demo in CS2 on Windows is not written yet (see [Video clips](#video-clips)), and the fake recorder, which makes a test
-  pattern, is not started by `docker-compose.prod.yml`. An ordered clip waits in the queue (up to 50, then the API
-  answers `429`) and never finishes. A recorder, when there is one, runs on another machine and uses the API of the
-  site with `CLIP_WORKER_TOKEN`.
+- **No clip is recorded by the server.** "Record clip" queues a clip, and no recorder runs on the server: the fake
+  recorder, which makes a test pattern, is not started by `docker-compose.prod.yml`. Clips are recorded by the recorder
+  on a Windows machine with the game ([`recorder/README.md`](recorder/README.md), "Windows (real recording)"), which
+  reaches the site at `https://<domain>` with `CLIP_WORKER_TOKEN`, and which has not run on a real machine yet. While
+  none is connected an ordered clip waits in the queue (up to 50, then the API answers `429`).
 - **Demo files are uploaded by an admin until the site has access to FACEIT's Downloads API.** The import from FACEIT
   needs that access, which a Data API key does not give (see [How the import gets the file](#how-the-import-gets-the-file)).
   Without the token `FACEIT_DOWNLOADS_TOKEN` such an import ends `FAILED` at once, and the page tells the visitor to
@@ -1598,9 +1598,9 @@ himself in the montage editor, in his order, with a title, an intro, music, slow
 Asking for any of them puts a row in the `clips` table with the status `QUEUED` and the **segments** of the demo the
 video is made of. A recorder, a separate program, takes the queued
 clips one at a time, records them and uploads an MP4 and a thumbnail (see [Worker API](#worker-api-the-recorder)). The
-recorder that plays the demo in CS2 on a Windows machine is not written yet; the fake recorder, which makes a test
-pattern with ffmpeg in its place, runs the whole chain (see [The fake recorder](#the-fake-recorder) and
-[Limits](#limits)).
+recorder that plays the demo in CS2 on a Windows machine, through CS Demo Manager, is written but untried (see
+[Limits](#limits)); the fake recorder, which makes a test pattern with ffmpeg in its place, runs the whole chain (see
+[The fake recorder](#the-fake-recorder)).
 
 The requests (ordering, retrying) and the `DELETE` need the admin key in the `X-API-Key` header or a session: a
 signed-in player orders clips of their own player and retries and deletes the clips they ordered (see
@@ -2004,9 +2004,11 @@ end of every highlight's window, so the clips made before would have been cut to
 has now. Change them before the first clip is made. If they have to change later, the highlight must first get the ticks
 of the event itself (a new migration), and the clip's key has to move to them.
 
-**Real recording is not implemented.** The recorder that plays the demo in CS2 on a Windows machine
-(`RECORDER_MODE=csdm`) is not written: the program ends at start with a message that says so, and every clip made today
-is the test pattern of the fake recorder.
+**Real recording has not run yet.** The recorder that plays the demo in CS2 on a Windows machine
+(`RECORDER_MODE=csdm`, through CS Demo Manager, HLAE and FFmpeg) was written from CS Demo Manager's source without a
+Windows machine, and every clip made so far is the test pattern of the fake recorder. Its setup, its first trial and
+what it does not do (music is not mixed in; slow motion repeats frames) are in
+[`recorder/README.md`](recorder/README.md#windows-real-recording).
 
 ## Metrics and dashboards
 
