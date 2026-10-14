@@ -13,7 +13,13 @@ public enum UsageKind {
     DEMO_IMPORT("IMPORT_LIMIT_REACHED", "demo imports"),
 
     /** A clip that was queued: an order of a highlight's clip or of a compilation, or the retry of a failed clip. */
-    CLIP_ORDER("CLIP_LIMIT_REACHED", "clip orders");
+    CLIP_ORDER("CLIP_LIMIT_REACHED", "clip orders"),
+
+    /**
+     * An attempt to link a CS2 account ({@code POST /api/v1/cs2/link}) that Steam was asked about, whatever Steam said: the
+     * limit bounds how often an authentication code can be tried.
+     */
+    CS2_LINK("CS2_LINK_LIMIT_REACHED", "CS2 link attempts");
 
     private final String limitCode;
     private final String plural;
