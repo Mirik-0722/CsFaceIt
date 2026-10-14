@@ -5,12 +5,14 @@ import LevelRing from '@/components/LevelRing'
 import MapEmblem from '@/components/MapEmblem'
 import PlayerAvatar, { type AvatarSize } from '@/components/PlayerAvatar'
 import SceneryBand from '@/components/SceneryBand'
+import { MatchmakingTag } from '@/components/SourceTag'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { useLocale, useT } from '@/i18n'
 import { countryName } from '@/lib/countryName'
 import { formatInteger } from '@/lib/formatNumber'
 import { mapLabel } from '@/lib/mapTint'
+import { isSteamPlayer } from '@/lib/matchSource'
 import { useLoadedUrl } from '@/lib/useLoadedUrl'
 import { cn } from '@/lib/utils'
 import type { PlayerResponse } from '@/api/types'
@@ -65,14 +67,17 @@ function PlayerCard({ player }: { player: PlayerResponse }) {
  */
 const PROFILE_HEAD_ROW = 'min-h-30.5 sm:min-h-28.5'
 
-/** The third line of the header: where the player's matches are from, and the map the player has played most. */
-function HeadTags({ mainMap }: { mainMap: string | null | undefined }) {
+/**
+ * The third line of the header: where the player's matches are from (FACEIT, or CS2 matchmaking for a player known only
+ * from demos), and the map the player has played most.
+ */
+function HeadTags({ mainMap, steam }: { mainMap: string | null | undefined; steam: boolean }) {
   const t = useT()
   const name = mapLabel(mainMap ?? null)
   return (
     // As tall as the tag, with or without the map, so that nothing moves when the map arrives.
     <div className="mt-1 flex h-5.5 min-w-0 items-center gap-3">
-      <FaceitTag />
+      {steam ? <MatchmakingTag /> : <FaceitTag />}
       {name && (
         <span className="flex min-w-0 items-center gap-2">
           <span className="label-mono whitespace-nowrap">{t.lively.mainMap}</span>
@@ -109,6 +114,9 @@ function ProfileHeader({ player, aside, scenery, mainMap, nameLink }: ProfileHea
   const [shown, onLoad] = useLoadedUrl(scenery ?? null)
   const country = player.country ? countryName(player.country, locale) : null
   const hasCs2Data = player.elo !== null || player.level !== null
+  // A player known only from demos has no FACEIT profile: no level, no ELO, and no "No CS2 data" either (the player's
+  // CS2 matches are the reason the page exists).
+  const steam = isSteamPlayer(player.playerId)
   return (
     <div
       data-scenery={shown ? 'shown' : undefined}
@@ -149,9 +157,9 @@ function ProfileHeader({ player, aside, scenery, mainMap, nameLink }: ProfileHea
               </span>
             )}
             {player.elo !== null && <span>{t.player.elo(formatInteger(player.elo, locale))}</span>}
-            {!hasCs2Data && <span>{t.player.noCs2Data}</span>}
+            {!hasCs2Data && !steam && <span>{t.player.noCs2Data}</span>}
           </div>
-          <HeadTags mainMap={mainMap} />
+          <HeadTags mainMap={mainMap} steam={steam} />
         </div>
       </div>
       {aside}

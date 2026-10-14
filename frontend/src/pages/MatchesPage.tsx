@@ -10,7 +10,9 @@ import {
   usePlayerMatches,
   useSyncMatches,
 } from '@/api/overview'
+import { useMe } from '@/api/auth'
 import { usePlayer } from '@/api/queries'
+import Cs2LinkBox from '@/components/Cs2LinkBox'
 import DemoBringingFeed from '@/components/DemoBringingFeed'
 import DemoDropOverlay from '@/components/DemoDropOverlay'
 import DemoUploadBox from '@/components/DemoUploadBox'
@@ -20,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
+import { isSteamPlayer, playerPath, steamPlayerId } from '@/lib/matchSource'
 import { useDemoBringing } from '@/lib/useDemoBringing'
 import { useViewer } from '@/lib/viewer'
 
@@ -51,22 +54,28 @@ function isIn(filter: Filter, match: PlayerMatchResponse): boolean {
 /**
  * The player's matches in a table, a page at a time, under three filters that work on the rows loaded so far (each
  * carries how many rows it shows), with the recorder beside them. The signed-in player's own matches also bring demos
- * in: a box beside the rows, an action on the rows that have none, and the whole page as a place to drop a file on.
- * A failure stays inside the part that failed.
+ * in: a box beside the rows, an action on the rows that have none, and the whole page as a place to drop a file on;
+ * beside them, the section that links the visitor's CS2 matchmaking games. A failure stays inside the part that failed.
  */
 function PlayerMatches({ playerId }: { playerId: string }) {
   const t = useT()
   const player = usePlayer(playerId)
-  // The player's own page: the matches are the visitor's, so the visitor's demos can be brought for them.
+  // The player's own page: the matches are the visitor's, so the visitor's demos can be brought for them, and the
+  // visitor's CS2 matchmaking games linked. The visitor's own player is the FACEIT one, or the one an account without
+  // FACEIT is known by (`steam:` and its SteamID).
   const viewer = useViewer()
-  const own = viewer.signedIn && viewer.playerId === playerId
+  const me = useMe().data
+  const ownSteam = me?.steamId ? playerId === steamPlayerId(me.steamId) : false
+  const own = viewer.signedIn && (viewer.playerId === playerId || ownSteam)
+  const linkOwner = own && me ? me.id : null
   // When this page first saw each PARSED row: one that stays PARSED for 30 minutes is shown as nothing is going on.
   // A map that is kept for the page's life and changed in place, so that it is a state only to stay the same object.
   const [parsedSeen] = useState<ParsedSeen>(() => new Map())
   const matches = usePlayerMatches(playerId, undefined, own, parsedSeen)
   const [filter, setFilter] = useState<Filter>('all')
   const [now, setNow] = useState(() => Date.now())
-  useSyncMatches(playerId, own)
+  // The sync fetches the visitor's FACEIT matches: there are none behind a `steam:` page.
+  useSyncMatches(playerId, own && !isSteamPlayer(playerId))
   const rowInput = useRef<HTMLInputElement>(null)
   // The match the chooser of a row's action was opened for.
   const rowMatch = useRef<string | null>(null)
@@ -116,8 +125,14 @@ function PlayerMatches({ playerId }: { playerId: string }) {
       bring.bringFile(file)
     }
   }
-  // A player that cannot be shown has no matches to show either: its error is the one message on the page.
-  const playerFailed = player.isError && !player.data
+  // A player that cannot be shown has no matches to show either: its error is the one message on the page. Not so the
+  // visitor's own `steam:` player before the first of its demos has been read: the database has no row for it yet, and
+  // the page is where that first demo is brought (the list is empty, the upload box and the CS2 link are there).
+  // Whose `steam:` page this is is known only once `/auth/me` has answered: until then the page is loading, so that a
+  // missing player is neither said nor drawn for its own visitor.
+  const waitingForMe = isSteamPlayer(playerId) && viewer.loading
+  const playerFailed =
+    !waitingForMe && player.isError && !player.data && !(ownSteam && player.error.code === 'PLAYER_NOT_FOUND')
   const labels: Record<Filter, string> = {
     all: t.matches.all,
     analyzed: t.demo.status.ANALYZED,
@@ -131,7 +146,7 @@ function PlayerMatches({ playerId }: { playerId: string }) {
         <input
           ref={rowInput}
           type="file"
-          accept=".dem,.gz,.zst"
+          accept=".dem,.gz,.zst,.bz2"
           tabIndex={-1}
           aria-hidden="true"
           className="hidden"
@@ -147,14 +162,14 @@ function PlayerMatches({ playerId }: { playerId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <h1 className="heading-page">{t.matches.title}</h1>
         <div aria-live="polite">
-          {player.isPending && <p className="label-mono">{t.player.loading}</p>}
+          {(player.isPending || (waitingForMe && !player.data)) && <p className="label-mono">{t.player.loading}</p>}
           {player.data && (
             // The way back to the profile. The name is a small mono line, but 44px tall for the finger, and with 8px at its
             // sides, so that the focus ring does not touch the letters. The negative margins take back the 8px that the
             // box is taller than the title beside it and the 8px it is wider than its text on each side: the title keeps
             // its place, and under the title on a phone the letters start at the same edge as the title's.
             <Link
-              to={`/players/${encodeURIComponent(playerId)}`}
+              to={playerPath(playerId)}
               className="-mx-2 -my-1 inline-flex min-h-11 items-center px-2 font-mono text-xs text-subtle underline-offset-4 hover:text-foreground hover:underline"
             >
               {player.data.nickname}
@@ -162,7 +177,12 @@ function PlayerMatches({ playerId }: { playerId: string }) {
           )}
         </div>
       </div>
-      {playerFailed ? (
+      {waitingForMe ? (
+        <div className="flex flex-col gap-2">
+          <p className="label-mono">{t.player.loadingMatches}</p>
+          <Skeleton className="h-64 w-full" />
+        </div>
+      ) : playerFailed ? (
         <p className="text-sm text-destructive">{errorMessage(player.error, t)}</p>
       ) : (
         <div className="flex flex-wrap items-start gap-8">
@@ -260,6 +280,7 @@ function PlayerMatches({ playerId }: { playerId: string }) {
           </div>
           <aside className="flex min-w-0 flex-[1_1_280px] flex-col gap-4">
             {own && <DemoUploadBox onFile={bring.bringFile} onLink={bring.bringLink} />}
+            {linkOwner !== null && <Cs2LinkBox userId={linkOwner} />}
             <RecorderCard />
           </aside>
         </div>

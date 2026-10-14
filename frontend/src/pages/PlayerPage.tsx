@@ -1,5 +1,5 @@
 import { useId } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import { usePlayerMatches, usePlayerOverview } from '@/api/overview'
 import { usePlayer, usePlayerClips, usePlayerHighlights, usePlayerHistory, usePlayerStats } from '@/api/queries'
 import ClipList from '@/components/ClipList'
@@ -14,8 +14,10 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
+import { isMatchmakingMatch, isSteamPlayer, playerPath } from '@/lib/matchSource'
 import { mostPlayedMap, mostPlayedScenery } from '@/lib/mostPlayedScenery'
 import { cn } from '@/lib/utils'
+import type { MatchSummary } from '@/api/types'
 
 /**
  * How many of the newest highlights the profile shows; all of them are on the highlights page. Six fill one, two or
@@ -135,7 +137,7 @@ function LatestHighlights({ playerId }: { playerId: string }) {
       </div>
       {items && items.length > 0 && (
         <Link
-          to={`/players/${encodeURIComponent(playerId)}/highlights`}
+          to={playerPath(playerId, 'highlights')}
           className={cn(buttonVariants({ variant: 'outline' }), 'self-center')}
         >
           {t.highlight.all}
@@ -180,22 +182,72 @@ function PlayerClips({ playerId }: { playerId: string }) {
   )
 }
 
+/**
+ * The FACEIT history with the person's matchmaking matches merged in by start, both newest first: a FACEIT line keeps
+ * its place, and a matchmaking match goes before the first line that started earlier (as the backend merges a page).
+ */
+function withMatchmaking(history: MatchSummary[], matchmaking: MatchSummary[]): MatchSummary[] {
+  const merged: MatchSummary[] = []
+  let next = 0
+  for (const line of history) {
+    while (next < matchmaking.length && Date.parse(matchmaking[next].startedAt) > Date.parse(line.startedAt)) {
+      merged.push(matchmaking[next++])
+    }
+    merged.push(line)
+  }
+  return [...merged, ...matchmaking.slice(next)]
+}
+
+/** Keeps the first of the rows that share a match: offset paging can return the same match on two pages. */
+function firstOfEach<Row extends { matchId: string }>(rows: Row[]): Row[] {
+  return rows.filter((item, index, all) => all.findIndex((other) => other.matchId === item.matchId) === index)
+}
+
 function PlayerProfile({ playerId }: { playerId: string }) {
   const t = useT()
+  // A player known only from demos (`steam:<SteamID>`) has no FACEIT history: the list of matches is the stored one.
+  const steam = isSteamPlayer(playerId)
   const player = usePlayer(playerId)
-  const history = usePlayerHistory(playerId)
+  const history = usePlayerHistory(playerId, undefined, !steam)
   // The history comes from FACEIT and knows no map: the map, the figures and the highlights of each row come from the
-  // player's stored matches, the request of the page of matches (one cache), looked up by `matchId`.
+  // player's stored matches, the request of the page of matches (one cache), looked up by `matchId`. The stored matches
+  // also hold the person's matchmaking matches, which FACEIT's history does not.
   const stored = usePlayerMatches(playerId)
   // The overview is asked for by the maps table below as well: one request, shared. Its most played map is the header's
   // scenery once the answer is there; until then, and for a player without one, the header is plain.
   const overview = usePlayerOverview(playerId)
   const scenery = overview.data ? mostPlayedScenery(overview.data.maps) : null
   const mainMap = overview.data ? mostPlayedMap(overview.data.maps) : null
-  // Offset paging can return the same match on two pages (each page is cached on its own), so keep the first.
-  const matches = history.data?.pages
+  const storedItems = stored.data ? firstOfEach(stored.data.pages.flatMap((page) => page.items)) : undefined
+  // The list of the page: for a `steam:` player the stored matches; for a FACEIT player the history, with the
+  // matchmaking matches of the stored pages merged in. Each stored page covers the stretch of time of the history's page
+  // of the same number, so while the history has more, only as many stored pages as history pages are merged (the page
+  // of matches shares the cache and may have loaded more): a row never lands beyond the history that is loaded. Once
+  // the history has ended, the older matchmaking matches still come a page at a time from the stored list.
+  const list = steam ? stored : history
+  const historyPages = history.data?.pages.length ?? 0
+  const storedPages = stored.data?.pages.length ?? 0
+  const hasMore = steam ? stored.hasNextPage : history.hasNextPage || stored.hasNextPage
+  const loadingMore = history.isFetchingNextPage || stored.isFetchingNextPage
+  // A FACEIT player's list is drawn once both have answered (or the stored list failed: then without matchmaking
+  // matches), so that the matchmaking rows do not push the history down when they arrive.
+  const waiting = steam ? stored.isPending : history.isPending || (stored.isPending && !history.isError)
+  const historyItems = history.data ? firstOfEach(history.data.pages.flatMap((page) => page.items)) : undefined
+  const merged = (stored.data?.pages ?? [])
+    .slice(0, history.hasNextPage ? historyPages : undefined)
     .flatMap((page) => page.items)
-    .filter((item, index, all) => all.findIndex((other) => other.matchId === item.matchId) === index)
+  const matches: MatchSummary[] | undefined = waiting
+    ? undefined
+    : steam
+      ? storedItems
+      : historyItems &&
+        withMatchmaking(
+          historyItems,
+          firstOfEach(merged).filter(
+            (match) =>
+              isMatchmakingMatch(match.matchId) && !historyItems.some((line) => line.matchId === match.matchId),
+          ),
+        )
   const details: MatchDetails | undefined = stored.data
     ? {
         state: 'ready',
@@ -208,6 +260,11 @@ function PlayerProfile({ playerId }: { playerId: string }) {
   const playerFailed = player.isError && !player.data
   // The page of matches lists the same history with what the site knows about each match: no row, no link.
   const hasMatches = (matches?.length ?? 0) > 0
+
+  // A SteamID that turned out to be a FACEIT player's (who signed in with it): that player's page is the one.
+  if (steam && player.data && player.data.playerId !== playerId) {
+    return <Navigate replace to={playerPath(player.data.playerId)} />
+  }
 
   return (
     <>
@@ -233,7 +290,7 @@ function PlayerProfile({ playerId }: { playerId: string }) {
             size="lg"
             // Its place is kept while the history is awaited, as in the loading block above: where the strip takes a row of
             // its own, the rest of the page would move down by that row when the history arrives.
-            aside={history.isPending ? <FormStripPlaceholder /> : <FormStrip matches={matches ?? []} />}
+            aside={waiting ? <FormStripPlaceholder /> : <FormStrip matches={matches ?? []} />}
             scenery={scenery}
             mainMap={mainMap}
           />
@@ -249,7 +306,7 @@ function PlayerProfile({ playerId }: { playerId: string }) {
             <h2 className="heading-section">{t.player.history}</h2>
             {hasMatches && (
               <Link
-                to={`/players/${encodeURIComponent(playerId)}/matches`}
+                to={playerPath(playerId, 'matches')}
                 aria-label={t.matches.allLabel}
                 className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4 hover:text-primary"
               >
@@ -258,7 +315,7 @@ function PlayerProfile({ playerId }: { playerId: string }) {
             )}
           </div>
           <div aria-live="polite" className="flex flex-col gap-2">
-            {history.isPending && (
+            {waiting && (
               <>
                 <p className="label-mono">{t.player.loadingMatches}</p>
                 {/* 12px between the rows of the placeholder, 8px under its label as under every loading label. */}
@@ -270,17 +327,29 @@ function PlayerProfile({ playerId }: { playerId: string }) {
               </>
             )}
             {matches && <MatchList items={matches} details={details} />}
-            {history.isError && <p className="text-sm text-destructive">{errorMessage(history.error, t)}</p>}
+            {list.isError && <p className="text-sm text-destructive">{errorMessage(list.error, t)}</p>}
           </div>
-          {history.hasNextPage && (
+          {/* Only under a list that is drawn: a click before it would load pages that are not shown. */}
+          {hasMore && matches !== undefined && (
             <Button
               variant="outline"
               className="self-center"
-              disabled={history.isFetchingNextPage}
+              disabled={loadingMore}
               onClick={() => {
-                // The next page of both: the rows it brings look their maps up in the stored matches' next page.
-                void history.fetchNextPage()
-                if (stored.hasNextPage && !stored.isFetchingNextPage) {
+                // The next page of both: the rows it brings look their maps up in the stored matches' next page. The
+                // stored list is not taken ahead of the history (the page of matches may have loaded it further), and
+                // one that fell behind it (a page of it failed) is brought level first, alone; once the history has
+                // ended it goes on alone. A `steam:` player's list is the stored matches themselves.
+                const storedBehind = !steam && stored.hasNextPage && storedPages < historyPages
+                const historyGoesOn = !steam && history.hasNextPage && !storedBehind
+                if (historyGoesOn) {
+                  void history.fetchNextPage()
+                }
+                if (
+                  stored.hasNextPage &&
+                  !stored.isFetchingNextPage &&
+                  (!historyGoesOn || storedPages <= historyPages)
+                ) {
                   void stored.fetchNextPage()
                 }
               }}

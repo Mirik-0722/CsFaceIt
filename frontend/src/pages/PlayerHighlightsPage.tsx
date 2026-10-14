@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
 import { HIGHLIGHT_TYPES, highlightLabel, isHighlightType } from '@/lib/highlightLabels'
+import { playerPath } from '@/lib/matchSource'
 import { mostPlayedMap, mostPlayedScenery } from '@/lib/mostPlayedScenery'
 import type { HighlightType } from '@/api/types'
 
@@ -47,7 +48,7 @@ function PlayerHighlights({ playerId }: { playerId: string }) {
             size="lg"
             scenery={scenery}
             mainMap={mainMap}
-            nameLink={`/players/${encodeURIComponent(playerId)}`}
+            nameLink={playerPath(playerId)}
           />
         )}
       </div>

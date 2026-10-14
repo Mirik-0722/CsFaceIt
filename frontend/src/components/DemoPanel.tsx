@@ -9,6 +9,7 @@ import { useT, type Messages } from '@/i18n'
 import { setAdminKey, useAdminKey } from '@/lib/adminKey'
 import { denialText, errorMessage, reasonText } from '@/lib/errorMessage'
 import { demoStages } from '@/lib/demoStages'
+import { isMatchmakingMatch } from '@/lib/matchSource'
 import { nextPossible } from '@/lib/limits'
 import { useViewer } from '@/lib/viewer'
 import type { ApiError } from '@/api/client'
@@ -35,6 +36,9 @@ const DOWNLOAD_NEEDS_ACCESS = 'DOWNLOAD_NEEDS_ACCESS'
 
 /** The code of a demo whose import failed on every attempt: the upload is the way out, as it is for the code above. */
 const IMPORT_FAILED = 'IMPORT_FAILED'
+
+/** The code of a matchmaking demo whose replay Valve no longer keeps (plan 6c): the upload is the way out as well. */
+const REPLAY_EXPIRED = 'REPLAY_EXPIRED'
 
 interface Failure {
   action: Action
@@ -67,7 +71,7 @@ interface DemoPanelProps {
 /**
  * The demo of a match: its status, the stages it goes through and the reason of a failure, for everyone; behind
  * "Manage", the requests that change it — import from FACEIT (offered only where it starts something: the match has no
- * demo, or its import failed), upload a file, analyze (again).
+ * demo, or its import failed; never for a matchmaking match, which FACEIT does not know), upload a file, analyze (again).
  *
  * Who may make them: a signed-in player of the match and an administrator, by the session alone, with no key field in
  * sight (and, for a match without a demo, with the controls already open); anybody with the admin key. A visitor who
@@ -136,10 +140,22 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
   const needsAccess = demo.data?.errorCode === DOWNLOAD_NEEDS_ACCESS
   // The wording of the other codes the page knows; a code it does not know shows the backend's sentence.
   const importFailed = demo.data?.errorCode === IMPORT_FAILED
-  const reason =
-    importFailed && !instructed ? t.demo.importFailedPlain : reasonText(demo.data?.errorCode ?? null, t.demo.reasons)
+  // A matchmaking match is not FACEIT's: its demo is fetched by a link (Valve's replay server), and its failure is
+  // worded without FACEIT.
+  const matchmaking = isMatchmakingMatch(matchId)
+  const reason = importFailed
+    ? matchmaking
+      ? instructed
+        ? t.cs2.importFailed
+        : t.cs2.importFailedPlain
+      : instructed
+        ? t.demo.reasons.IMPORT_FAILED
+        : t.demo.importFailedPlain
+    : reasonText(demo.data?.errorCode ?? null, t.demo.reasons)
+  // A matchmaking replay that Valve has deleted sends the visitor to the upload too.
+  const replayExpired = demo.data?.errorCode === REPLAY_EXPIRED
   const [openedForAccess, setOpenedForAccess] = useState(false)
-  if ((needsAccess || importFailed) && !viewer.loading && instructed && !openedForAccess) {
+  if ((needsAccess || importFailed || replayExpired) && !viewer.loading && instructed && !openedForAccess) {
     setOpenedForAccess(true)
     setOpen(true)
   }
@@ -170,7 +186,9 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
   // The backend ignores an import request for a parsed or analyzed demo, so the button is not offered there. For a
   // queued or stored demo the request does something once the demo has stood still for ten minutes (it is queued or
   // announced again): the way to revive a demo whose message was lost, so the button stays for those two.
-  const canImport = demo.data === null || status === 'FAILED' || status === 'QUEUED' || status === 'STORED'
+  // A matchmaking match is not FACEIT's: there is nothing to import from there, its demo comes as a file or a link.
+  const canImport =
+    !matchmaking && (demo.data === null || status === 'FAILED' || status === 'QUEUED' || status === 'STORED')
   const canAnalyze = status === 'PARSED' || (status === 'ANALYZED' && !asPlayer)
   const canUpload = !(asPlayer && (status === 'PARSED' || status === 'ANALYZED'))
 
@@ -295,14 +313,17 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
             <div className="flex flex-col items-start gap-0.5 border-t border-border px-4 py-3 text-sm">
               {/* Whoever may upload by the session is not sent to the admin key. */}
               <p className="text-negative">{permission.allowed ? t.demo.needsAccessMember : t.demo.needsAccess}</p>
-              <a
-                href={`https://www.faceit.com/en/cs2/room/${encodeURIComponent(matchId)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-11 max-w-full items-center text-foreground underline underline-offset-4 hover:text-muted-foreground"
-              >
-                {t.demo.needsAccessLink} <span className="sr-only">{t.demo.newTab}</span>
-              </a>
+              {/* No FACEIT room behind a matchmaking match: never a link to FACEIT there. */}
+              {!matchmaking && (
+                <a
+                  href={`https://www.faceit.com/en/cs2/room/${encodeURIComponent(matchId)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-11 max-w-full items-center text-foreground underline underline-offset-4 hover:text-muted-foreground"
+                >
+                  {t.demo.needsAccessLink} <span className="sr-only">{t.demo.newTab}</span>
+                </a>
+              )}
             </div>
           ) : reason !== null ? (
             <p className="border-t border-border px-4 py-3 text-sm text-negative">{reason}</p>
@@ -345,7 +366,7 @@ export default function DemoPanel({ matchId, match }: DemoPanelProps) {
                   ref={fileInput}
                   id={fileId}
                   type="file"
-                  accept=".dem,.gz,.zst"
+                  accept=".dem,.gz,.zst,.bz2"
                   className="max-w-sm py-2"
                   onChange={(event) => setFile(event.target.files?.[0] ?? null)}
                 />

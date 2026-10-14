@@ -12,12 +12,14 @@ export type DemoStepState = 'done' | 'current' | 'failed' | 'waiting'
 const WORKING_ON: Record<string, number> = { QUEUED: 0, STORED: 1, PARSED: 2 }
 
 /**
- * The step a failure belongs to, for the reason codes that tell: the file never arrived, it could not be read (or is
- * another match's, which is found out by reading it), or its analysis failed.
+ * The step a failure belongs to, for the reason codes that tell: the file never arrived (also a matchmaking replay
+ * that Valve no longer keeps), it could not be read (or is another match's, which is found out by reading it), or its
+ * analysis failed.
  */
 const FAILED_AT: Record<string, number> = {
   DOWNLOAD_NEEDS_ACCESS: 0,
   IMPORT_FAILED: 0,
+  REPLAY_EXPIRED: 0,
   PARSE_FAILED: 1,
   WRONG_MATCH: 1,
   ANALYSIS_FAILED: 2,

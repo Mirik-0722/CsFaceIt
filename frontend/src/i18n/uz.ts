@@ -231,7 +231,7 @@ export const uz: Messages = {
     },
     bring: {
       title: 'Demo yuklash',
-      text: ".dem yoki .dem.zst faylni shu yerga tashlang. FACEIT demosi match xonasidan yuklab olinadi.",
+      text: '.dem, .dem.zst yoki .dem.bz2 faylni shu yerga tashlang. FACEIT demosi match xonasidan yuklab olinadi.',
       choose: 'Fayl tanlash',
       linkLabel: 'Demo havolasi',
       linkPlaceholder: 'Yoki havolani joylang',
@@ -317,7 +317,7 @@ export const uz: Messages = {
     },
     manage: 'Boshqarish',
     adminKey: 'Admin kaliti',
-    fileLabel: 'Demo fayli (.dem, .dem.gz, .dem.zst)',
+    fileLabel: 'Demo fayli (.dem, .dem.gz, .dem.zst, .dem.bz2)',
     upload: 'Yuklash',
     importFromFaceit: "FACEIT'dan olish",
     analyze: 'Tahlil qilish',
@@ -326,7 +326,7 @@ export const uz: Messages = {
     sending: "So'rov yuborilmoqda…",
     uploading: 'Fayl yuklanmoqda…',
     accepted: "So'rov qabul qilindi. Sahifa o'zi yangilanadi.",
-    invalidFile: "Fayl demo bo'lishi kerak: .dem, .dem.gz yoki .dem.zst, bo'sh emas.",
+    invalidFile: "Fayl demo bo'lishi kerak: .dem, .dem.gz, .dem.zst yoki .dem.bz2, bo'sh emas.",
     urlUnavailable: "FACEIT'da bu matchning demo fayli yo'q.",
     // A demo that failed with the code DOWNLOAD_NEEDS_ACCESS: the site is not given the file, so the visitor fetches it.
     needsAccess:
@@ -369,6 +369,8 @@ export const uz: Messages = {
       PARSE_FAILED: "Demo faylini o'qib bo'lmadi. Fayl buzilgan bo'lishi mumkin.",
       ANALYSIS_FAILED: "Demo tahlili yakunlanmadi. Qayta urinib ko'ring.",
       WRONG_MATCH: "Bu fayl boshqa matchning demosi: undagi o'yinchilar bu matchniki emas.",
+      REPLAY_EXPIRED:
+        "Valve bu matchning replay faylini endi saqlamaydi. Demo sizda bo'lsa, uni fayl sifatida yuklashingiz mumkin.",
     },
   },
   clip: {
@@ -646,5 +648,47 @@ export const uz: Messages = {
     buildMontage: "Montaj yig'ish",
     openInEditor: 'Muharrirda ochish',
     intro: 'Intro',
+  },
+  // CS2 matchmaking (plan 6c): the tag of a matchmaking match and the link section of the matches page.
+  cs2: {
+    tag: 'CS2 MM',
+    tagName: 'CS2 matchmaking',
+    title: 'CS2 matchmaking',
+    intro: "Premier, Competitive va Wingman matchlaringiz demosi o'zi kelsin: ikki kodni bir marta kiriting.",
+    // Steam's own names of the two codes: its pages write them in English.
+    authLabel: 'Authentication code',
+    shareLabel: 'Match sharing code',
+    authPlaceholder: 'AAAA-AAAAA-AAAA',
+    sharePlaceholder: 'CSGO-xxxxx-xxxxx-…',
+    showCode: "Kodni ko'rsatish",
+    codesLink: "Ikkala kodni Steam'da olish",
+    link: 'Ulash',
+    relink: 'Yangilash',
+    linking: 'Ulanmoqda…',
+    authFormat: "Kod AAAA-AAAAA-AAAA ko'rinishida bo'lishi kerak.",
+    authMissing: "Authentication code'ni kiriting.",
+    shareFormat: "Kod CSGO- bilan boshlanib, beshta besh belgili guruhdan iborat bo'lishi kerak.",
+    retype: 'Xavfsizlik uchun kod saqlanmaydi — uni qayta kiriting.',
+    authRefused: "Steam bu authentication code'ni qabul qilmadi. Kodni tekshiring yoki Steam'da yangisini oling.",
+    shareRefused: "Steam bu match sharing code'ni shu kod bilan tanimadi. Oxirgi matchingizning kodini kiriting.",
+    active: "Ulangan — yangi matchlar o'zi keladi",
+    linked: 'Ulangan',
+    checkedAt: "So'nggi tekshiruv",
+    linkedAt: 'Ulangan',
+    notYet: "Hali yo'q",
+    badAuthTitle: 'Authentication code ishlamayapti',
+    badAuthText:
+      "Steam kodni rad etdi: u bekor qilingan yoki almashtirilgan. Steam'da yangi kod oling va pastga kiriting.",
+    badShareTitle: 'Match sharing code mos kelmadi',
+    badShareText:
+      "Oxirgi kod bu hisobning matchi emas yoki eskirgan. Steam'dan oxirgi matchingizning kodini oling va pastga kiriting.",
+    unlink: 'Uzish',
+    unlinkQuestion: 'Uzilsinmi? Yangi matchlar kelmay qoladi.',
+    unlinkYes: 'Ha, uzish',
+    unlinkNo: "Yo'q",
+    importFailed: "Demoni havola orqali olib bo'lmadi. Uni fayl sifatida yuklashingiz mumkin.",
+    importFailedPlain: "Demoni havola orqali olib bo'lmadi.",
+    uploadText:
+      'Matchmaking demosini shu yerga tashlang: CS2 replays papkasidagi .dem yoki yuklab olingan .dem.bz2. Yoki uning replay havolasini joylang.',
   },
 }

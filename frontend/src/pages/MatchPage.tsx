@@ -8,13 +8,13 @@ import ClipButton from '@/components/ClipButton'
 import ClipList from '@/components/ClipList'
 import ClipOrderDialog, { type ClipOrder } from '@/components/ClipOrderDialog'
 import DemoPanel from '@/components/DemoPanel'
-import FaceitTag from '@/components/FaceitTag'
 import HighlightList from '@/components/HighlightList'
 import MapEmblem from '@/components/MapEmblem'
 import MatchScore from '@/components/MatchScore'
 import RecDot from '@/components/RecDot'
 import RecorderBanner from '@/components/RecorderBanner'
 import RoundStrip from '@/components/RoundStrip'
+import SourceTag from '@/components/SourceTag'
 import StatsTable from '@/components/StatsTable'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -180,7 +180,7 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
               {/* From `sm` up the line stands where the scenery shows (on a phone the veil is closed here): its small
                   grey text has a scrim of its own. */}
               <p className="sm:scenery-scrim flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-subtle">
-                <FaceitTag />
+                <SourceTag matchId={matchId} />
                 {facts.length > 0 && (
                   <span>
                     <span className="sr-only"> · </span>

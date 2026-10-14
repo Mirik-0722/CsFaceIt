@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useMe } from '@/api/auth'
 import type { MeLimits, MeResponse } from '@/api/authTypes'
 import type { ClipResponse, MatchResponse } from '@/api/types'
+import { isMatchmakingMatch, steamPlayerId } from '@/lib/matchSource'
 
 /**
  * The FACEIT player of the signed-in visitor: the id of the player the pages call "you" (the visitor's own highlights,
@@ -55,9 +56,16 @@ export interface Viewer {
    * that does not count yet).
    */
   limits: MeLimits | null
-  /** The demo of a match: bring it, upload it, have it analyzed. For the players of the match. */
-  canManageDemo: (match: Pick<MatchResponse, 'teams'>) => Permission
-  /** A clip of that player's highlight, or the compilation of that player's kills. For the player. */
+  /**
+   * The demo of a match: bring it, upload it, have it analyzed. For the players of a FACEIT match; for any signed-in
+   * visitor on a matchmaking match, whose players the page cannot know (the backend lets its owner act always, and the
+   * players of its demo once it is analyzed, and says so with its own 403 otherwise).
+   */
+  canManageDemo: (match: Pick<MatchResponse, 'matchId' | 'teams'>) => Permission
+  /**
+   * A clip of that player's highlight, or the compilation of that player's kills. For the player: the visitor's FACEIT
+   * player, or the player the visitor's SteamID stands for (`steam:<SteamID>`), with or without a FACEIT player.
+   */
   canOrderFor: (playerId: string) => Permission
   /** Cancel, delete or retry a clip. For whoever ordered it, with or without a linked FACEIT player. */
   canManageClip: (clip: Pick<ClipResponse, 'mine'>) => Permission
@@ -71,15 +79,18 @@ export interface Viewer {
 export function viewerOf(me: MeResponse | null | undefined, loading = false): Viewer {
   const admin = me?.role === 'ADMIN'
   const playerId = me?.playerId ?? null
-  /** What holds before the rule of the action itself: an administrator may, and a visitor without a player may not. */
-  function general(): Permission | null {
+  // The player the visitor's SteamID stands for while FACEIT does not know it: the visitor's own as well.
+  const steamPlayer = me?.steamId ? steamPlayerId(me.steamId) : null
+  /** Nobody signed in may not; an administrator may; null when the rule of the action itself decides. */
+  function session(): Permission | null {
     if (!me) {
       return denied('SIGNED_OUT')
     }
-    if (admin) {
-      return ALLOWED
-    }
-    return playerId === null ? denied('FACEIT_NOT_LINKED') : null
+    return admin ? ALLOWED : null
+  }
+  /** {@link session}, and a visitor without a FACEIT player may not: the rules below need that player. */
+  function general(): Permission | null {
+    return session() ?? (playerId === null ? denied('FACEIT_NOT_LINKED') : null)
   }
   return {
     loading,
@@ -88,11 +99,17 @@ export function viewerOf(me: MeResponse | null | undefined, loading = false): Vi
     playerId,
     limits: me && !admin ? (me.limits ?? null) : null,
     canManageDemo: (match) =>
-      general() ??
-      (match.teams.some((team) => team.players.some((player) => player.playerId === playerId))
+      isMatchmakingMatch(match.matchId)
+        ? (session() ?? ALLOWED)
+        : (general() ??
+          (match.teams.some((team) => team.players.some((player) => player.playerId === playerId))
+            ? ALLOWED
+            : denied('NOT_IN_MATCH'))),
+    canOrderFor: (ofPlayerId) =>
+      session() ??
+      (steamPlayer !== null && ofPlayerId === steamPlayer
         ? ALLOWED
-        : denied('NOT_IN_MATCH')),
-    canOrderFor: (ofPlayerId) => general() ?? (ofPlayerId === playerId ? ALLOWED : denied('NOT_YOUR_PLAYER')),
+        : (general() ?? (ofPlayerId === playerId ? ALLOWED : denied('NOT_YOUR_PLAYER')))),
     // The backend asks only who ordered the clip, so the owner manages it whether or not a FACEIT player is linked.
     // `=== true`: a backend that does not say whose a clip is yet leaves the field out.
     canManageClip: (clip) => {

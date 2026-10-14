@@ -5,6 +5,7 @@ import { type MeResponse, useLogout } from '@/api/auth'
 import { usePlayer } from '@/api/queries'
 import { useLocale, useT } from '@/i18n'
 import { formatInteger } from '@/lib/formatNumber'
+import { ownMatchesPath } from '@/lib/matchSource'
 import { cn } from '@/lib/utils'
 
 /**
@@ -59,13 +60,15 @@ function LevelLine({ playerId }: { playerId: string }) {
 
 /**
  * The round button of a signed-in visitor and the menu under it (spec 6): the nickname with the player's FACEIT level
- * and ELO under it when there is a player, the player's own statistics, the clips, and the way out. A popover, not a `menu` role: it holds a heading and links to
+ * and ELO under it when there is a player, the player's own statistics (without FACEIT: the account's matches), the
+ * clips, and the way out. A popover, not a `menu` role: it holds a heading and links to
  * pages, which Tab walks through, and it closes on Escape, on a click outside and on following a link.
  */
 export default function AccountMenu({ me, onSignedOut }: { me: MeResponse; onSignedOut: () => void }) {
   const t = useT()
   const logout = useLogout(onSignedOut)
   const [open, setOpen] = useState(false)
+  const matchesPath = ownMatchesPath(me)
 
   // The error of a sign-out that failed is told in the menu, and goes when the menu closes (not while a sign-out is
   // still on its way, which is not an error).
@@ -106,6 +109,13 @@ export default function AccountMenu({ me, onSignedOut }: { me: MeResponse; onSig
             {me.playerId && (
               <Link to={`/players/${encodeURIComponent(me.playerId)}`} onClick={close} className={ROW}>
                 {t.auth.myStatistics}
+              </Link>
+            )}
+            {/* An account without FACEIT has no statistics page of its own, but has its matches: those of its SteamID
+                (CS2 matchmaking), where its demos are brought and its matchmaking games linked. */}
+            {!me.playerId && matchesPath && (
+              <Link to={matchesPath} onClick={close} className={ROW}>
+                {t.auth.matches}
               </Link>
             )}
             <Link to="/clips" onClick={close} className={ROW}>

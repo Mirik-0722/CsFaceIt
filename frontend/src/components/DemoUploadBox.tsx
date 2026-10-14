@@ -21,7 +21,9 @@ interface DemoUploadBoxProps {
  */
 export default function DemoUploadBox({ onFile, onLink }: DemoUploadBoxProps) {
   const t = useT()
-  const { limits } = useViewer()
+  const { limits, signedIn, playerId } = useViewer()
+  // An account without FACEIT brings matchmaking demos only: its line says where those come from, and not FACEIT's.
+  const matchmakingOnly = signedIn && playerId === null
   const fileInput = useRef<HTMLInputElement>(null)
   const linkId = useId()
   const [link, setLink] = useState('')
@@ -42,11 +44,13 @@ export default function DemoUploadBox({ onFile, onLink }: DemoUploadBoxProps) {
   return (
     <section className="flex flex-col gap-3.5 border border-dashed border-line-strong bg-card p-5">
       <h2 className="label-mono font-medium">{t.matches.bring.title}</h2>
-      <p className="text-sm leading-normal text-muted-foreground">{t.matches.bring.text}</p>
+      <p className="text-sm leading-normal text-muted-foreground">
+        {matchmakingOnly ? t.cs2.uploadText : t.matches.bring.text}
+      </p>
       <input
         ref={fileInput}
         type="file"
-        accept=".dem,.gz,.zst"
+        accept=".dem,.gz,.zst,.bz2"
         multiple
         tabIndex={-1}
         aria-hidden="true"

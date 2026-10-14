@@ -3,6 +3,7 @@ import TeamSides from '@/components/TeamSides'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useT } from '@/i18n'
+import { playerPath } from '@/lib/matchSource'
 import { cn } from '@/lib/utils'
 import type { BreakdownPlayer, RoundSide } from '@/api/breakdownTypes'
 import type { TeamStatsResponse } from '@/api/types'
@@ -133,7 +134,7 @@ export default function StatsTable({ team, lost = false, startSide, analysis, vi
                         would cut an outline drawn around it. The 8px of padding (taken back by the negative margin)
                         keep that inset outline off the letters, and `min-w-11` keeps a short nickname a 44px target. */}
                     <Link
-                      to={`/players/${encodeURIComponent(player.playerId)}`}
+                      to={playerPath(player.playerId)}
                       className={cn(
                         '-mx-2 inline-flex min-h-11 max-w-44 min-w-11 items-center gap-2 px-2 underline-offset-4 -outline-offset-2 hover:underline sm:max-w-none',
                         isViewer ? 'font-semibold' : 'font-medium',

@@ -9,22 +9,23 @@ import { formatDate } from '@/lib/formatDate'
 import { describeHighlight, formatDuration } from '@/lib/highlightLabels'
 import { mapSceneryUrl } from '@/lib/mapArt'
 import { mapLabel, mapScene } from '@/lib/mapTint'
+import { playerPath } from '@/lib/matchSource'
 import { cn } from '@/lib/utils'
 import type { HighlightResponse } from '@/api/types'
 
 // A side is shown as its letters in its own colour, so the colour is never the only sign.
 const SIDE_CLASS: Record<string, string> = { CT: 'text-side-ct', T: 'text-side-t' }
 
-/** The nickname, as a link to the profile. A player the backend knows only from the demo has no profile to link to. */
+/**
+ * The nickname, as a link to the profile; a player the backend knows only from the demo has one as well
+ * (`/players/steam:<SteamID>`, answered from the database).
+ */
 function PlayerName({ highlight }: { highlight: HighlightResponse }) {
-  if (highlight.playerId.startsWith('steam:')) {
-    return <span className="block truncate">{highlight.nickname}</span>
-  }
   return (
     // 44px tall for the finger; the negative margin keeps the line where a plain 24px line would be. That box reaches
     // into the rows above and below, so the focus ring is drawn around the name itself, not around the box.
     <Link
-      to={`/players/${encodeURIComponent(highlight.playerId)}`}
+      to={playerPath(highlight.playerId)}
       className="group/name -my-2.5 inline-flex min-h-11 max-w-full items-center underline-offset-4 outline-none hover:underline"
     >
       <span className="truncate group-focus-visible/name:outline-2 group-focus-visible/name:outline-offset-2">

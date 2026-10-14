@@ -2,9 +2,9 @@ import { ChevronRight, Upload } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import DemoStages from '@/components/DemoStages'
-import FaceitTag from '@/components/FaceitTag'
 import HighlightTag from '@/components/HighlightTag'
 import MapEmblem from '@/components/MapEmblem'
+import SourceTag from '@/components/SourceTag'
 import { Button } from '@/components/ui/button'
 import { useLocale, useT } from '@/i18n'
 import { formatMatchTime } from '@/lib/formatDate'
@@ -25,6 +25,8 @@ import { RESULT_ROW } from '@/lib/resultRow'
 const COLUMNS = 'grid grid-cols-[220px_100px_104px_minmax(0,1fr)_160px_16px] items-center gap-4 pr-1 pl-3.5'
 
 interface MatchMapCellProps {
+  /** The match: its id says where it is from, which the tag beside the date shows. */
+  matchId: string
   mapName: string | null
   /** The name to show: the map's, "Unknown map", or nothing while the map is still being asked for. */
   name: ReactNode
@@ -34,18 +36,18 @@ interface MatchMapCellProps {
 }
 
 /**
- * The first cell of a row of matches: the map's 44px emblem, its name, and under it on one line the FACEIT tag with the
- * date. The tag is decoration here, not a word of the link's name: every match of a list is from FACEIT, and it would be
- * heard once per row. The rows of the profile's history use it too.
+ * The first cell of a row of matches: the map's 44px emblem, its name, and under it on one line the tag of where the
+ * match is from (`FACEIT` or `CS2 MM`) with the date. The tag is decoration here, not a word of the link's name: it
+ * would be heard once per row. The rows of the profile's history use it too.
  */
-export function MatchMapCell({ mapName, name, date, startedAt }: MatchMapCellProps) {
+export function MatchMapCell({ matchId, mapName, name, date, startedAt }: MatchMapCellProps) {
   return (
     <span className="flex min-w-0 items-center gap-3">
       <MapEmblem mapName={mapName} size={44} />
       <span className="flex min-w-0 flex-col gap-1">
         <span className="min-h-5 truncate text-[15px] leading-5 font-semibold">{name}</span>
         <span className="flex items-center gap-2">
-          <FaceitTag decorative />
+          <SourceTag matchId={matchId} decorative />
           <time dateTime={startedAt} className="font-mono text-[11px] whitespace-nowrap text-subtle">
             {date}
           </time>
@@ -261,6 +263,7 @@ function MatchRow({
         )}
       >
         <MatchMapCell
+          matchId={match.matchId}
           mapName={match.mapName}
           name={mapLabel(match.mapName) ?? t.match.unknownMap}
           date={formatMatchTime(match.startedAt, locale)}

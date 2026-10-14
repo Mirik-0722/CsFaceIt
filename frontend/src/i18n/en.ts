@@ -269,7 +269,7 @@ export const en = {
     // or a file dropped anywhere on the page; the feed above the rows says how each one goes.
     bring: {
       title: 'Upload a demo',
-      text: 'Drop a .dem or .dem.zst file here. A FACEIT demo is downloaded from the match room.',
+      text: 'Drop a .dem, .dem.zst or .dem.bz2 file here. A FACEIT demo is downloaded from the match room.',
       choose: 'Choose a file',
       linkLabel: 'Demo link',
       linkPlaceholder: 'Or paste a link',
@@ -362,7 +362,7 @@ export const en = {
     },
     manage: 'Manage',
     adminKey: 'Admin key',
-    fileLabel: 'Demo file (.dem, .dem.gz, .dem.zst)',
+    fileLabel: 'Demo file (.dem, .dem.gz, .dem.zst, .dem.bz2)',
     upload: 'Upload',
     importFromFaceit: 'Import from FACEIT',
     analyze: 'Analyze',
@@ -371,7 +371,7 @@ export const en = {
     sending: 'Sending the request…',
     uploading: 'Uploading the file…',
     accepted: 'Request accepted. The page updates by itself.',
-    invalidFile: 'The file must be a demo: .dem, .dem.gz or .dem.zst, and not empty.',
+    invalidFile: 'The file must be a demo: .dem, .dem.gz, .dem.zst or .dem.bz2, and not empty.',
     urlUnavailable: 'FACEIT has no demo file for this match.',
     // A demo that failed with the code DOWNLOAD_NEEDS_ACCESS: the site is not given the file, so the visitor fetches it.
     needsAccess:
@@ -424,6 +424,8 @@ export const en = {
       PARSE_FAILED: 'The demo file could not be read. The file may be damaged.',
       ANALYSIS_FAILED: 'The demo analysis did not finish. Try again.',
       WRONG_MATCH: 'This file is the demo of another match: its players are not the players of this one.',
+      // A matchmaking demo whose replay Valve has already deleted (plan 6c).
+      REPLAY_EXPIRED: "Valve no longer keeps this match's replay. If you have the demo, you can upload it as a file.",
     },
   },
   clip: {
@@ -729,5 +731,61 @@ export const en = {
     openInEditor: 'Open in the editor',
     // The mark of a montage that starts with a title card; shown in upper case.
     intro: 'Intro',
+  },
+  // CS2 matchmaking (plan 6c): the tag of a matchmaking match, and the section of the matches page that links the
+  // visitor's matchmaking games so that their demos come by themselves.
+  cs2: {
+    // The tag of a matchmaking match, the same in every language (shown in upper case); `tagName` is what a screen
+    // reader hears for it.
+    tag: 'CS2 MM',
+    tagName: 'CS2 matchmaking',
+    // The section's label, shown in upper case.
+    title: 'CS2 matchmaking',
+    intro: 'Have the demos of your Premier, Competitive and Wingman matches come by themselves: enter two codes once.',
+    // Steam's own names of the two codes, as its pages write them.
+    authLabel: 'Authentication code',
+    shareLabel: 'Match sharing code',
+    authPlaceholder: 'AAAA-AAAAA-AAAA',
+    // The start of the form only: the whole code does not fit in the side column, nor on a phone.
+    sharePlaceholder: 'CSGO-xxxxx-xxxxx-…',
+    // The name of the toggle; its pressed state says whether the code is shown.
+    showCode: 'Show the code',
+    codesLink: 'Get both codes on Steam',
+    link: 'Link',
+    // The same request for a link whose code stopped working.
+    relink: 'Update',
+    linking: 'Linking…',
+    // Why a code was not sent: its form is wrong, or the authentication code is missing.
+    authFormat: 'The code has the form AAAA-AAAAA-AAAA.',
+    authMissing: 'Enter the authentication code.',
+    shareFormat: 'The code starts with CSGO- and has five groups of five characters.',
+    // Under the emptied authentication code field after a request that did not link.
+    retype: 'For your safety the code is not kept — enter it again.',
+    // The two 422 refusals of the link.
+    authRefused: 'Steam did not accept this authentication code. Check it, or get a new one on Steam.',
+    shareRefused:
+      'Steam did not recognise this match sharing code with this authentication code. Enter the code of your last match.',
+    active: 'Linked — new matches come by themselves',
+    // A link in a state this page does not know.
+    linked: 'Linked',
+    checkedAt: 'Last check',
+    linkedAt: 'Linked',
+    notYet: 'Not yet',
+    badAuthTitle: 'The authentication code does not work',
+    badAuthText: 'Steam refused the code: it was revoked or replaced. Get a new code on Steam and enter it below.',
+    badShareTitle: 'The match sharing code does not fit',
+    badShareText:
+      'The last code is not a match of this account, or it is too old. Get the code of your last match from Steam and enter it below.',
+    unlink: 'Unlink',
+    unlinkQuestion: 'Unlink? New matches will stop coming.',
+    unlinkYes: 'Yes, unlink',
+    unlinkNo: 'No',
+    // IMPORT_FAILED on a matchmaking match, whose demo comes by a link (Valve's replay server), never from FACEIT: the
+    // demo panel's sentence for whoever may upload, and the plain one for whoever may not.
+    importFailed: 'The demo could not be fetched by its link. You can upload it as a file.',
+    importFailedPlain: 'The demo could not be fetched by its link.',
+    // The line of the upload box for an account without FACEIT, which brings matchmaking demos only.
+    uploadText:
+      'Drop a matchmaking demo here: the .dem from your CS2 replays folder or a downloaded .dem.bz2. Or paste its replay link.',
   },
 }
