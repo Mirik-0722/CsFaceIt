@@ -1,13 +1,16 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
-/** `sm` is the 32px circle of a line of text, `default` the card of a search result, `lg` the header of a profile. */
+/**
+ * `sm` is the 32px circle of a line of text, `default` the card of a search result, `lg` the header of a profile (72px
+ * on a phone, 96px from `sm`).
+ */
 export type AvatarSize = 'sm' | 'default' | 'lg'
 
 const BOX: Record<AvatarSize, string> = {
   sm: 'size-8 bg-border text-[13px]',
   default: 'size-14 bg-secondary text-xl',
-  lg: 'size-18 bg-secondary text-[28px]',
+  lg: 'size-18 bg-secondary text-[28px] sm:size-24 sm:text-[36px]',
 }
 
 interface PlayerAvatarProps {

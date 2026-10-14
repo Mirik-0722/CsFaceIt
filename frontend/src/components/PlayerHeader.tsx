@@ -1,11 +1,17 @@
-import { type ReactNode, useState } from 'react'
+import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import FaceitTag from '@/components/FaceitTag'
 import LevelRing from '@/components/LevelRing'
+import MapEmblem from '@/components/MapEmblem'
 import PlayerAvatar, { type AvatarSize } from '@/components/PlayerAvatar'
+import SceneryBand from '@/components/SceneryBand'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { useLocale, useT } from '@/i18n'
 import { countryName } from '@/lib/countryName'
 import { formatInteger } from '@/lib/formatNumber'
+import { mapLabel } from '@/lib/mapTint'
+import { useLoadedUrl } from '@/lib/useLoadedUrl'
 import { cn } from '@/lib/utils'
 import type { PlayerResponse } from '@/api/types'
 
@@ -53,69 +59,82 @@ function PlayerCard({ player }: { player: PlayerResponse }) {
 }
 
 /**
- * The scenery of the map the player has played most, behind the header of the profile. It spans the page's column,
- * from the top bar's line (the page's own 36px of padding above the header) to a little under the header, and goes over
- * into the page's ground at its bottom: a mask lets the real ground show, as the landing page's backdrop does. A veil
- * in the ground's colour lies over the picture, heavy at the left where the name stands and light at the right where the
- * picture is to be seen. It fades in once the picture has arrived (`onLoad`); a phone gets a band behind the first
- * lines instead of the whole height. Nothing here is in the header's flow, so nothing moves when it comes.
+ * The first row of the profile's header is at least this high, and so is the loading block that stands in for it (see
+ * PlayerPage): 114px from `sm` (the 48px name, 4px, the 32px mono line with the ring, 8px and the 22px row of the tag),
+ * 122px on a phone, where the mono line with the ring wraps onto two lines (36 + 4 + 52 + 8 + 22).
  */
-function HeaderScenery({ url, shown, onLoad }: { url: string; shown: boolean; onLoad: () => void }) {
+const PROFILE_HEAD_ROW = 'min-h-30.5 sm:min-h-28.5'
+
+/** The third line of the header: where the player's matches are from, and the map the player has played most. */
+function HeadTags({ mainMap }: { mainMap: string | null | undefined }) {
+  const t = useT()
+  const name = mapLabel(mainMap ?? null)
   return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        'scenery-fade-head pointer-events-none absolute inset-x-0 -top-9 -bottom-9 -z-10 transition-opacity duration-700 motion-reduce:transition-none max-sm:bottom-auto max-sm:h-32',
-        shown ? 'opacity-100' : 'opacity-0',
+    // As tall as the tag, with or without the map, so that nothing moves when the map arrives.
+    <div className="mt-1 flex h-5.5 min-w-0 items-center gap-3">
+      <FaceitTag />
+      {name && (
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="label-mono whitespace-nowrap">{t.lively.mainMap}</span>
+          <MapEmblem mapName={mainMap ?? null} size={20} fallback="none" />
+          <span className="truncate text-[13px] font-semibold">{name}</span>
+        </span>
       )}
-    >
-      <img
-        src={url}
-        alt=""
-        decoding="async"
-        onLoad={onLoad}
-        className="size-full object-cover object-[50%_35%]"
-      />
-      <div className="scenery-veil-head absolute inset-0" />
     </div>
   )
 }
 
+interface ProfileHeaderProps {
+  player: PlayerResponse
+  aside?: ReactNode
+  scenery?: string | null
+  mainMap?: string | null
+  nameLink?: string
+}
+
 /**
- * The header of the player's page, as the board draws it: no card, the avatar, the nickname as a 30px heading and under
- * it one mono line (the country by name, FACEIT level with its ring, ELO; "No CS2 data" instead of the last two without
- * CS2 data), and `aside` on the right edge. The aside drops below the rest where there is no room for both. With a
- * `scenery` (the picture of the player's map) the header stands on it: the picture is not part of the header's size or
- * position; once it shows, the name and the mono line get a scrim (`scenery-scrim`) and the aside, which marks itself
- * through `group-data-[scenery=shown]/head`, a plate of its own.
+ * The header of the player's page, as the board draws it and as the third step of the lively style enlarged it: no
+ * card, the 96px avatar (72px on a phone), the nickname as a 40px heading (30px on a phone) and under it one mono line
+ * (the country by name, FACEIT level with its ring, ELO; "No CS2 data" instead of the last two without CS2 data), then a
+ * line with the `FACEIT` tag and the map the player has played most (`mainMap`, once it is known), and `aside` on the
+ * right edge. The aside drops below the rest where there is no room for both. With a `scenery` (the picture of the
+ * player's map) the header stands on it (`SceneryBand`): the picture is not part of the header's size or position;
+ * once it shows, the name and the lines get a scrim (`scenery-scrim`) and the aside, which marks itself through
+ * `group-data-[scenery=shown]/head`, a plate of its own. With `nameLink` the nickname is a link (the way back to the
+ * profile from the player's highlights).
  */
-function ProfileHeader({ player, aside, scenery }: { player: PlayerResponse; aside?: ReactNode; scenery?: string | null }) {
+function ProfileHeader({ player, aside, scenery, mainMap, nameLink }: ProfileHeaderProps) {
   const t = useT()
   const locale = useLocale()
-  // The address that has arrived, not a flag: another map's picture is waited for afresh.
-  const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
-  const shown = !!scenery && loadedUrl === scenery
+  const [shown, onLoad] = useLoadedUrl(scenery ?? null)
   const country = player.country ? countryName(player.country, locale) : null
   const hasCs2Data = player.elo !== null || player.level !== null
   return (
     <div
       data-scenery={shown ? 'shown' : undefined}
-      // Under `md` the aside (the form strip) always takes a row of its own below the name and the line (a column), so
-      // that the head's height does not depend on whether the name and its line leave room for the strip: with a level
-      // the line is wider, and the strip would drop below it at about 640-700px but not without one. Under `sm` that
-      // first row is at least 92px high: with the ring the mono line wraps on most phones (below about 417px) and the
-      // row is 92px, so every first row is, and the loading block (see PlayerPage) is made of the same parts. From `md`
-      // the strip stands beside the name where there is room, and drops below it where there is not.
+      // Under `md` the aside (the form strip) always takes a row of its own below the name and the lines (a column), so
+      // that the head's height does not depend on whether the name and its lines leave room for the strip: with a level
+      // the line is wider, and the strip would drop below it at about 640-700px but not without one. The first row is
+      // as high as `PROFILE_HEAD_ROW` whatever the player is, and the loading block (see PlayerPage) is made of the same
+      // parts. From `md` the strip stands beside the name where there is room, and drops below it where there is not.
       className="group/head relative isolate flex flex-wrap items-center justify-between gap-x-8 gap-y-5 max-md:flex-col max-md:items-start"
     >
-      {scenery && <HeaderScenery url={scenery} shown={shown} onLoad={() => setLoadedUrl(scenery)} />}
-      <div className="flex min-w-0 items-center gap-4.5 max-sm:min-h-23">
+      {scenery && <SceneryBand url={scenery} shown={shown} onLoad={onLoad} />}
+      <div className={cn('flex min-w-0 items-center gap-4.5 sm:gap-6', PROFILE_HEAD_ROW)}>
         <PlayerAvatar nickname={player.nickname} avatar={player.avatar} size="lg" />
         {/* The scrim reaches 12px beyond the block: on a phone the block runs to 16px from the screen's edge, and a wider
             bleed would make the page scroll sideways. */}
         <div className="flex min-w-0 flex-col gap-1 [--scrim-bleed-x:0.75rem] [--scrim-color:var(--background)] [--scrim-fade-x:0.75rem] group-data-[scenery=shown]/head:scenery-scrim">
           {/* The page's h1 only names the page (for screen readers): the nickname is the heading of the section. */}
-          <h2 className="heading-page truncate">{player.nickname}</h2>
+          <h2 className="heading-page truncate sm:text-[40px]">
+            {nameLink ? (
+              <Link to={nameLink} className="underline-offset-[6px] hover:underline">
+                {player.nickname}
+              </Link>
+            ) : (
+              player.nickname
+            )}
+          </h2>
           {/* The ring is 32px, the height of the avatar less the heading and the gap: the line, and so the header, is
               as tall with it as without it. */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
@@ -132,6 +151,7 @@ function ProfileHeader({ player, aside, scenery }: { player: PlayerResponse; asi
             {player.elo !== null && <span>{t.player.elo(formatInteger(player.elo, locale))}</span>}
             {!hasCs2Data && <span>{t.player.noCs2Data}</span>}
           </div>
+          <HeadTags mainMap={mainMap} />
         </div>
       </div>
       {aside}
@@ -146,12 +166,20 @@ interface PlayerHeaderProps {
   aside?: ReactNode
   /** The picture of the player's map for behind the large header (null: none); the card has no scenery. */
   scenery?: string | null
+  /** The map the player has played most, for the large header's third line (null or absent: only the tag). */
+  mainMap?: string | null
+  /** Makes the large header's nickname a link to this address. */
+  nameLink?: string
 }
 
 /**
  * One player: `elo` and `level` are null without CS2 data. `size="lg"` is the header of the player page, which the board
  * draws without a card; the default is the card of a search result.
  */
-export default function PlayerHeader({ player, size = 'default', aside, scenery }: PlayerHeaderProps) {
-  return size === 'lg' ? <ProfileHeader player={player} aside={aside} scenery={scenery} /> : <PlayerCard player={player} />
+export default function PlayerHeader({ player, size = 'default', aside, scenery, mainMap, nameLink }: PlayerHeaderProps) {
+  return size === 'lg' ? (
+    <ProfileHeader player={player} aside={aside} scenery={scenery} mainMap={mainMap} nameLink={nameLink} />
+  ) : (
+    <PlayerCard player={player} />
+  )
 }
