@@ -37,6 +37,11 @@ import org.springframework.web.multipart.support.MissingServletRequestPartExcept
  * {@code POST}s take the admin key ({@code X-API-Key}) or a session: an administrator does what the key does, and any
  * other signed-in user acts for the matches they played, which {@link DemoService} asks {@link Access} about. The
  * controller only says who is acting.
+ *
+ * <p>A matchmaking match ({@code mm-<id>}) that the site does not know yet is made by its first upload or link: the
+ * name of the file, or of the link's file, has to be Valve's name of this very match (400 {@code DEMO_FILE_MISMATCH}
+ * or {@code DEMO_LINK_MISMATCH} otherwise), and the match then belongs to whoever brought it (see
+ * {@link DemoService#upload} and {@link DemoService#requestImport(String, URI, Actor)}).
  */
 @RestController
 @RequestMapping("/api/v1/matches")
@@ -46,8 +51,11 @@ public class DemoController {
     /** The name of the multipart part that carries the demo. */
     static final String FILE_PART = "file";
 
-    /** What the name of an uploaded demo ends with: raw, gzip or zstd. The content is checked by its bytes, not its name. */
-    private static final List<String> DEMO_FILE_SUFFIXES = List.of(".dem", ".dem.gz", ".dem.zst");
+    /**
+     * What the name of an uploaded demo ends with: raw, gzip, zstd or bzip2 (Valve's replays). The content is checked
+     * by its bytes, not its name.
+     */
+    private static final List<String> DEMO_FILE_SUFFIXES = List.of(".dem", ".dem.gz", ".dem.zst", ".dem.bz2");
 
     private final DemoService service;
     private final Access access;
@@ -118,7 +126,7 @@ public class DemoController {
             }
             requireDemoFile(file);
             try (InputStream content = file.getInputStream()) {
-                return service.upload(actor, matchId, content, () -> stored.set(true));
+                return service.upload(actor, matchId, file.getOriginalFilename(), content, () -> stored.set(true));
             }
         } catch (IOException | MissingServletRequestPartException | RuntimeException e) {
             if (!stored.get()) {
@@ -153,7 +161,7 @@ public class DemoController {
         String name = file.getOriginalFilename();
         String lowerCase = name == null ? "" : name.toLowerCase(Locale.ROOT);
         if (DEMO_FILE_SUFFIXES.stream().noneMatch(lowerCase::endsWith)) {
-            throw new BadRequestException("The file name must end with .dem, .dem.gz or .dem.zst");
+            throw new BadRequestException("The file name must end with .dem, .dem.gz, .dem.zst or .dem.bz2");
         }
         if (file.isEmpty()) {
             throw new BadRequestException("The file is empty");

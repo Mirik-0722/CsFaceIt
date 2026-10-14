@@ -22,6 +22,8 @@
         <wiremock.version>3.13.2</wiremock.version>
         <minio.version>8.5.17</minio.version>
         <zstd-jni.version>1.5.7-6</zstd-jni.version>
+        <!-- Not managed by Spring Boot: the current release. -->
+        <commons-compress.version>1.28.0</commons-compress.version>
         <!-- The version MinIO's client is built with, so that both use one OkHttp. -->
         <okhttp.version>4.12.0</okhttp.version>
     </properties>
@@ -90,6 +92,12 @@
             <groupId>com.github.luben</groupId>
             <artifactId>zstd-jni</artifactId>
             <version>${zstd-jni.version}</version>
+        </dependency>
+        <!-- bzip2, the form Valve's replay servers give a matchmaking demo in (DemoFiles): the JDK has no decoder for it. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>${commons-compress.version}</version>
         </dependency>
         <!-- The download of a pasted demo link (DemoDownloader#downloadLink): OkHttp connects to the addresses that
              LinkGuard checked (its Dns hook), which the JDK's HTTP clients cannot be told. -->

@@ -2,11 +2,15 @@ package io.csfaceit.backend.demo;
 
 import io.csfaceit.backend.match.Match;
 import io.csfaceit.backend.match.MatchRepository;
+import io.csfaceit.backend.match.MatchSource;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.function.Consumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,14 +42,41 @@ public class DemoPersistence {
      */
     static final Duration STALE_AFTER = Duration.ofMinutes(10);
 
+    /**
+     * Creates the row of a matchmaking match, unless a row with its id is there. A row that another transaction is
+     * inserting at the same moment is waited for: when that one commits, nothing is inserted and no id comes back.
+     */
+    private static final String INSERT_MATCHMAKING_SQL = """
+            INSERT INTO matches (faceit_match_id, source, owner_user_id)
+            VALUES (:matchId, :source, :ownerUserId)
+            ON CONFLICT (faceit_match_id) DO NOTHING
+            RETURNING id""";
+
+    /** The lock of a match's row, for a matchmaking match that has no demo row to lock. */
+    private static final String LOCK_MATCH_SQL = "SELECT id FROM matches WHERE id = :matchRowId FOR UPDATE";
+
+    /** Whether the analysis has ever stored the statistics of the match (it did, if a row has rounds_played). */
+    private static final String ANALYZED_ONCE_SQL = """
+            SELECT EXISTS (SELECT 1 FROM player_match_stats
+                           WHERE match_id = :matchRowId AND rounds_played IS NOT NULL)""";
+
+    /** A matchmaking match taken over by the one who brings its first demo; one statement, no other column written. */
+    private static final String TAKE_OVER_SQL = """
+            UPDATE matches SET owner_user_id = :ownerUserId
+            WHERE id = :matchRowId AND source = 'MATCHMAKING' AND owner_user_id IS DISTINCT FROM :ownerUserId""";
+
+    private static final Logger log = LoggerFactory.getLogger(DemoPersistence.class);
+
     private final DemoRepository demos;
     private final MatchRepository matches;
     private final Clock clock;
+    private final JdbcClient jdbc;
 
-    public DemoPersistence(DemoRepository demos, MatchRepository matches, Clock clock) {
+    public DemoPersistence(DemoRepository demos, MatchRepository matches, Clock clock, JdbcClient jdbc) {
         this.demos = demos;
         this.matches = matches;
         this.clock = clock;
+        this.jdbc = jdbc;
     }
 
     /** The message the caller of {@link #queue} has to publish once the transaction has committed. */
@@ -81,6 +112,11 @@ public class DemoPersistence {
      * is, and so is a demo in any other status. An existing row is read with a lock, so of several requests that
      * revive the same demo exactly one gets a {@link Publish} other than {@link Publish#NOTHING}.
      *
+     * <p>With {@code reviveExisting} false a demo that already has a row is reported as it is, whatever its status:
+     * nothing is revived, announced or touched. It is the automatic sync's way of asking, which never takes up a
+     * FAILED demo (only a person asking does) and leaves a lost message to the sweep, and which holds also when the
+     * row was created or failed after the sync looked.
+     *
      * @param demoUrlAvailable whether FACEIT has a demo URL for the match; without one nothing can be queued for
      *        import. A STORED demo is announced without one: nothing is downloaded for it.
      * @param beforeQueued runs in this transaction when the request is about to queue something, with what that is
@@ -88,17 +124,6 @@ public class DemoPersistence {
      *        stops the request by throwing: nothing is written then. This is where a limit per day counts the request.
      * @return empty when the demo would have to be queued for import but cannot be, because there is no demo URL;
      *         nothing is written then
-     */
-    @Transactional
-    public Optional<Queued> queue(long matchRowId, boolean demoUrlAvailable, Consumer<Publish> beforeQueued) {
-        return queue(matchRowId, demoUrlAvailable, true, beforeQueued);
-    }
-
-    /**
-     * Like {@link #queue(long, boolean, Consumer)}; with {@code reviveExisting} false a demo that already has a row is
-     * reported as it is, whatever its status: nothing is revived, announced or touched. It is the automatic sync's
-     * way of asking, which never takes up a FAILED demo (only a person asking does) and leaves a lost message to the
-     * sweep, and which holds also when the row was created or failed after the sync looked.
      */
     @Transactional
     public Optional<Queued> queue(long matchRowId, boolean demoUrlAvailable, boolean reviveExisting,
@@ -136,6 +161,23 @@ public class DemoPersistence {
             existing.touch();
         }
         return Optional.of(new Queued(demos.saveAndFlush(existing), Publish.IMPORT));
+    }
+
+    /**
+     * Like {@link #queue} with a link to the demo, for a request that brings the first demo of a matchmaking match: one
+     * the database does not know, whose row is created here in the transaction that creates its demo, or one whose
+     * demo never got as far as an analysis, which the request takes over (see {@link #matchmakingRow}). A request that
+     * {@code beforeQueued} refuses (the limit per day) therefore leaves no row and changes no owner.
+     *
+     * @param ownerUserId the user who brings the match in; {@code null} for the admin key, and the match then has no
+     *        owner
+     * @param storedMeanwhile runs when the match is stored and not open to a first demo (any more): it refuses by
+     *        throwing what the rules of a stored match refuse, and nothing is written then
+     */
+    @Transactional
+    public Optional<Queued> queueNewMatchmaking(String matchId, Long ownerUserId, Runnable storedMeanwhile,
+                                                Consumer<Publish> beforeQueued) {
+        return queue(matchmakingRow(matchId, ownerUserId, storedMeanwhile), true, true, beforeQueued);
     }
 
     /**
@@ -268,6 +310,87 @@ public class DemoPersistence {
         }
         demo.restore(storageKey);
         return demos.saveAndFlush(demo);
+    }
+
+    /**
+     * Like {@link #restore}, for an upload that brings the first demo of a matchmaking match: one the database did not
+     * know, whose row is created here in the transaction that stores its demo, or one whose demo never got as far as an
+     * analysis, which the upload takes over (see {@link #matchmakingRow}). An upload that is refused before (a file too
+     * large or damaged, a name of another match) therefore leaves no row behind and changes no owner.
+     *
+     * @param ownerUserId the user who brings the match in; {@code null} for the admin key
+     * @param storedMeanwhile runs when the match is stored and not open to a first demo (any more): it refuses by
+     *        throwing, and nothing is written then
+     */
+    @Transactional
+    public Demo restoreNewMatchmaking(String matchId, Long ownerUserId, Runnable storedMeanwhile, String storageKey) {
+        return restore(matchmakingRow(matchId, ownerUserId, storedMeanwhile), storageKey);
+    }
+
+    /**
+     * Whether a stored matchmaking match is open to a first demo, which makes whoever brings it the match's owner: its
+     * demo never got as far as an analysis, and it has none now that is on its way. That is, the match has no demo or a
+     * FAILED one (whatever the reason), and the analysis never stored statistics for it (the rows of
+     * {@code player_match_stats} that have {@code rounds_played}: the analysis writes them in the transaction that
+     * makes a demo ANALYZED, and they stay when the demo fails later). A match that someone claimed with a file that is no
+     * demo of it is therefore free again once that demo has failed, and one that was ANALYZED once never changes owner.
+     * Read without a lock, for the caller to choose its way; {@link #matchmakingRow} asks again under the lock.
+     */
+    @Transactional(readOnly = true)
+    public boolean isOpenToFirstDemo(long matchRowId) {
+        return isOpenToFirstDemo(matchRowId, demos.findByMatchId(matchRowId).orElse(null));
+    }
+
+    private boolean isOpenToFirstDemo(long matchRowId, Demo demo) {
+        if (demo != null && demo.getStatus() != DemoStatus.FAILED) {
+            return false;
+        }
+        return !jdbc.sql(ANALYZED_ONCE_SQL).param("matchRowId", matchRowId).query(Boolean.class).single();
+    }
+
+    /**
+     * The row of a matchmaking match for a request that brings its first demo. A match the database does not know is
+     * created: {@code source} MATCHMAKING, the owner, and no map or time (the parser fills the map from the demo, and a
+     * match without a start is placed at its demo's time). A stored one is taken under the lock of its demo's row (of
+     * the match's row when it has no demo, and then the demo is looked for again, in case a request that held that lock
+     * has just made one): when it is still open to a first demo ({@link #isOpenToFirstDemo}), it is taken over, its
+     * owner becoming {@code ownerUserId}; otherwise {@code storedMeanwhile} applies the rules of a stored match. So of
+     * two requests that make the same match at once, one inserts the row and the other waits for that insert, finds the
+     * row with a demo on its way, and is judged as for any stored match.
+     *
+     * @return the id of the row
+     */
+    private long matchmakingRow(String matchId, Long ownerUserId, Runnable storedMeanwhile) {
+        Optional<Long> created = jdbc.sql(INSERT_MATCHMAKING_SQL)
+                .param("matchId", matchId)
+                .param("source", MatchSource.MATCHMAKING.name())
+                .param("ownerUserId", ownerUserId)
+                .query(Long.class)
+                .optional();
+        if (created.isPresent()) {
+            return created.get();
+        }
+        long matchRowId = matches.findByFaceitMatchId(matchId)
+                .orElseThrow(() -> new IllegalStateException("Match " + matchId + " is not stored"))
+                .getId();
+        Demo demo = demos.findByMatchIdForUpdate(matchRowId).orElse(null);
+        if (demo == null) {
+            jdbc.sql(LOCK_MATCH_SQL).param("matchRowId", matchRowId).query(Long.class).single();
+            demo = demos.findByMatchIdForUpdate(matchRowId).orElse(null);
+        }
+        if (!isOpenToFirstDemo(matchRowId, demo)) {
+            storedMeanwhile.run();
+            return matchRowId;
+        }
+        int changed = jdbc.sql(TAKE_OVER_SQL)
+                .param("ownerUserId", ownerUserId)
+                .param("matchRowId", matchRowId)
+                .update();
+        if (changed > 0) {
+            log.info("Matchmaking match {} was taken over by {}: its demo never reached an analysis", matchId,
+                    ownerUserId == null ? "the admin key (no owner)" : "user " + ownerUserId);
+        }
+        return matchRowId;
     }
 
     /**
