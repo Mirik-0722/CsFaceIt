@@ -266,7 +266,9 @@ public class DemoService {
      * takes over: either way the match is the actor's (nobody's for the admin key). Should the match turn out not to be
      * open under the transaction's lock (another request made it first, or brought a demo meanwhile), the rules of a
      * stored match are asked in that transaction ({@link #requireMatchmakingMember}). What the site does by itself
-     * never takes up a demo that has a row (FAILED included).
+     * never takes up a demo that has a row (FAILED included), and never takes a stored match over: the walk of a CS2
+     * link ({@code cs2/Cs2ChainJob}) has made the match with its owner before it brings the demo, and the system, which
+     * is nobody, must not take that owner away.
      *
      * @throws NotFoundException {@code MATCH_NOT_FOUND}: a matchmaking match the database does not know, and no link
      */
@@ -277,7 +279,8 @@ public class DemoService {
             return beforeQueued -> persistence.queue(matchRowId, demoUrlAvailable, reviveExisting, beforeQueued);
         }
         Optional<Long> stored = matches.findByFaceitMatchId(matchId).map(Match::getId);
-        if (stored.isPresent() && !(withLink && persistence.isOpenToFirstDemo(stored.get()))) {
+        boolean mayTakeOver = withLink && actor.kind() != Actor.Kind.SYSTEM;
+        if (stored.isPresent() && !(mayTakeOver && persistence.isOpenToFirstDemo(stored.get()))) {
             long matchRowId = stored.get();
             return beforeQueued -> persistence.queue(matchRowId, demoUrlAvailable, reviveExisting, beforeQueued);
         }
