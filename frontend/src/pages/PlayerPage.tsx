@@ -221,8 +221,17 @@ function PlayerProfile({ playerId }: { playerId: string }) {
   const storedItems = stored.data ? firstOfEach(stored.data.pages.flatMap((page) => page.items)) : undefined
   // The list of the page: for a `steam:` player the stored matches; for a FACEIT player the history, with the
   // matchmaking matches of the stored pages loaded so far merged in (each page of those covers the stretch of time of
-  // the history's page of the same number, so a row never lands beyond the history that is loaded).
+  // the history's page of the same number, so a row never lands beyond the history that is loaded; once the history
+  // has ended, the older matchmaking matches still come a page at a time: the stored list has more after a page full of
+  // them).
   const list = steam ? stored : history
+  const lastStored = stored.data?.pages.at(-1)
+  const moreMatchmaking =
+    stored.hasNextPage &&
+    lastStored !== undefined &&
+    lastStored.items.filter((match) => isMatchmakingMatch(match.matchId)).length >= lastStored.limit
+  const hasMore = steam ? stored.hasNextPage : history.hasNextPage || moreMatchmaking
+  const loadingMore = history.isFetchingNextPage || stored.isFetchingNextPage
   const historyItems = history.data ? firstOfEach(history.data.pages.flatMap((page) => page.items)) : undefined
   const matches: MatchSummary[] | undefined = steam
     ? storedItems
@@ -315,15 +324,15 @@ function PlayerProfile({ playerId }: { playerId: string }) {
             {matches && <MatchList items={matches} details={details} />}
             {list.isError && <p className="text-sm text-destructive">{errorMessage(list.error, t)}</p>}
           </div>
-          {list.hasNextPage && (
+          {hasMore && (
             <Button
               variant="outline"
               className="self-center"
-              disabled={list.isFetchingNextPage}
+              disabled={loadingMore}
               onClick={() => {
                 // The next page of both: the rows it brings look their maps up in the stored matches' next page. A
                 // `steam:` player's list is the stored matches themselves.
-                if (!steam) {
+                if (!steam && history.hasNextPage) {
                   void history.fetchNextPage()
                 }
                 if (stored.hasNextPage && !stored.isFetchingNextPage) {
