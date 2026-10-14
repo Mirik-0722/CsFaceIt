@@ -1,6 +1,7 @@
 import { test, type Page } from '@playwright/test'
 import type { AuthProvidersResponse, MeLimits, MeResponse } from '../src/api/authTypes.ts'
 import type { MatchBreakdownResponse } from '../src/api/breakdownTypes.ts'
+import type { EditorRound, EditorSource } from '../src/api/editorTypes.ts'
 import type { PlayerMatchPageResponse, PlayerOverviewResponse } from '../src/api/overviewTypes.ts'
 import type {
   ClipResponse,
@@ -85,6 +86,8 @@ interface Backend {
    */
   clips: ClipResponse[]
   recorder: RecorderStatusResponse
+  /** What the montage editor of the default player in the default match is made from. */
+  editor: EditorSource
   /** The signed-in visitor; `null`: nobody is signed in (the backend answers 204 No Content). */
   me: MeResponse | null
   /** Which ways of signing in the backend has turned on. */
@@ -144,6 +147,9 @@ const READY_CLIP_ID = 1
 const RECORDING_CLIP_ID = 5
 const FAILED_CLIP_ID = 2
 
+// The montage editor of the default player in the default match.
+const MONTAGE_PATH = `/matches/${WON_MATCH_ID}/montaj?player=${PLAYER_ID}`
+
 // `tabs` is explained on ShotPage; the comment on each row names the element the `focus` scenario lands on.
 const PAGES = [
   { name: 'home', path: '/', tabs: 9 }, // the nickname field (after the Steam button; the FACEIT one is not pressable yet)
@@ -167,6 +173,14 @@ const PAGES = [
   { name: 'signin', path: '/', open: openSignIn, tabs: 1 },
   // The account menu of a signed-in visitor, opened over an inner page (the clips: the line under "Clips" shows).
   { name: 'menu', path: '/clips', open: openAccountMenu, tabs: 1, signedIn: true },
+  // The montage editor (plan 7), for the scenarios that name it: empty as it opens without a draft; with a draft of four
+  // segments, the second selected and the playhead past two of its kills; the same draft vertical with the intro, the
+  // playhead on the intro card; the order of the draft; and a draft that no longer fits the demo.
+  { name: 'montage', path: MONTAGE_PATH, tabs: 0, onRequest: true },
+  { name: 'montage-edit', path: MONTAGE_PATH, open: openMontageEdit, tabs: 0, onRequest: true },
+  { name: 'montage-vertical', path: MONTAGE_PATH, open: openMontageVertical, tabs: 0, onRequest: true },
+  { name: 'montage-order', path: MONTAGE_PATH, open: openMontageOrder, tabs: 0, onRequest: true },
+  { name: 'montage-stale', path: MONTAGE_PATH, open: openMontageStale, tabs: 0, onRequest: true },
 ] as const satisfies readonly ShotPage[]
 
 type PageName = (typeof PAGES)[number]['name']
@@ -198,7 +212,9 @@ const DEFAULT_CLIPS: ClipResponse[] = [
 
 /**
  * Ten matches, the newest first: the two of the E2E fixtures (a win and a loss) and eight more, six wins and four
- * losses in all, so that the form strip of the profile has its ten squares.
+ * losses in all, so that the form strip of the profile has its ten squares. The eight take the ids of the stored
+ * matches (`playerMatchesFixture`), so that the profile's history rows find their map, figures and highlight there; the
+ * first two are not stored, and show an unknown map.
  */
 function tenMatches(): MatchHistoryResponse {
   const results = ['WIN', 'LOSS', 'WIN', 'WIN', 'LOSS', 'LOSS', 'WIN', 'WIN', 'WIN', 'LOSS'] as const
@@ -208,7 +224,7 @@ function tenMatches(): MatchHistoryResponse {
     }
     const startedAt = new Date(Date.parse('2023-11-13T21:00:00Z') - index * 24 * 60 * 60 * 1000)
     return {
-      matchId: `1-form-${index}`,
+      matchId: playerMatchesFixture.items[index]?.matchId ?? `1-form-${index}`,
       startedAt: startedAt.toISOString(),
       finishedAt: new Date(startedAt.getTime() + 45 * 60 * 1000).toISOString(),
       result,
@@ -232,6 +248,116 @@ const DEFAULT_OVERVIEW: PlayerOverviewResponse = {
   maps: playerOverviewFixture.maps.map((map) => ({ ...map, wins: WINS_BY_MAP[map.mapName] ?? map.wins })),
 }
 
+// The made-up demo behind the montage editor: 64 ticks a second, round N starting at tick 1000 + (N - 1) * 7000 and
+// lasting 100 s.
+const TICK_RATE = 64
+
+function roundStart(number: number): number {
+  return 1000 + (number - 1) * 7000
+}
+
+/** A tick of round `number`, `seconds` after its start. */
+function tickOf(number: number, seconds: number): number {
+  return roundStart(number) + seconds * TICK_RATE
+}
+
+type MadeUpKill = [seconds: number, weapon: string, victim: string, marks?: ('hs' | 'wall' | 'noscope' | 'smoke')[]]
+
+function editorRound(number: number, side: 'CT' | 'T' | null, kills: MadeUpKill[]): EditorRound {
+  return {
+    number,
+    startTick: roundStart(number),
+    endTick: roundStart(number) + 100 * TICK_RATE,
+    side,
+    kills: kills.map(([seconds, weapon, victimNickname, marks = []]) => ({
+      tick: tickOf(number, seconds),
+      weapon,
+      headshot: marks.includes('hs'),
+      wallbang: marks.includes('wall'),
+      noscope: marks.includes('noscope'),
+      throughSmoke: marks.includes('smoke'),
+      victimNickname,
+    })),
+  }
+}
+
+/** Six rounds with kills of the default player, an ace among them, and the highlights of four of them. */
+const EDITOR_SOURCE: EditorSource = {
+  matchId: WON_MATCH_ID,
+  mapName: 'de_mirage',
+  tickRate: TICK_RATE,
+  player: { playerId: PLAYER_ID, nickname: playerFixture.nickname },
+  rounds: [
+    editorRound(2, 'CT', [
+      [24, 'm4a1_silencer', 'playerB2', ['hs']],
+      [31, 'm4a1_silencer', 'playerB4'],
+    ]),
+    editorRound(5, 'CT', [
+      [41, 'awp', 'playerB1'],
+      [47, 'awp', 'playerB3', ['smoke']],
+    ]),
+    editorRound(7, 'CT', [
+      [15, 'm4a1_silencer', 'playerB5', ['hs']],
+      [17, 'm4a1_silencer', 'playerB2', ['wall']],
+      [21, 'm4a1_silencer', 'playerB1', ['hs']],
+    ]),
+    editorRound(14, 'T', [
+      [30, 'ak47', 'playerB1'],
+      [33, 'ak47', 'playerB4', ['hs']],
+      [34, 'ak47', 'playerB2', ['hs']],
+      [52, 'ak47', 'playerB5'],
+      [58, 'deagle', 'playerB3', ['hs']],
+    ]),
+    editorRound(18, 'T', [[12, 'awp', 'playerB4', ['noscope']]]),
+    editorRound(21, null, [
+      [72, 'ak47', 'playerB2'],
+      [80, 'knife', 'ThirtyTwo_Characters_Nickname_01'],
+    ]),
+  ],
+  highlights: [
+    { id: 101, type: 'SMOKE_KILL', roundNumber: 5, tickStart: tickOf(5, 44), tickEnd: tickOf(5, 49) },
+    { id: 102, type: 'K3', roundNumber: 7, tickStart: tickOf(7, 12), tickEnd: tickOf(7, 23) },
+    { id: 103, type: 'ACE', roundNumber: 14, tickStart: tickOf(14, 27), tickEnd: tickOf(14, 60) },
+    { id: 104, type: 'NO_SCOPE', roundNumber: 18, tickStart: tickOf(18, 9), tickEnd: tickOf(18, 14) },
+  ],
+  limits: {
+    preSeconds: 3,
+    postSeconds: 2,
+    maxSegmentSeconds: 60,
+    maxDurationSeconds: 300,
+    maxSegments: 30,
+    qualities: ['720p', '1080p'],
+    aspects: ['16:9', '9:16'],
+    titleMaxLength: 60,
+    musicTracks: [
+      { id: 'night-drive', name: 'Night Drive' },
+      { id: 'low-orbit', name: 'Low Orbit' },
+      { id: 'paper-tigers', name: 'Paper Tigers' },
+    ],
+  },
+}
+
+/**
+ * A draft of four segments as the editor keeps it (`serializeDraft` of src/lib/montage.ts, which needs a DOM to load):
+ * the ace, the triple kill in slow motion, the two AWP kills and the no-scope, with a title and music.
+ */
+const MONTAGE_DRAFT = {
+  version: 1,
+  segments: [
+    { startTick: tickOf(14, 27), endTick: tickOf(14, 36), slowMo: false },
+    { startTick: tickOf(7, 12), endTick: tickOf(7, 23), slowMo: true },
+    { startTick: tickOf(5, 38), endTick: tickOf(5, 49), slowMo: false },
+    { startTick: tickOf(18, 9), endTick: tickOf(18, 14), slowMo: false },
+  ],
+  title: 'Mirage night, ace on T side',
+  intro: false,
+  musicTrack: 'night-drive',
+  quality: '1080p',
+  aspect: '16:9',
+}
+
+const VERTICAL_DRAFT = { ...MONTAGE_DRAFT, intro: true, aspect: '9:16' }
+
 const DEFAULT_BACKEND: Backend = {
   nickname: 's1mple',
   player: playerFixture,
@@ -246,6 +372,7 @@ const DEFAULT_BACKEND: Backend = {
   demo: demoFixture,
   clips: DEFAULT_CLIPS,
   recorder: recorderStatusFixture,
+  editor: EDITOR_SOURCE,
   me: null,
   providers: { steam: true, faceit: false },
   uploads: [],
@@ -759,6 +886,14 @@ const SCENARIOS: Scenario[] = [
   // The first scoreboard scrolled to its right end, on a phone: the player column and the team header stay in place.
   // The default scoreboard fits in 390px and has nothing to scroll; the one with the 32-character nickname overflows.
   { name: 'scrolled-long', pages: ['match'], viewports: [PHONE], backend: LONG_BACKEND, before: scrollScoreboard },
+  // The montage editor (plan 7) as a visitor who is not signed in sees it: the order is "Sign in" or the admin key.
+  {
+    name: 'montage',
+    pages: ['montage', 'montage-edit', 'montage-vertical', 'montage-stale'],
+    languages: ['uz', 'en'],
+  },
+  // The same editor as the signed-in player whose kills they are: "Record the montage", and its order dialog.
+  { name: 'montage-member', pages: ['montage-edit', 'montage-order'], languages: ['uz', 'en'], backend: { me: MEMBER } },
   // Where the focus ring is on each page's content: the element that the page's `tabs` presses of Tab reach.
   { name: 'focus', before: pressTab },
 ]
@@ -801,6 +936,7 @@ function answersFor(backend: Backend): Map<string, Reply> {
     [`GET /api/v1/players/${PLAYER_ID}/clips?offset=0&limit=12`, { body: { items: ownClips, offset: 0, limit: 12 } }],
     ['GET /api/v1/clips?offset=0&limit=12', { body: { items: finishedClips, offset: 0, limit: 12 } }],
     ['GET /api/v1/recorder/status', { body: backend.recorder }],
+    [`GET /api/v1/matches/${WON_MATCH_ID}/editor?playerId=${PLAYER_ID}`, { body: backend.editor }],
     [
       'GET /api/v1/auth/me',
       backend.me
@@ -952,6 +1088,46 @@ async function scrollScoreboard(page: Page) {
   await page.locator('[data-slot="table-container"]').first().evaluate((box) => {
     box.scrollLeft = box.scrollWidth
   })
+}
+
+/** Puts a draft where the montage editor keeps it and opens the editor again, so that it starts from the draft. */
+async function openWithDraft(page: Page, draft: object, fits = true) {
+  const key = `csfaceit.montage.${WON_MATCH_ID}.${PLAYER_ID}`
+  await page.evaluate(`localStorage.setItem(${JSON.stringify(key)}, ${JSON.stringify(JSON.stringify(draft))})`)
+  await page.reload()
+  await settle(page)
+  await page.getByRole(fits ? 'listbox' : 'status').first().waitFor()
+}
+
+/** A draft whose music the backend no longer offers: the editor opens empty and says why, once. */
+async function openMontageStale(page: Page) {
+  await openWithDraft(page, { ...MONTAGE_DRAFT, musicTrack: 'a-track-that-was-removed' }, false)
+}
+
+/**
+ * The draft of four segments with its second one (the slow-motion triple kill) selected, and the playhead 10 s of the
+ * video further on, past two of its kills, so that the monitor's kill feed has lines. A click in the top-left corner
+ * then takes the focus off the ruler.
+ */
+async function openMontageEdit(page: Page) {
+  await openWithDraft(page, MONTAGE_DRAFT)
+  await page.getByRole('option').nth(1).click()
+  const ruler = page.getByRole('slider')
+  await ruler.press('Shift+ArrowRight')
+  await ruler.press('Shift+ArrowRight')
+  await page.mouse.click(1, 1)
+}
+
+/** The same draft vertical and with the intro: the playhead stays at the start, on the intro card. */
+async function openMontageVertical(page: Page) {
+  await openWithDraft(page, VERTICAL_DRAFT)
+}
+
+/** The draft's order: "Record the montage" (the header's on a desktop, the bottom bar's on a phone) opens the dialog. */
+async function openMontageOrder(page: Page) {
+  await openWithDraft(page, MONTAGE_DRAFT)
+  await page.getByRole('button', { name: /Montajni yozish|Record the montage/ }).click()
+  await page.locator('[data-slot="dialog-content"]').waitFor()
 }
 
 /** One test per scenario, page, width and language. */

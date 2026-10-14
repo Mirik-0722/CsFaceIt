@@ -374,10 +374,19 @@ export function problemsOf(montage: Montage, source: EditorSource): Problem[] {
   return problems
 }
 
+/**
+ * The text without its control characters (a pasted tab or line break): the backend refuses a title that has one, and
+ * would say so as a wrong option. The title field drops them as they are typed or pasted.
+ */
+export function withoutControls(text: string): string {
+  return text.replace(/\p{Cc}/gu, '')
+}
+
 /** The order of the montage as the backend takes it: the segments in their order, an empty title as none. */
 export function toRequest(montage: Montage, playerId: string): MontageRequest {
   const { title, intro, musicTrack, quality, aspect } = montage.options
-  const trimmed = title.trim()
+  // A draft kept before the field dropped control characters may still hold one.
+  const trimmed = withoutControls(title).trim()
   return {
     playerId,
     quality,
