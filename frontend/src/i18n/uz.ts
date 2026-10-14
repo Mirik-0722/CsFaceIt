@@ -686,5 +686,7 @@ export const uz: Messages = {
     unlinkNo: "Yo'q",
     importFailed: "Demoni havola orqali olib bo'lmadi. Uni fayl sifatida yuklashingiz mumkin.",
     importFailedPlain: "Demoni havola orqali olib bo'lmadi.",
+    uploadText:
+      'Matchmaking demosini shu yerga tashlang: CS2 replays papkasidagi .dem yoki yuklab olingan .dem.bz2. Yoki uning replay havolasini joylang.',
   },
 }

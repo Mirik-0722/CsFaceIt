@@ -9,6 +9,7 @@ import { formatDate } from '@/lib/formatDate'
 import { describeHighlight, formatDuration } from '@/lib/highlightLabels'
 import { mapSceneryUrl } from '@/lib/mapArt'
 import { mapLabel, mapScene } from '@/lib/mapTint'
+import { playerPath } from '@/lib/matchSource'
 import { cn } from '@/lib/utils'
 import type { HighlightResponse } from '@/api/types'
 
@@ -24,7 +25,7 @@ function PlayerName({ highlight }: { highlight: HighlightResponse }) {
     // 44px tall for the finger; the negative margin keeps the line where a plain 24px line would be. That box reaches
     // into the rows above and below, so the focus ring is drawn around the name itself, not around the box.
     <Link
-      to={`/players/${encodeURIComponent(highlight.playerId)}`}
+      to={playerPath(highlight.playerId)}
       className="group/name -my-2.5 inline-flex min-h-11 max-w-full items-center underline-offset-4 outline-none hover:underline"
     >
       <span className="truncate group-focus-visible/name:outline-2 group-focus-visible/name:outline-offset-2">

@@ -23,7 +23,7 @@ import { formatInteger } from '@/lib/formatNumber'
 import { formatDuration } from '@/lib/highlightLabels'
 import { mapSceneryUrl } from '@/lib/mapArt'
 import { mapLabel, mapScene } from '@/lib/mapTint'
-import { isSteamPlayer } from '@/lib/matchSource'
+import { isSteamPlayer, playerPath } from '@/lib/matchSource'
 import { cn } from '@/lib/utils'
 import { useHasUnlinkedNotice, useViewer } from '@/lib/viewer'
 import { isKnife, weaponLabel } from '@/lib/weapons'
@@ -539,7 +539,7 @@ function ClipByline({ clip }: { clip: ClipResponse }) {
           them yet, so that the line is two rows from the start and does not grow when the facts arrive. */}
       <div className="flex max-w-full flex-wrap items-center gap-x-3.5 max-sm:basis-full">
         <Link
-          to={`/players/${encodeURIComponent(clip.playerId)}`}
+          to={playerPath(clip.playerId)}
           className="inline-flex min-h-11 items-center gap-2.5 font-semibold text-foreground underline-offset-4 hover:underline"
         >
           {who}

@@ -22,7 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
-import { isSteamPlayer, steamPlayerId } from '@/lib/matchSource'
+import { isSteamPlayer, playerPath, steamPlayerId } from '@/lib/matchSource'
 import { useDemoBringing } from '@/lib/useDemoBringing'
 import { useViewer } from '@/lib/viewer'
 
@@ -128,8 +128,11 @@ function PlayerMatches({ playerId }: { playerId: string }) {
   // A player that cannot be shown has no matches to show either: its error is the one message on the page. Not so the
   // visitor's own `steam:` player before the first of its demos has been read: the database has no row for it yet, and
   // the page is where that first demo is brought (the list is empty, the upload box and the CS2 link are there).
+  // Whose `steam:` page this is is known only once `/auth/me` has answered: until then the page is loading, so that a
+  // missing player is neither said nor drawn for its own visitor.
+  const waitingForMe = isSteamPlayer(playerId) && viewer.loading
   const playerFailed =
-    player.isError && !player.data && !(ownSteam && player.error.code === 'PLAYER_NOT_FOUND')
+    !waitingForMe && player.isError && !player.data && !(ownSteam && player.error.code === 'PLAYER_NOT_FOUND')
   const labels: Record<Filter, string> = {
     all: t.matches.all,
     analyzed: t.demo.status.ANALYZED,
@@ -159,14 +162,14 @@ function PlayerMatches({ playerId }: { playerId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <h1 className="heading-page">{t.matches.title}</h1>
         <div aria-live="polite">
-          {player.isPending && <p className="label-mono">{t.player.loading}</p>}
+          {(player.isPending || (waitingForMe && !player.data)) && <p className="label-mono">{t.player.loading}</p>}
           {player.data && (
             // The way back to the profile. The name is a small mono line, but 44px tall for the finger, and with 8px at its
             // sides, so that the focus ring does not touch the letters. The negative margins take back the 8px that the
             // box is taller than the title beside it and the 8px it is wider than its text on each side: the title keeps
             // its place, and under the title on a phone the letters start at the same edge as the title's.
             <Link
-              to={`/players/${encodeURIComponent(playerId)}`}
+              to={playerPath(playerId)}
               className="-mx-2 -my-1 inline-flex min-h-11 items-center px-2 font-mono text-xs text-subtle underline-offset-4 hover:text-foreground hover:underline"
             >
               {player.data.nickname}
@@ -174,7 +177,12 @@ function PlayerMatches({ playerId }: { playerId: string }) {
           )}
         </div>
       </div>
-      {playerFailed ? (
+      {waitingForMe ? (
+        <div className="flex flex-col gap-2">
+          <p className="label-mono">{t.player.loadingMatches}</p>
+          <Skeleton className="h-64 w-full" />
+        </div>
+      ) : playerFailed ? (
         <p className="text-sm text-destructive">{errorMessage(player.error, t)}</p>
       ) : (
         <div className="flex flex-wrap items-start gap-8">

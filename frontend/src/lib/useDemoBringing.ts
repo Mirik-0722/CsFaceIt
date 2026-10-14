@@ -110,6 +110,12 @@ export function useDemoBringing(items: PlayerMatchResponse[] | undefined, comple
         return
       }
       const { items: rows, viewer: who, complete: allLoaded } = latest.current
+      // A FACEIT match is acted on through the visitor's FACEIT player: an account without one (the matches page of
+      // its SteamID) is refused that whatever the list holds, as the backend would refuse it.
+      if (!who.admin && who.signedIn && who.playerId === null && !isMatchmakingMatch(matchId)) {
+        put(matchId, { phase: 'failed', text: (t) => t.access.FACEIT_NOT_LINKED })
+        return
+      }
       // A matchmaking match is created by the first upload of its demo, so it is in nobody's list before it: the
       // backend decides (and refuses with its own code a demo the visitor did not play in).
       if (

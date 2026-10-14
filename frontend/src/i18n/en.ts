@@ -782,5 +782,8 @@ export const en = {
     // demo panel's sentence for whoever may upload, and the plain one for whoever may not.
     importFailed: 'The demo could not be fetched by its link. You can upload it as a file.',
     importFailedPlain: 'The demo could not be fetched by its link.',
+    // The line of the upload box for an account without FACEIT, which brings matchmaking demos only.
+    uploadText:
+      'Drop a matchmaking demo here: the .dem from your CS2 replays folder or a downloaded .dem.bz2. Or paste its replay link.',
   },
 }

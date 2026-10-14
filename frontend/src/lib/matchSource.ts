@@ -24,16 +24,25 @@ export function steamPlayerId(steamId: string): string {
 }
 
 /**
+ * The address of a player's page, or of one of its sections (`matches`, `highlights`), written one way by every link:
+ * the id encoded as a path segment, except the colon of `steam:`, which a path allows and the address bar shows as it
+ * is. A navigation link compares its path with the address as written, so a second spelling of the same page would
+ * not be marked current. (The API's paths are encoded on their own, segment by segment: `api/client.ts`.)
+ */
+export function playerPath(playerId: string, section?: string): string {
+  const id = isSteamPlayer(playerId)
+    ? `${STEAM_PLAYER_PREFIX}${encodeURIComponent(playerId.slice(STEAM_PLAYER_PREFIX.length))}`
+    : encodeURIComponent(playerId)
+  return section ? `/players/${id}/${section}` : `/players/${id}`
+}
+
+/**
  * The page of the signed-in visitor's own matches: the FACEIT player's, else, for an account without FACEIT, the one
  * its SteamID is known by (its matchmaking matches, and the CS2 link). Null for nobody, and for an account with neither.
- * The colon of `steam:` stays as it is (it is allowed in a path, and the SteamID is digits): the address bar shows it
- * so, and a navigation link compares its path with the address as written to tell that it is the current page.
  */
 export function ownMatchesPath(
   me: { playerId: string | null; steamId: string | null } | null | undefined,
 ): string | null {
-  if (me?.playerId) {
-    return `/players/${encodeURIComponent(me.playerId)}/matches`
-  }
-  return me?.steamId ? `/players/${STEAM_PLAYER_PREFIX}${encodeURIComponent(me.steamId)}/matches` : null
+  const playerId = me?.playerId ?? (me?.steamId ? steamPlayerId(me.steamId) : null)
+  return playerId === null ? null : playerPath(playerId, 'matches')
 }

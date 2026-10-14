@@ -14,7 +14,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { errorMessage } from '@/lib/errorMessage'
-import { isMatchmakingMatch, isSteamPlayer } from '@/lib/matchSource'
+import { isMatchmakingMatch, isSteamPlayer, playerPath } from '@/lib/matchSource'
 import { mostPlayedMap, mostPlayedScenery } from '@/lib/mostPlayedScenery'
 import { cn } from '@/lib/utils'
 import type { MatchSummary } from '@/api/types'
@@ -137,7 +137,7 @@ function LatestHighlights({ playerId }: { playerId: string }) {
       </div>
       {items && items.length > 0 && (
         <Link
-          to={`/players/${encodeURIComponent(playerId)}/highlights`}
+          to={playerPath(playerId, 'highlights')}
           className={cn(buttonVariants({ variant: 'outline' }), 'self-center')}
         >
           {t.highlight.all}
@@ -263,7 +263,7 @@ function PlayerProfile({ playerId }: { playerId: string }) {
 
   // A SteamID that turned out to be a FACEIT player's (who signed in with it): that player's page is the one.
   if (steam && player.data && player.data.playerId !== playerId) {
-    return <Navigate replace to={`/players/${encodeURIComponent(player.data.playerId)}`} />
+    return <Navigate replace to={playerPath(player.data.playerId)} />
   }
 
   return (
@@ -306,7 +306,7 @@ function PlayerProfile({ playerId }: { playerId: string }) {
             <h2 className="heading-section">{t.player.history}</h2>
             {hasMatches && (
               <Link
-                to={`/players/${encodeURIComponent(playerId)}/matches`}
+                to={playerPath(playerId, 'matches')}
                 aria-label={t.matches.allLabel}
                 className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4 hover:text-primary"
               >
@@ -329,17 +329,19 @@ function PlayerProfile({ playerId }: { playerId: string }) {
             {matches && <MatchList items={matches} details={details} />}
             {list.isError && <p className="text-sm text-destructive">{errorMessage(list.error, t)}</p>}
           </div>
-          {hasMore && (
+          {/* Only under a list that is drawn: a click before it would load pages that are not shown. */}
+          {hasMore && matches !== undefined && (
             <Button
               variant="outline"
               className="self-center"
               disabled={loadingMore}
               onClick={() => {
                 // The next page of both: the rows it brings look their maps up in the stored matches' next page. The
-                // stored list is not taken ahead of the history (the page of matches may have loaded it further; one that
-                // fell behind after a failure catches up a page at a time); once the history has ended it goes on alone.
-                // A `steam:` player's list is the stored matches themselves.
-                const historyGoesOn = !steam && history.hasNextPage
+                // stored list is not taken ahead of the history (the page of matches may have loaded it further), and
+                // one that fell behind it (a page of it failed) is brought level first, alone; once the history has
+                // ended it goes on alone. A `steam:` player's list is the stored matches themselves.
+                const storedBehind = !steam && stored.hasNextPage && storedPages < historyPages
+                const historyGoesOn = !steam && history.hasNextPage && !storedBehind
                 if (historyGoesOn) {
                   void history.fetchNextPage()
                 }
