@@ -6,9 +6,15 @@ import io.csfaceit.backend.cs2.Cs2Links.Claimed;
 import io.csfaceit.backend.cs2.Cs2Links.Progress;
 import io.csfaceit.backend.cs2.Cs2Links.State;
 import io.csfaceit.backend.cs2.SteamShareCodeClient.Answer;
+import io.csfaceit.backend.demo.Demo;
+import io.csfaceit.backend.demo.DemoErrorCode;
 import io.csfaceit.backend.demo.DemoLinkRefusedException;
+import io.csfaceit.backend.demo.DemoPersistence;
 import io.csfaceit.backend.demo.DemoRepository;
 import io.csfaceit.backend.demo.DemoService;
+import io.csfaceit.backend.demo.DemoStatus;
+import io.csfaceit.backend.match.Match;
+import io.csfaceit.backend.match.MatchRepository;
 import io.csfaceit.backend.match.MatchSource;
 import java.net.URI;
 import java.time.Clock;
@@ -34,15 +40,20 @@ import org.springframework.stereotype.Component;
  *   <li>The code that is pending, if any (the one the player gave, or the last one Steam gave), goes to the bridge
  *       ({@link BridgeClient}). Its match is made, owned by the player, and its replay is imported through the path of a
  *       pasted link ({@link DemoService#requestImport(String, URI, Actor)}) as the site itself ({@link Actor#system()}:
- *       no limit counts it; a match that has a demo, in any state, is left alone). A replay that is not ready yet is
+ *       no limit counts it). A match that has a demo is left alone, except a demo of the player's own match that failed
+ *       at the import stage and was never analyzed, which is queued again: so a failed import is tried again when the
+ *       walk meets its code again (after a back-off, or when the player links again with that code). A replay that is
+ *       not ready yet is
  *       asked for again after {@code not-ready-recheck}, and the link stops for this run. An expired one leaves the
  *       match with a FAILED demo ({@code REPLAY_EXPIRED}) and is never asked for again. A match the game coordinator
  *       does not know is let go. A bridge that fails, is busy or does not answer stops the link with a back-off.
  *   <li>Steam is asked for the code after the last known one ({@link SteamShareCodeClient}). A newer code becomes the
  *       known one and the pending one, and the next step brings its match. No newer code: the link is looked at again
  *       after {@code idle-recheck}. A refused authentication code or known code puts the link into
- *       {@code BAD_AUTH_CODE} or {@code BAD_SHARE_CODE}, where it stays until the player links again. Steam's 429 ends
- *       the whole run. A Steam that fails or does not answer stops the link with a back-off.
+ *       {@code BAD_AUTH_CODE} or {@code BAD_SHARE_CODE}, where it stays until the player links again (a 403 counts
+ *       for the authentication code only once Steam has said that the site's key is good). Steam's 429, and a refused key
+ *       of the site, end the whole run and change no link. A Steam that fails or does not answer stops the link with a
+ *       back-off.
  * </ol>
  * The back-off is {@code 2^failures} minutes after the failure, at most an hour; any answer that is not a failure resets
  * the count. Each step's result is written at once ({@link Cs2Links#update}), only while the link is still the one the
@@ -54,8 +65,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class Cs2ChainJob {
 
-    /** How long a claimed link is kept from the others: far longer than a run takes. */
-    private static final Duration LEASE = Duration.ofMinutes(15);
+    /** What a lease adds to the longest a run can take, for the pacing of the link requests that run meanwhile. */
+    private static final Duration LEASE_MARGIN = Duration.ofMinutes(5);
+
+    /** The pause between two Steam calls ({@link SteamShareCodeClient}). */
+    private static final Duration STEAM_PACE = Duration.ofSeconds(1);
 
     /** The longest back-off. */
     private static final Duration MAX_BACKOFF = Duration.ofHours(1);
@@ -72,10 +86,20 @@ public class Cs2ChainJob {
     private final BridgeClient bridge;
     private final DemoService demoService;
     private final DemoRepository demos;
+    private final DemoPersistence demoPersistence;
+    private final MatchRepository matches;
     private final Clock clock;
 
+    /**
+     * How long a claimed link is kept from the others: the longest one run can take with these settings (every link it
+     * claimed walked to its last step, each step waiting out the bridge's and Steam's timeouts and the pacing), and a
+     * margin. A link that is walked has its lease renewed at every step.
+     */
+    private final Duration lease;
+
     public Cs2ChainJob(Cs2Properties properties, Cs2Links links, AuthCodeCipher cipher, SteamShareCodeClient steam,
-                       BridgeClient bridge, DemoService demoService, DemoRepository demos, Clock clock) {
+                       BridgeClient bridge, DemoService demoService, DemoRepository demos,
+                       DemoPersistence demoPersistence, MatchRepository matches, Clock clock) {
         this.properties = properties;
         this.links = links;
         this.cipher = cipher;
@@ -83,7 +107,12 @@ public class Cs2ChainJob {
         this.bridge = bridge;
         this.demoService = demoService;
         this.demos = demos;
+        this.demoPersistence = demoPersistence;
+        this.matches = matches;
         this.clock = clock;
+        Duration step = properties.bridgeTimeout().plus(properties.steamTimeout()).plus(STEAM_PACE);
+        this.lease = step.multipliedBy((long) properties.sync().linksPerRun() * properties.sync().stepsPerLink())
+                .plus(LEASE_MARGIN);
     }
 
     @Scheduled(fixedDelayString = "${cs2.sync.interval:2m}", initialDelayString = "${cs2.sync.interval:2m}")
@@ -102,14 +131,15 @@ public class Cs2ChainJob {
             return;
         }
         Instant now = now();
-        List<Claimed> due = links.claimDue(now, properties.sync().linksPerRun(), now.plus(LEASE));
+        List<Claimed> due = links.claimDue(now, properties.sync().linksPerRun(), now.plus(lease));
         if (due.isEmpty()) {
             return;
         }
         Run run = new Run();
         for (Claimed link : due) {
-            if (run.rateLimited) {
-                // Steam said the site asks too often: the links not walked yet are due again at the next run.
+            if (run.stopped()) {
+                // Steam said the site asks too often, or refused its key: the links not walked yet are due again at the
+                // next run.
                 links.update(link, new Progress(State.ACTIVE, link.lastShareCode(), link.pendingShareCode(),
                         link.failures(), now(), null));
                 continue;
@@ -123,14 +153,22 @@ public class Cs2ChainJob {
             }
         }
         log.info("CS2 walk: looked at {} link(s), brought {} match(es){}", due.size(), run.brought,
-                run.rateLimited ? "; Steam asked to slow down, the run ended early" : "");
+                run.rateLimited ? "; Steam asked to slow down, the run ended early"
+                        : run.keyRefused ? "; Steam refused the site's key, the run ended early" : "");
     }
 
     /** What one run has seen so far. */
     private static final class Run {
         int brought;
         boolean rateLimited;
+        boolean keyRefused;
         boolean bridgeTokenReported;
+        /** Whether Steam has said in this run that the site's key is good (asked at most once a run). */
+        final SteamShareCodeClient.KeyCheck keyCheck = new SteamShareCodeClient.KeyCheck();
+
+        boolean stopped() {
+            return rateLimited || keyRefused;
+        }
     }
 
     /** Where one link's walk stands; written after every step. */
@@ -200,7 +238,9 @@ public class Cs2ChainJob {
                             run.brought++;
                         }
                     } catch (RuntimeException e) {
-                        // The database or the broker away: the code stays pending and is tried again after the back-off.
+                        // The database or the broker away, or the replay's host did not resolve: the code stays pending
+                        // and is tried again after the back-off. A demo that the failed attempt left FAILED (its message
+                        // could not be published) is queued again then (see bring).
                         log.warn("CS2 walk: could not bring match {} of user {}: {}", matchId.get(), userId,
                                 e.getClass().getSimpleName());
                         walk.backOff();
@@ -260,7 +300,9 @@ public class Cs2ChainJob {
      */
     private boolean bring(String matchId, long userId, String code, Resolution resolution) {
         links.saveMatch(matchId, userId, code, resolution.matchTime());
-        if (demos.existsByMatchFaceitMatchId(matchId)) {
+        Optional<Demo> existing = demos.findByMatchFaceitMatchId(matchId);
+        boolean revive = existing.isPresent() && isFailedImportOfOwnMatch(existing.get(), matchId, userId);
+        if (existing.isPresent() && !revive) {
             return false;
         }
         URI replay;
@@ -271,14 +313,34 @@ public class Cs2ChainJob {
             return false;
         }
         try {
-            demoService.requestImport(matchId, replay, Actor.system());
+            demoService.requestImport(matchId, replay, Actor.system(), revive);
         } catch (DemoLinkRefusedException e) {
+            if (e.isUnresolvedHost()) {
+                // May pass: thrown on, so that the code stays pending and is tried again after the back-off.
+                throw e;
+            }
             // Refused for good (its host, its addresses or its name): the match stays, without a demo, for an upload.
             log.warn("CS2 walk: the replay of match {} of user {} was refused: {}", matchId, userId, e.getCode());
             return false;
         }
-        log.info("CS2 walk: queued the import of match {} of user {}", matchId, userId);
+        log.info("CS2 walk: queued the {}import of match {} of user {}", revive ? "repeated " : "", matchId, userId);
         return true;
+    }
+
+    /**
+     * Whether a demo that the match already has is one the walk may queue again: FAILED at the import stage (never
+     * stored: {@code IMPORT_FAILED}, or no code, which is a link that was gone, a download refused or a message that could
+     * not be published), of a match that belongs to the link's player and was never analyzed. Never a demo that was
+     * stored and then failed (a parse failure, {@code WRONG_MATCH}) or whose replay expired ({@code REPLAY_EXPIRED}).
+     */
+    private boolean isFailedImportOfOwnMatch(Demo demo, String matchId, long userId) {
+        if (demo.getStatus() != DemoStatus.FAILED || demo.getStorageKey() != null
+                || (demo.getErrorCode() != null && demo.getErrorCode() != DemoErrorCode.IMPORT_FAILED)) {
+            return false;
+        }
+        Optional<Match> match = matches.findByFaceitMatchId(matchId);
+        return match.isPresent() && Long.valueOf(userId).equals(match.get().getOwnerUserId())
+                && demoPersistence.isOpenToFirstDemo(match.get().getId());
     }
 
     /**
@@ -304,8 +366,9 @@ public class Cs2ChainJob {
                 return false;
             }
         }
-        Answer answer = steam.nextCode(walk.link.steamId(), walk.authCode, walk.last);
-        if (answer.answered() && answer.outcome() != SteamShareCodeClient.Outcome.RATE_LIMITED) {
+        Answer answer = steam.nextCode(walk.link.steamId(), walk.authCode, walk.last, run.keyCheck);
+        if (answer.answered() && answer.outcome() != SteamShareCodeClient.Outcome.RATE_LIMITED
+                && answer.outcome() != SteamShareCodeClient.Outcome.KEY_REFUSED) {
             walk.checkedAt = now();
         }
         switch (answer.outcome()) {
@@ -335,6 +398,14 @@ public class Cs2ChainJob {
                 walk.save(now());
                 return false;
             }
+            case KEY_REFUSED -> {
+                // The site's key, not the player's code: no link changes, and the run ends as for a 429.
+                run.keyRefused = true;
+                log.error("CS2 walk: Steam refused the site's key; check STEAM_WEB_API_KEY. The run ends here, and no "
+                        + "link is changed");
+                walk.save(now());
+                return false;
+            }
             default -> {
                 walk.backOff();
                 return false;
@@ -344,7 +415,7 @@ public class Cs2ChainJob {
 
     /** The lease of a claimed link, written while its walk goes on: the walk writes the real next look when it stops. */
     private Instant leaseEnd() {
-        return now().plus(LEASE);
+        return now().plus(lease);
     }
 
     private Instant now() {

@@ -20,7 +20,8 @@ import org.springframework.validation.annotation.Validated;
  * <p>None of the secrets is ever logged, and {@link #toString} leaves them out.
  *
  * @param steamApiKey the Steam Web API key ({@code STEAM_WEB_API_KEY}); sent to Steam in the query of every call
- * @param steamApiUrl where Steam's Web API is ({@code CS2_STEAM_API_URL}); Steam's own address unless a fake plays it
+ * @param steamApiUrl where Steam's Web API is ({@code CS2_STEAM_API_URL}); Steam's own address unless a fake plays it,
+ *        also when it is set but blank
  * @param steamTimeout how long a call to Steam may take, to connect and to answer
  * @param bridgeUrl the address of the bridge ({@code CS2_BRIDGE_URL}), such as {@code http://gcbridge:8090}
  * @param bridgeToken the secret the bridge wants in {@code X-Bridge-Token} ({@code CS2_BRIDGE_TOKEN}); required as soon
@@ -35,7 +36,7 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "cs2")
 public record Cs2Properties(
         @DefaultValue("") String steamApiKey,
-        @DefaultValue("https://api.steampowered.com") String steamApiUrl,
+        @DefaultValue(Cs2Properties.DEFAULT_STEAM_API_URL) String steamApiUrl,
         @DefaultValue("10s") @NotNull Duration steamTimeout,
         @DefaultValue("") String bridgeUrl,
         @DefaultValue("") String bridgeToken,
@@ -61,6 +62,9 @@ public record Cs2Properties(
             @DefaultValue("15m") @NotNull Duration idleRecheck,
             @DefaultValue("5m") @NotNull Duration notReadyRecheck) {
     }
+
+    /** Steam's own Web API, where {@code steamApiUrl} points unless a fake plays it. */
+    public static final String DEFAULT_STEAM_API_URL = "https://api.steampowered.com";
 
     /** Whether the feature is on: the Steam Web API key, the bridge and the secret are all set. */
     public boolean enabled() {

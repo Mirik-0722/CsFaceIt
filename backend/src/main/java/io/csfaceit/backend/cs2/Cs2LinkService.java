@@ -172,10 +172,16 @@ public class Cs2LinkService {
                                 + "own recent matches, from the same page of Steam");
             }
             default -> {
-                // Nothing was learned of the codes: the attempt does not count.
+                // Nothing was learned of the codes: the attempt does not count. A refused key of the site is the site's
+                // fault, so the player is not told that their code is wrong.
                 usage.release(place);
-                log.warn("Could not check the CS2 link of user {}: Steam is not available ({})", user.id(),
-                        answer.outcome());
+                if (answer.outcome() == SteamShareCodeClient.Outcome.KEY_REFUSED) {
+                    log.error("Could not check the CS2 link of user {}: Steam refused the site's key; check "
+                            + "STEAM_WEB_API_KEY", user.id());
+                } else {
+                    log.warn("Could not check the CS2 link of user {}: Steam is not available ({})", user.id(),
+                            answer.outcome());
+                }
                 throw new Refused(HttpStatus.SERVICE_UNAVAILABLE, CS2_STEAM_UNAVAILABLE,
                         "Steam could not be asked to check the codes; try again in a few minutes");
             }

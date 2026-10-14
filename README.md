@@ -536,7 +536,7 @@ Replace `<playerId>` and `<matchId>` with the ids returned by the previous calls
 | 429 | `UPLOAD_LIMIT_REACHED`, `IMPORT_LIMIT_REACHED`, `CLIP_LIMIT_REACHED`, `CS2_LINK_LIMIT_REACHED` | A signed-in player has started as many demo uploads, demo imports, clip orders or CS2 link attempts as a day allows. The body also has `retryAt` and the answer a `Retry-After` header; see [Limits per day](#limits-per-day). |
 | 502 | `FACEIT_UNAVAILABLE` | FACEIT failed or timed out after retries, or refused the request (for example a rejected `FACEIT_API_KEY`, which is not retried), and no cached copy exists. |
 | 503 | `STORAGE_UNAVAILABLE` | The storage cannot do what a request needs: a recorder's (see [Worker API](#worker-api-the-recorder)), or the request for the video or the thumbnail of a clip (see [Video clips](#video-clips)). |
-| 503 | `CS2_STEAM_UNAVAILABLE` | Steam failed, did not answer in time or asked the site to slow down while a CS2 account was being linked; nothing was stored and the attempt does not count (see [CS2 matchmaking](#cs2-matchmaking)). |
+| 503 | `CS2_STEAM_UNAVAILABLE` | Steam failed, did not answer in time, asked the site to slow down or refused the site's own key (`STEAM_WEB_API_KEY`, also logged as an `ERROR`) while a CS2 account was being linked; nothing was stored and the attempt does not count (see [CS2 matchmaking](#cs2-matchmaking)). |
 
 FACEIT responses are cached in Redis (player profile 5 minutes, match history 2 minutes, finished match 24 hours),
 and an expired copy is served when FACEIT is down.
@@ -683,7 +683,7 @@ on the same page of Steam (the link then turns `BAD_AUTH_CODE`). Unlinking (`DEL
 
 | Request | Answer |
 | --- | --- |
-| `POST /api/v1/cs2/link` with `{"authCode": "...", "shareCode": "..."}` | `201` for a new link, `200` for one that replaces the user's earlier link, `{"state", "linkedAt", "checkedAt"}`. The codes are checked for their shape (`400 VALIDATION_ERROR`) and then with Steam: `422 CS2_AUTH_CODE_REFUSED` (Steam refused the authentication code), `422 CS2_SHARE_CODE_REFUSED` (the sharing code is not one of this account's), `503 CS2_STEAM_UNAVAILABLE` (Steam failed, did not answer or asked to slow down: try again later). Nothing is stored on a refusal. At most 10 attempts a day (`429 CS2_LINK_LIMIT_REACHED`, see [Limits per day](#limits-per-day)). |
+| `POST /api/v1/cs2/link` with `{"authCode": "...", "shareCode": "..."}` | `201` for a new link, `200` for one that replaces the user's earlier link, `{"state", "linkedAt", "checkedAt"}`. The codes are checked for their shape (`400 VALIDATION_ERROR`) and then with Steam: `422 CS2_AUTH_CODE_REFUSED` (Steam refused the authentication code), `422 CS2_SHARE_CODE_REFUSED` (the sharing code is not one of this account's), `503 CS2_STEAM_UNAVAILABLE` (Steam failed, did not answer, asked to slow down or refused the site's key: try again later). Nothing is stored on a refusal. At most 10 attempts a day (`429 CS2_LINK_LIMIT_REACHED`, see [Limits per day](#limits-per-day)). |
 | `GET /api/v1/cs2/link` | `200 {"state", "linkedAt", "checkedAt"}`, or `404 CS2_NOT_LINKED`. `checkedAt` is when Steam last answered about the link. |
 | `DELETE /api/v1/cs2/link` | `204`, also when there was no link. The row and its code are gone; the matches it brought stay. |
 
@@ -708,8 +708,16 @@ transaction. On each link it takes at most `steps-per-link` (5) steps:
    - The replay is there: the match `mm-<Valve match id>` is made if the site does not know it, owned by the player,
      with the sharing code and the time of the match, and its replay is imported **as a pasted link of the site itself**
      (Valve's name of the file, the hosts of `DEMO_LINK_ALLOWED_ORIGINS`, which list `http://replay*.valve.net`; no limit
-     per day counts it). A match that has a demo already, in any state, is left alone. The analysis then checks that the
-     owner is among the demo's players ([Matchmaking matches](#matchmaking-matches)).
+     per day counts it). The analysis then checks that the owner is among the demo's players
+     ([Matchmaking matches](#matchmaking-matches)). A match that has a demo already is left alone, with one exception:
+     a demo of the player's own match that **failed at the import stage** (never stored: `IMPORT_FAILED`, or no code,
+     such as a link that was gone after a restart, a download that was refused or a message the broker did not take) and
+     that was never analyzed is queued again. A demo that was parsed and failed (`WRONG_MATCH`, a parse failure) or whose
+     replay expired (`REPLAY_EXPIRED`) never is. So a failed import is tried again whenever the walk meets its code
+     again: after a back-off of the walk itself, or when the player **links again with an older code**, which walks the
+     chain again from that code (matches that have their demo are skipped, at no cost but the calls).
+   - The replay's host does not resolve: a back-off, and the code stays pending. Any other refusal of the replay's
+     address (`DEMO_LINK_HOST_NOT_ALLOWED`, `DEMO_LINK_MISMATCH`) is for good: the match stays without a demo.
    - Not ready yet (`409`): asked again after `not-ready-recheck` (5 minutes); the link waits for it. The bridge says
      "expired" by itself once the match is 2 hours old.
    - Expired (`410`): the match is made (its id decoded from the sharing code, `cs2/ShareCode`, the bridge's decoder)
@@ -719,8 +727,16 @@ transaction. On each link it takes at most `steps-per-link` (5) steps:
      back-off (below), and the code stays pending.
 2. **Then Steam**, for the code after the last known one: a newer code becomes the known and the pending one, and the
    next step brings its match; none (`202`): the link is looked at again after `idle-recheck` (15 minutes); `403`:
-   `BAD_AUTH_CODE`; `412`: `BAD_SHARE_CODE`; `429`: the whole run ends there, and the links it had not walked yet are due
-   at the next one; `5xx` or no answer: a back-off.
+   `BAD_AUTH_CODE`, once the site's key is known to be good (below); `412`: `BAD_SHARE_CODE`; `429`: the whole run ends
+   there, and the links it had not walked yet are due at the next one; `5xx` or no answer: a back-off.
+
+Steam answers `403` for a refused authentication code and for a refused key of the site alike. So a `403` turns a link
+`BAD_AUTH_CODE` only after Steam has said that the key is good: the backend then asks
+`ISteamUser/GetPlayerSummaries/v2` for the same SteamID, a call that needs nothing but the key (paced like the others, at
+most once a run; a `403` page that names the `key=` parameter is taken for a refused key without it). A refused key
+(`401` or `403` there) ends the run like a `429`, changes no link and logs one `ERROR` that names `STEAM_WEB_API_KEY`; a
+link request answers `503 CS2_STEAM_UNAVAILABLE` and does not count. If Steam fails that check too, nothing is decided
+(a back-off, or `503` for a link request).
 
 The back-off is `2^failures` minutes after the failure, at most an hour; an answer that is not a failure resets it. Steam
 is asked at most once a second, by the walk and the link requests together. A player who links again or unlinks while

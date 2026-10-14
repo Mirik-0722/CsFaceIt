@@ -180,6 +180,12 @@ So linking with any authentication code (of the shape `xxxx-xxxxx-xxxx`) and the
 chain B code leaves one match `FAILED` with `REPLAY_EXPIRED` and a third code that is asked for again and again, and the
 chain C code ends in `BAD_SHARE_CODE`.
 
+The stubs accept only the stack's made-up key, `fake-steam-key`: with any other `STEAM_WEB_API_KEY` both
+`GetNextMatchSharingCode` and `ISteamUser/GetPlayerSummaries/v2` (the backend's check of its key after a `403`) answer
+`403`. To see what a refused key does, give the backend another key in a Compose file of your own (for example
+`services: {backend: {environment: {STEAM_WEB_API_KEY: revoked-steam-key}}}` as a further `-f`): the walk ends with one
+`ERROR` naming `STEAM_WEB_API_KEY` and changes no link, and a link request answers `503 CS2_STEAM_UNAVAILABLE`.
+
 The replay address the fake bridge answers with is `http://fake-faceit:8080/valve/730/<match id>_1.dem.bz2`
 (`BRIDGE_FAKE_REPLAY_URL` with `{matchId}`), Valve's name of the match, which the backend checks before it downloads.
 `mappings/valve-replays.json` serves every such address with `__files/demos/local.dem.bz2`: a bzip2 copy of the real demo
