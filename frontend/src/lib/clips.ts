@@ -62,13 +62,25 @@ export function clipFailureText(clip: Pick<ClipResponse, 'error' | 'errorCode'>,
   return reasonText(clip.errorCode, t.clip.reasons) ?? clip.error
 }
 
-/** What a clip shows, as its tag says it: the label of its highlight (`4K`, `1v3 CLUTCH`), or the word for a compilation. */
+/**
+ * What a clip shows, as its tag says it: the label of its highlight (`4K`, `1v3 CLUTCH`), the word for a compilation,
+ * and for a montage its own title, or the word for a montage when it has none.
+ */
 export function clipLabel(clip: ClipResponse, t: Messages): string {
+  if (clip.kind === 'MONTAGE') {
+    return clip.montage?.title?.trim() || t.lively.montage
+  }
   return clip.highlightType ? highlightLabel(clip.highlightType, t) : t.clip.compilation
 }
 
+/** The address of the montage editor for a player of a match (plan 7, the editor's route). */
+export function montageEditorPath(matchId: string, playerId: string): string {
+  return `/matches/${encodeURIComponent(matchId)}/montaj?player=${encodeURIComponent(playerId)}`
+}
+
 /**
- * Where a clip is from, as the corner of its frame says it: `Mirage · R14`, and `Mirage · MATCH` for a compilation.
+ * Where a clip is from, as the corner of its frame says it: `Mirage · R14`, and `Mirage · MATCH` for a compilation or a
+ * montage (a clip of no one round).
  * `R14` and `MATCH` are marks on the frame, the same in every language, like the tags of the highlights. The large
  * frame of a clip's page spells the round out with `spelled` (`Mirage · 14-raund`; the frame writes it in capitals).
  */
