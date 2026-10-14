@@ -3,12 +3,18 @@ import { useMe } from '@/api/auth'
 import { usePlayerClips, useRecentClips } from '@/api/queries'
 import ClipList from '@/components/ClipList'
 import RecorderBanner from '@/components/RecorderBanner'
+import SceneryBand from '@/components/SceneryBand'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useT } from '@/i18n'
 import { isFinished } from '@/lib/clipStatus'
 import { errorMessage } from '@/lib/errorMessage'
+import { mapSceneryUrl } from '@/lib/mapArt'
+import { useLoadedUrl } from '@/lib/useLoadedUrl'
 import type { ClipResponse } from '@/api/types'
+
+/** The picture behind the page's header: Mirage, the first map of the landing page. */
+const SCENERY = mapSceneryUrl('de_mirage')
 
 type Tab = 'all' | 'active' | 'ready' | 'failed'
 
@@ -161,13 +167,19 @@ function PlayerClips({ playerId }: { playerId: string }) {
 export default function ClipsPage() {
   const t = useT()
   const me = useMe()
+  const [shown, onLoad] = useLoadedUrl(SCENERY)
   // A failed answer leaves no visitor in `data`, and the page then draws itself as for one who is not signed in.
   const playerId = me.data?.playerId ?? null
   return (
     <main className="container-page flex flex-col gap-6 pt-9 pb-18">
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-        <h1 className="heading-page">{t.clip.listTitle}</h1>
-        <RecorderBanner boxed />
+      {/* The header stands on the scenery of Mirage (`SceneryBand`): at least 96px high, so that the picture has room to
+          be seen; the title on a scrim of the page's colour, the recorder's box filled. */}
+      <div className="relative isolate flex min-h-24 flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        {SCENERY && <SceneryBand url={SCENERY} shown={shown} onLoad={onLoad} />}
+        <h1 className="heading-page scenery-scrim [--scrim-bleed-x:0.75rem] [--scrim-color:var(--background)] [--scrim-fade-x:0.75rem]">
+          {t.clip.listTitle}
+        </h1>
+        <RecorderBanner boxed className="bg-background/85" />
       </div>
       {me.isPending ? (
         <div aria-live="polite" className="flex flex-col gap-2">
