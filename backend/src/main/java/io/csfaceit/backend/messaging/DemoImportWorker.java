@@ -15,7 +15,15 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
@@ -48,7 +56,27 @@ import org.springframework.stereotype.Component;
 @Component
 public class DemoImportWorker {
 
+    /**
+     * The reason a demo that was queued with a pasted link is FAILED when the link is gone (and FACEIT has no address
+     * of its own for it). Shared with the sweep that republishes lost import messages, which ends such a demo the same
+     * way without going through the queue.
+     */
+    public static final String PASTED_LINK_GONE = "Demo download rejected: the pasted demo link is no longer known. "
+            + "Paste it again, or upload the .dem manually.";
+
     private static final Logger log = LoggerFactory.getLogger(DemoImportWorker.class);
+
+    /** How often an import that is running touches its demo; far shorter than {@code DemoPersistence.STALE_AFTER}. */
+    static final Duration HEARTBEAT = Duration.ofSeconds(60);
+
+    /** The demos this process is importing right now. */
+    private final Set<Long> importing = ConcurrentHashMap.newKeySet();
+
+    private final ScheduledExecutorService heartbeats = Executors.newSingleThreadScheduledExecutor(task -> {
+        Thread thread = new Thread(task, "demo-import-heartbeat");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private final DemoPersistence persistence;
     private final DemoDownloader downloader;
@@ -75,22 +103,64 @@ public class DemoImportWorker {
         return "demos/" + faceitMatchId + ".dem.zst";
     }
 
-    @RabbitListener(queues = DemoMessages.Q_IMPORT)
+    /**
+     * Two consumers, so that the automatic sync of FACEIT demos (a few demos at once) does not leave a demo that a
+     * player asked for by hand waiting behind a long download. The claim ({@link DemoPersistence#claimForImport}) does
+     * not exclude a second import of the same demo: the demo stays QUEUED while it downloads. Three things keep two
+     * consumers from importing it at once:
+     * <ul>
+     *   <li>the demos this process is importing are kept in a set, and a second message for one of them is dropped;
+     *   <li>while an import runs it touches the demo every {@link #HEARTBEAT}, so the sweep that republishes the
+     *       messages of demos QUEUED for more than {@link DemoPersistence#STALE_AFTER} never takes a live import for a
+     *       lost one, however long the download takes, and a demo is republished at most once per that time;
+     *   <li>the sweep republishes a demo only after it has taken it ({@link DemoPersistence#claimStaleQueued}).
+     * </ul>
+     * What remains is the case of several backends. The heartbeat starts only when a message has been consumed, so a
+     * message that waits in the queue for more than {@link DemoPersistence#STALE_AFTER} (a long backlog) is republished,
+     * and the original and the copy can then be consumed by two backends at once; the set above is of one process. Both
+     * would download the file, and for a demo queued for a pasted link that only one backend holds, the other fails it.
+     * A single backend, which is what a deployment has today, is not affected.
+     */
+    @RabbitListener(queues = DemoMessages.Q_IMPORT, concurrency = "2")
     public void onImportRequested(DemoImportRequested message) {
         long demoId = message.demoId();
-        Optional<ImportClaim> claim = persistence.claimForImport(demoId);
-        if (claim.isEmpty()) {
-            announceIfStored(demoId);
+        if (!importing.add(demoId)) {
+            log.info("Dropping {} for demo {}: this process is importing it already", DemoMessages.Q_IMPORT, demoId);
             return;
         }
-        // The import stage is timed from the claim to the end of the work, whatever the outcome; a message that was
-        // ignored above is not an import.
-        Timer.Sample sample = metrics.startImport();
         try {
-            importDemo(message, claim.get().faceitMatchId());
+            Optional<ImportClaim> claim = persistence.claimForImport(demoId);
+            if (claim.isEmpty()) {
+                announceIfStored(demoId);
+                return;
+            }
+            // The import stage is timed from the claim to the end of the work, whatever the outcome; a message that was
+            // ignored above is not an import.
+            Timer.Sample sample = metrics.startImport();
+            ScheduledFuture<?> heartbeat = heartbeats.scheduleWithFixedDelay(() -> beat(demoId), HEARTBEAT.toSeconds(),
+                    HEARTBEAT.toSeconds(), TimeUnit.SECONDS);
+            try {
+                importDemo(message, claim.get().faceitMatchId());
+            } finally {
+                heartbeat.cancel(false);
+                metrics.importFinished(sample);
+            }
         } finally {
-            metrics.importFinished(sample);
+            importing.remove(demoId);
         }
+    }
+
+    private void beat(long demoId) {
+        try {
+            persistence.touchQueued(demoId);
+        } catch (RuntimeException e) {
+            log.warn("Could not touch demo {} while it is imported: {}", demoId, e.toString());
+        }
+    }
+
+    @PreDestroy
+    void stopHeartbeats() {
+        heartbeats.shutdownNow();
     }
 
     /** Downloads, stores and announces the demo this worker has claimed. */
@@ -155,8 +225,7 @@ public class DemoImportWorker {
         if (demoUrl == null || demoUrl.isBlank()) {
             // Queued for a link that is gone (the backend restarted, or the link waited too long) for a match FACEIT
             // has no demo address for.
-            throw new DemoDownloadRejectedException("Demo download rejected: the pasted demo link is no longer known. "
-                    + "Paste it again, or upload the .dem manually.");
+            throw new DemoDownloadRejectedException(PASTED_LINK_GONE);
         }
         if (downloadsApi.isConfigured()) {
             return downloader.download(downloadsApi.signedAddress(demoUrl));

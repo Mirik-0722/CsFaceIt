@@ -1097,6 +1097,53 @@ curl -X POST -H 'X-API-Key: dev-admin-key' \
 # {"demoId":1,"matchId":"...","status":"PARSED","error":null,"errorCode":null,"updatedAt":"..."}   (read GET .../demo for the result)
 ```
 
+### The automatic sync of FACEIT demos
+
+A signed-in player does not have to ask for the demo of every new match. When the page of their matches opens, the site
+calls `POST /api/v1/matches/sync`, and every `faceit.sync.interval` a job does the same for the players who have been
+away. For a player linked to a FACEIT player, both read the recent history (the cached FACEIT answer), take the finished
+matches that started within `max-age`, newest first, and queue the import of at most `matches-per-user` of those that
+have no `demos` row; a match with a row in any state is left alone, so a `FAILED` import is never revived by the sync,
+and two backends or a request that meets a run cannot queue a match twice (the row is unique per match). The imports
+are the system's: no player's limit per day counts them.
+
+**It needs `FACEIT_DOWNLOADS_TOKEN`** (see [How the import gets the file](#how-the-import-gets-the-file)). Without a token,
+or with `faceit.sync.enabled: false`, it does nothing at all: the job returns at once, the request answers
+`202 {"enabled": false, "queued": 0}`, and the backend logs one `INFO` at startup that says it is off and why.
+
+`POST /api/v1/matches/sync` takes a session of a user linked to a FACEIT player (`403 FACEIT_NOT_LINKED` otherwise, the
+admin key alone included), counts against no limit, and answers `202 {"enabled": true, "queued": 2}`; within
+`min-user-interval` of the player's last sync it queues nothing and answers `queued: 0`. If FACEIT cannot be read the
+answer is the same with what was queued, and the player is tried again at the next run.
+
+A match whose import failed, at the sync or later (also when the broker was down when it was queued), is not tried again
+by the sync: the player asks for it by hand. Every attempt to sync a player, successful or not, counts for
+`min-user-interval`, so a FACEIT outage is retried after that time and a player FACEIT keeps refusing does not hold up
+the others.
+
+The same job publishes again the import message of a demo that has stayed `QUEUED` for more than 10 minutes (a message
+the broker lost). A running import touches its demo every minute, so a long download never looks lost, and a demo is
+republished at most once per 10 minutes, by one backend. A demo queued for a pasted link that this backend does not hold
+(a restart, or another backend) and that FACEIT has no address for is left for 30 minutes and then ends `FAILED` with the
+"link is no longer known" reason; one whose match FACEIT does not know ends `FAILED` at once. A demo whose pasted link
+this backend holds is republished without asking FACEIT. When FACEIT refuses the site's own key (`400`, `401`, `403`),
+no demo is failed for it: the demo stays `QUEUED` and is looked at again after 10 minutes.
+
+| Setting (`faceit.sync.*`) | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | `false` switches the sync off. |
+| `interval` | `5m` | How often the job runs. |
+| `seen-within` | `3d` | The job syncs only players who used the site within this long. |
+| `max-age` | `7d` | Only matches that started within this long are brought. |
+| `users-per-run` | `5` | The most players one run syncs. |
+| `matches-per-user` | `3` | The most imports one sync of a player queues. |
+| `matches-per-run` | `10` | The most imports one run queues in all, the most lost messages it publishes again, and the most times it asks FACEIT about lost ones. |
+| `min-user-interval` | `10m` | A player is synced at most this often, by the job and by the request. |
+
+They are plain values of `application.yml`; Spring's relaxed binding lets an environment variable of the backend
+container override one (`FACEIT_SYNC_INTERVAL=30s`). The import queue has two consumers, so that a few synced demos do not
+hold up one a player asked for.
+
 ### Try it without a FACEIT key
 
 With the [fake FACEIT](dev/fake-faceit/README.md) the main match's demo URL serves a 1 KiB placeholder that is not a real

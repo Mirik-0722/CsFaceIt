@@ -175,7 +175,9 @@ public class DemoService {
             queued = persistWithRetry("demo of match " + faceitMatchId,
                     () -> {
                         place.set(null);
-                        return persistence.queue(matchRowId, demoUrlAvailable, publish -> {
+                        // What the site does by itself never takes up a demo that has a row (FAILED included).
+                        return persistence.queue(matchRowId, demoUrlAvailable, actor.kind() != Actor.Kind.SYSTEM,
+                                publish -> {
                             if (link != null || countsAsImport(publish)) {
                                 place.set(usage.reserve(actor, UsageKind.DEMO_IMPORT));
                             }
@@ -214,6 +216,28 @@ public class DemoService {
             throw e;
         }
         return toResponse(faceitMatchId, demo);
+    }
+
+    /**
+     * The address FACEIT gives for the match's demo, from the cached match (stored as a side effect); null or blank when
+     * FACEIT has none (yet). For the sweep that republishes lost import messages.
+     *
+     * @throws NotFoundException {@code MATCH_NOT_FOUND}: FACEIT does not know the match
+     */
+    public String faceitDemoUrl(String faceitMatchId) {
+        return matchService.getMatch(faceitMatchId).demoUrl();
+    }
+
+    /**
+     * Publishes the {@code demo.import} message of a demo again, for the sweep that has taken the demo over
+     * ({@link DemoPersistence#claimStaleQueued}). A pasted link that is still held is kept for the worker and its time
+     * renewed. A failed publish throws and changes nothing: the demo stays QUEUED, touched by the claim, and the sweep
+     * looks at it again when it is stale again.
+     */
+    public void republishImport(long demoId, String faceitMatchId, String demoUrl) {
+        pastedLinks.peek(demoId).ifPresent(link -> pastedLinks.put(demoId, link));
+        amqp.convertAndSend(DemoMessages.EXCHANGE, DemoMessages.Q_IMPORT,
+                new DemoImportRequested(demoId, faceitMatchId, demoUrl));
     }
 
     /**

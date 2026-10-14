@@ -117,7 +117,7 @@ public class HttpFaceitGateway implements FaceitGateway {
                                 log.error("FACEIT answered HTTP {} for {}{}", status, resource,
                                         keyIsSuspect ? ": " + REJECTED_HINT : "");
                                 throw new FaceitRejectedException(
-                                        "FACEIT rejected the request for " + resource + " (HTTP " + status + ")");
+                                        "FACEIT rejected the request for " + resource + " (HTTP " + status + ")", status);
                             })
                             .body(bodyType);
                     if (body == null) {

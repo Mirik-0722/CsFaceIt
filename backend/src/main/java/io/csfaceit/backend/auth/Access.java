@@ -193,6 +193,20 @@ public class Access {
         }
     }
 
+    /**
+     * The FACEIT id of the player the actor is linked to, for what is done for the actor's own matches (the sync of
+     * their demos). Unlike the rules above it holds for an administrator too, and the admin key, which is nobody, has
+     * no player.
+     *
+     * @throws ForbiddenException {@code FACEIT_NOT_LINKED}
+     */
+    public String requireLinkedPlayerId(Actor actor) {
+        if (actor.user() == null) {
+            throw refused(actor, FACEIT_NOT_LINKED, "The admin key has no FACEIT player of its own");
+        }
+        return requireLinkedPlayer(actor);
+    }
+
     /** The FACEIT id of the user's player, which every rule about a match or a player starts from. */
     private static String requireLinkedPlayer(Actor actor) {
         String playerId = actor.user().playerId();
