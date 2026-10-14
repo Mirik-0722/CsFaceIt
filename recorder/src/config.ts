@@ -1,5 +1,6 @@
-import { hostname } from 'node:os'
-import { resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { homedir, hostname } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 
 /** The sizes of picture the backend knows, as it writes them (`ClipQuality`); a recorder says which it can record. */
 export const QUALITIES = ['720p', '1080p'] as const
@@ -51,6 +52,57 @@ export interface Config {
   errorBackoffSeconds: number
   /** Seconds of video the fake recorder makes per second of wall time; 0 is as fast as ffmpeg goes. */
   fakeSpeed: number
+  /**
+   * csdm mode: where CS Demo Manager's command line is, its `csdm.cmd` or the folder that holds it (see `csdmCommand`).
+   * Empty when no default could be made (not on Windows) and none was given, which only matters in csdm mode.
+   */
+  csdmPath: string
+  /** csdm mode: the shortest time limit of a clip, in seconds (see `CSDM_TIMEOUT_FACTOR`). */
+  csdmMinTimeoutSeconds: number
+  /** csdm mode: the time limit of a clip is this many times the length of its recording, or the shortest limit. */
+  csdmTimeoutFactor: number
+  /** csdm mode: how long the game may take from its start until it plays the demo, in seconds; 0 does not watch it. */
+  csdmPlaybackStartSeconds: number
+  /** csdm mode: the folder of CS2 (`...\Counter-Strike Global Offensive`) when it is given; else Steam is asked. */
+  cs2Path: string | undefined
+}
+
+/** How CS Demo Manager's command line is started: `executable` runs `script` as Node.js does. */
+export interface CsdmCommand {
+  executable: string
+  script: string
+  /** The archive that holds `script`: a file, and the one of the two that can be checked from outside Electron. */
+  archive: string
+}
+
+/**
+ * CS Demo Manager's `csdm.cmd` (`build-assets/bin/csdm.cmd` in its repository) only sets `ELECTRON_RUN_AS_NODE=1` and
+ * runs `cs-demo-manager.exe resources\app.asar\cli.js` from its own folder. The recorder does the same itself: Node.js
+ * starts a `.cmd` only through a shell, whose quoting a path with spaces does not survive well, and a process tree
+ * without the shell is one process shorter to kill.
+ */
+export function csdmCommand(csdmPath: string): CsdmCommand {
+  const folder = /\.cmd$/i.test(csdmPath) ? dirname(csdmPath) : csdmPath
+  const archive = join(folder, 'resources', 'app.asar')
+  return { executable: join(folder, 'cs-demo-manager.exe'), script: join(archive, 'cli.js'), archive }
+}
+
+/**
+ * Where CS Demo Manager's installer puts it: one folder per user, `%LOCALAPPDATA%\Programs\cs-demo-manager` (the
+ * one-click NSIS installer of electron-builder, named after the package), with `csdm.cmd` in it.
+ */
+function defaultCsdmPath(env: NodeJS.ProcessEnv): string | undefined {
+  const localAppData = env.LOCALAPPDATA?.trim()
+  return localAppData ? join(localAppData, 'Programs', 'cs-demo-manager', 'csdm.cmd') : undefined
+}
+
+/**
+ * Where CS Demo Manager keeps the FFmpeg it downloads for its videos (`%USERPROFILE%\.csdm\ffmpeg\bin`, a BtbN build
+ * with `ffprobe.exe` beside `ffmpeg.exe`). In csdm mode the recorder uses it too unless `FFMPEG_PATH` says otherwise,
+ * so that the machine needs no second copy; it is there once CS Demo Manager has made its first video.
+ */
+function csdmToolsFolder(): string {
+  return join(homedir(), '.csdm', 'ffmpeg', 'bin')
 }
 
 /** The settings are wrong or missing; the message names every problem at once, so that one start shows them all. */
@@ -140,25 +192,87 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     problems.push(`FAKE_SPEED must be a number of at least 0 (0 is as fast as possible), not '${fakeSpeedText}'`)
   }
 
+  const factorText = text('CSDM_TIMEOUT_FACTOR')
+  const csdmTimeoutFactor = factorText === undefined ? 6 : Number(factorText)
+  if (!Number.isFinite(csdmTimeoutFactor) || csdmTimeoutFactor < 1 || csdmTimeoutFactor > 100) {
+    problems.push(`CSDM_TIMEOUT_FACTOR must be a number from 1 to 100, not '${factorText}'`)
+  }
+
+  const workDir = resolve(text('WORK_DIR') ?? './work')
+  const csdmMode = mode === 'csdm'
+  const csdmPath = text('CSDM_PATH') ?? defaultCsdmPath(env) ?? ''
+  const cs2Path = text('CS2_PATH')
+  if (csdmMode) {
+    problems.push(...csdmProblems(csdmPath, text('CSDM_PATH') !== undefined, workDir, cs2Path))
+  }
+
   const config: Config = {
     backendUrl,
     workerToken,
     workerName,
     mode: mode ?? 'fake',
-    workDir: resolve(text('WORK_DIR') ?? './work'),
+    workDir,
     pollSeconds: seconds('POLL_SECONDS', 5, 1),
     heartbeatSeconds: seconds('HEARTBEAT_SECONDS', 30, 1),
     demoCacheItems: wholeNumber('DEMO_CACHE_ITEMS', 5, 1),
     qualities,
-    ffmpegPath: text('FFMPEG_PATH') ?? 'ffmpeg',
-    ffprobePath: text('FFPROBE_PATH') ?? 'ffprobe',
+    ffmpegPath: text('FFMPEG_PATH') ?? (csdmMode ? join(csdmToolsFolder(), 'ffmpeg.exe') : 'ffmpeg'),
+    ffprobePath: text('FFPROBE_PATH') ?? (csdmMode ? join(csdmToolsFolder(), 'ffprobe.exe') : 'ffprobe'),
     errorBackoffSeconds: seconds('ERROR_BACKOFF_SECONDS', 300, 0),
     fakeSpeed,
+    csdmPath,
+    csdmMinTimeoutSeconds: seconds('CSDM_MIN_TIMEOUT_SECONDS', 600, 60),
+    csdmTimeoutFactor,
+    csdmPlaybackStartSeconds: seconds('CSDM_PLAYBACK_START_SECONDS', 180, 0),
+    cs2Path,
   }
   if (problems.length > 0) {
     throw new ConfigError(problems)
   }
   return config
+}
+
+/**
+ * What stands in the way of recording with the game on this machine: it is not Windows (CS2 with HLAE runs there only),
+ * CS Demo Manager is not where `CSDM_PATH` (or its default) says, the work directory has a `#` in it (CS Demo Manager
+ * strips `#...` from its configuration file as a comment, also inside a path), or `CS2_PATH` is not a CS2 folder.
+ */
+function csdmProblems(csdmPath: string, given: boolean, workDir: string, cs2Path: string | undefined): string[] {
+  const problems: string[] = []
+  if (process.platform !== 'win32') {
+    problems.push(
+      `RECORDER_MODE=csdm records with CS2, HLAE and CS Demo Manager, which run on Windows only; this machine is ` +
+        `${process.platform}. RECORDER_MODE=fake records a test pattern instead.`,
+    )
+  }
+  if (csdmPath === '') {
+    problems.push(
+      'CSDM_PATH is required: the csdm.cmd of CS Demo Manager, normally ' +
+        '%LOCALAPPDATA%\\Programs\\cs-demo-manager\\csdm.cmd (LOCALAPPDATA is not set here, so there is no default)',
+    )
+  } else {
+    const { executable, archive } = csdmCommand(csdmPath)
+    if (!existsSync(executable) || !existsSync(archive)) {
+      problems.push(
+        `${given ? 'CSDM_PATH' : 'CSDM_PATH is not set, and the default'} '${csdmPath}' is not CS Demo Manager's ` +
+          `csdm.cmd (cs-demo-manager.exe and resources\\app.asar are not beside it): install CS Demo Manager, or set ` +
+          'CSDM_PATH to the csdm.cmd in its install folder',
+      )
+    }
+  }
+  if (workDir.includes('#')) {
+    problems.push(
+      `WORK_DIR '${workDir}' has a '#' in it, which CS Demo Manager cuts out of its configuration file as a comment: ` +
+        'choose a folder without one, such as C:\\csfaceit\\work',
+    )
+  }
+  if (cs2Path !== undefined && !existsSync(join(cs2Path, 'game', 'bin', 'win64', 'cs2.exe'))) {
+    problems.push(
+      `CS2_PATH '${cs2Path}' is not the folder of CS2 (game\\bin\\win64\\cs2.exe is not in it): give the ` +
+        "'Counter-Strike Global Offensive' folder of the Steam library, or leave CS2_PATH out to have Steam asked",
+    )
+  }
+  return problems
 }
 
 /** The address with no trailing slash, or a problem when it is not an http(s) address. */

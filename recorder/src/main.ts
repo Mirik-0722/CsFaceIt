@@ -7,7 +7,8 @@ import { ConfigError, loadConfig, type Config } from './config.js'
 import { createDemoCache, zstdAvailable } from './demoCache.js'
 import { runJob, type JobDeps } from './job.js'
 import { log } from './log.js'
-import { createMedia } from './media.js'
+import { createMedia, type Media } from './media.js'
+import { createCsdmRecorder } from './recorders/csdm.js'
 import { createFakeRecorder } from './recorders/fake.js'
 import type { Recorder } from './recorders/recorder.js'
 
@@ -24,16 +25,13 @@ function packageVersion(): string {
   }
 }
 
-/** The recorder of the mode. `csdm`, which drives the game, has none yet: only the fake recorder exists. */
-function createRecorder(config: Config): Recorder {
+/** The recorder of the mode: a test pattern, or the game driven by CS Demo Manager on Windows. */
+function createRecorder(config: Config, media: Media): Recorder {
   switch (config.mode) {
     case 'fake':
       return createFakeRecorder(config)
     case 'csdm':
-      throw new ConfigError([
-        'RECORDER_MODE=csdm (recording with the game) is not part of this version of the recorder yet. ' +
-          'RECORDER_MODE=fake records a test pattern instead.',
-      ])
+      return createCsdmRecorder(config, media)
   }
 }
 
@@ -79,6 +77,7 @@ function pauseAfterFailure(failures: number, ofMachine: boolean, config: Config)
 async function main(): Promise<void> {
   const version = packageVersion()
   let config: Config
+  let media: Media
   let recorder: Recorder
   let unfinishedDownloads: number
   try {
@@ -89,7 +88,8 @@ async function main(): Promise<void> {
       ])
     }
     config = loadConfig()
-    recorder = createRecorder(config)
+    media = createMedia(config.ffmpegPath, config.ffprobePath)
+    recorder = createRecorder(config, media)
     unfinishedDownloads = await prepareWorkDir(config)
   } catch (error) {
     // A start that cannot go on says why in plain words, not with a stack, and does not look like a crash.
@@ -102,16 +102,23 @@ async function main(): Promise<void> {
     config,
     api,
     demos: createDemoCache(config, api),
-    media: createMedia(config.ffmpegPath, config.ffprobePath),
+    media,
     recorder,
   }
+  const modeSettings =
+    config.mode === 'fake'
+      ? `, fake speed ${config.fakeSpeed}`
+      : `, CS Demo Manager ${config.csdmPath}, a clip may take max(${config.csdmMinTimeoutSeconds} s, ` +
+        `${config.csdmTimeoutFactor} x its recording), the demo must play within ` +
+        `${config.csdmPlaybackStartSeconds === 0 ? 'any time' : `${config.csdmPlaybackStartSeconds} s`} of the ` +
+        `game's start, CS2 ${config.cs2Path ?? 'found through Steam'}, ffmpeg ${config.ffmpegPath}`
   log.info(
     `Recorder ${version} starts as '${config.workerName}' in mode ${config.mode}: backend ${config.backendUrl}, ` +
       `qualities ${config.qualities.join(',')}, asks for work every ${config.pollSeconds} s, heartbeat every ` +
       `${config.heartbeatSeconds} s, keeps ${config.demoCacheItems} demos in ${config.workDir}, after a failed clip ` +
       `waits ${config.pollSeconds} s, twice as long for each failure in a row, up to ` +
       `${Math.max(config.pollSeconds, config.errorBackoffSeconds)} s (an error of its machine: that long at once)` +
-      `${config.mode === 'fake' ? `, fake speed ${config.fakeSpeed}` : ''} (the worker token is set)`,
+      `${modeSettings} (the worker token is set)`,
   )
   if (unfinishedDownloads > 0) {
     log.info(`Removed ${unfinishedDownloads} unfinished download(s) that a run which was stopped left in the demo cache`)
