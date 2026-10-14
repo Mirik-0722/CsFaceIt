@@ -1125,7 +1125,9 @@ The same job publishes again the import message of a demo that has stayed `QUEUE
 the broker lost). A running import touches its demo every minute, so a long download never looks lost, and a demo is
 republished at most once per 10 minutes, by one backend. A demo queued for a pasted link that this backend does not hold
 (a restart, or another backend) and that FACEIT has no address for is left for 30 minutes and then ends `FAILED` with the
-"link is no longer known" reason; one whose match FACEIT does not know ends `FAILED` at once.
+"link is no longer known" reason; one whose match FACEIT does not know ends `FAILED` at once. A demo whose pasted link
+this backend holds is republished without asking FACEIT. When FACEIT refuses the site's own key (`400`, `401`, `403`),
+no demo is failed for it: the demo stays `QUEUED` and is looked at again after 10 minutes.
 
 | Setting (`faceit.sync.*`) | Default | Meaning |
 |---|---|---|
@@ -1135,7 +1137,7 @@ republished at most once per 10 minutes, by one backend. A demo queued for a pas
 | `max-age` | `7d` | Only matches that started within this long are brought. |
 | `users-per-run` | `5` | The most players one run syncs. |
 | `matches-per-user` | `3` | The most imports one sync of a player queues. |
-| `matches-per-run` | `10` | The most imports one run queues in all (and the most lost messages it publishes again). |
+| `matches-per-run` | `10` | The most imports one run queues in all, the most lost messages it publishes again, and the most times it asks FACEIT about lost ones. |
 | `min-user-interval` | `10m` | A player is synced at most this often, by the job and by the request. |
 
 They are plain values of `application.yml`; Spring's relaxed binding lets an environment variable of the backend

@@ -18,7 +18,8 @@ import org.springframework.validation.annotation.Validated;
  * @param maxAge only a match that started within this long is brought
  * @param usersPerRun the most players one run of the job syncs
  * @param matchesPerUser the most imports one sync of a player queues
- * @param matchesPerRun the most imports one run of the job queues in all; the run stops when it is reached
+ * @param matchesPerRun the most imports one run of the job queues in all; the run stops when it is reached. The same
+ *        number caps the lost imports one run republishes, and how often that sweep asks FACEIT
  * @param minUserInterval a player is synced at most this often, by the job and by the request alike
  */
 @Validated

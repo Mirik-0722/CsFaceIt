@@ -1,9 +1,10 @@
 package io.csfaceit.backend.faceit;
 
 /**
- * FACEIT refused the request with a 4xx other than 404 and 429 (typically 400, 401 or 403 for an unknown or revoked
- * API key). Repeating the identical request cannot succeed, so the gateway never retries it; callers and the cache's
- * stale fallback treat it like any other {@link FaceitUnavailableException}.
+ * FACEIT refused the request with a 4xx other than 404 and 429 (typically 400 {@code invalid_token}, 401 or 403 for
+ * an unknown or revoked API key). Repeating the identical request cannot succeed, so the gateway never retries it; the
+ * cache's stale fallback and most callers treat it like any other {@link FaceitUnavailableException}. The sync's sweep
+ * of lost imports tells a refused key ({@link #isCredentialRefusal}) from a refused request.
  */
 public class FaceitRejectedException extends FaceitUnavailableException {
 
@@ -24,8 +25,11 @@ public class FaceitRejectedException extends FaceitUnavailableException {
         return status;
     }
 
-    /** Whether the refusal says that the site's own key is wrong or revoked (401 or 403), not that the request is. */
+    /**
+     * Whether the refusal may say that the site's own key is wrong or revoked rather than that the request is: 401 or
+     * 403, and 400, which is what FACEIT answers an unknown key with ({@code invalid_token}).
+     */
     public boolean isCredentialRefusal() {
-        return status == 401 || status == 403;
+        return status == 400 || status == 401 || status == 403;
     }
 }

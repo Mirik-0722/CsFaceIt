@@ -54,10 +54,13 @@ import org.springframework.stereotype.Service;
  * {@link DemoPersistence#STALE_AFTER}. A running import touches its demo every minute (the worker's heartbeat), so a
  * live one never looks lost, and the sweep takes a demo ({@link DemoPersistence#claimStaleQueued}, which touches it
  * under the row's lock) before it publishes, so a demo is republished at most once per that time and by one backend.
- * A demo with neither a pasted link held by this backend nor a FACEIT demo address is left for 30 minutes (twice the
- * link's lifetime, so that a link held by another backend is not given up on) and is then FAILED with the "link no
- * longer known" reason. A demo whose match FACEIT does not know, or refuses, is FAILED at once; a failure that may go
- * away (FACEIT or the broker unavailable) leaves the demo touched, which sends it to the back of the line.
+ * A demo whose pasted link this backend holds is republished without asking FACEIT. For the others FACEIT is asked
+ * for the demo address, at most {@code matches-per-run} times per run. A demo with neither a held link nor a FACEIT
+ * demo address is left for 30 minutes (twice the link's lifetime, so that a link held by another backend is not given
+ * up on; until then FACEIT is not asked about it again) and is then FAILED with the "link no longer known" reason. A
+ * demo whose match FACEIT does not know, or refuses as a request, is FAILED at once; a refusal of the site's own key
+ * ({@link FaceitRejectedException#isCredentialRefusal}) or a failure that may go away (FACEIT or the broker
+ * unavailable) leaves the demo touched, which sends it to the back of the line.
  */
 @Service
 public class FaceitSyncService {
@@ -248,55 +251,57 @@ public class FaceitSyncService {
         int reads = settings.matchesPerRun();
         int budget = settings.matchesPerRun();
         for (Demo demo : lost) {
-            if (budget <= 0 || reads <= 0) {
+            if (budget <= 0) {
                 break;
             }
             long demoId = demo.getId();
             String matchId = demo.getMatch().getFaceitMatchId();
-            // The cheap conditions come first: a demo that FACEIT had no address for waits out its time without asking
-            // FACEIT again at every run (a link held here changes that, so it is looked at).
-            Instant lookAgainAt = waitingForLink.get(demoId);
-            if (lookAgainAt != null && now.isBefore(lookAgainAt) && pastedLinks.peek(demoId).isEmpty()) {
-                continue;
-            }
-            reads--;
-            String demoUrl;
-            try {
-                demoUrl = demoService.faceitDemoUrl(matchId);
-            } catch (NotFoundException e) {
-                failForMatchFaceitDoesNotGive(demoId, matchId, staleBefore);
-                continue;
-            } catch (FaceitRejectedException e) {
-                if (!e.isCredentialRefusal()) {
-                    failForMatchFaceitDoesNotGive(demoId, matchId, staleBefore);
+            // A link held here needs no FACEIT: the worker downloads the link, so the demo is republished without asking
+            // FACEIT, also while FACEIT is down or refuses the site's key.
+            String demoUrl = null;
+            if (pastedLinks.peek(demoId).isEmpty()) {
+                // A demo that FACEIT had no address for waits out its time without asking FACEIT again at every run.
+                Instant lookAgainAt = waitingForLink.get(demoId);
+                if (reads <= 0 || (lookAgainAt != null && now.isBefore(lookAgainAt))) {
                     continue;
                 }
-                // 401 and 403: the site's own key or token is wrong or revoked, which says nothing about the demo. It
-                // is never failed for that; it is taken (touched) like for any failure that may go away.
-                persistence.claimStaleQueued(demoId, staleBefore);
-                log.warn("FACEIT sync: FACEIT refused the site's credentials (HTTP {}) asking about match {} for its "
-                        + "lost demo {}", e.getStatus(), matchId, demoId);
-                continue;
-            } catch (RuntimeException e) {
-                // May go away: the demo is taken (touched) so that it goes to the back of the line.
-                persistence.claimStaleQueued(demoId, staleBefore);
-                log.warn("FACEIT sync: could not ask FACEIT about match {} for its lost demo {}: {}", matchId, demoId,
-                        e.getClass().getSimpleName());
-                continue;
-            }
-            boolean hasAddress = demoUrl != null && !demoUrl.isBlank();
-            if (!hasAddress && pastedLinks.peek(demoId).isEmpty()) {
-                // Queued for a pasted link that this backend does not hold. Another backend may hold it, so the demo is
-                // given up only when the link must have expired everywhere.
-                if (persistence.failStaleQueued(demoId, giveUpBefore, DemoImportWorker.PASTED_LINK_GONE, null)) {
-                    waitingForLink.remove(demoId);
-                    metrics.failed(DemoMetrics.STAGE_IMPORT);
-                    log.warn("FACEIT sync: demo {} of match {} was queued for a pasted link that is gone; FAILED", demoId,
-                            matchId);
-                } else {
-                    waitingForLink.put(demoId, demo.getUpdatedAt().plus(GIVE_UP_AFTER));
+                reads--;
+                try {
+                    demoUrl = demoService.faceitDemoUrl(matchId);
+                } catch (NotFoundException e) {
+                    failForMatchFaceitDoesNotGive(demoId, matchId, staleBefore);
+                    continue;
+                } catch (FaceitRejectedException e) {
+                    if (!e.isCredentialRefusal()) {
+                        failForMatchFaceitDoesNotGive(demoId, matchId, staleBefore);
+                        continue;
+                    }
+                    // The site's own key or token is wrong or revoked, which says nothing about the demo. It is never
+                    // failed for that; it is taken (touched) like for any failure that may go away.
+                    persistence.claimStaleQueued(demoId, staleBefore);
+                    log.warn("FACEIT sync: FACEIT refused the site's credentials (HTTP {}) asking about match {} for "
+                            + "its lost demo {}", e.getStatus(), matchId, demoId);
+                    continue;
+                } catch (RuntimeException e) {
+                    // May go away: the demo is taken (touched) so that it goes to the back of the line.
+                    persistence.claimStaleQueued(demoId, staleBefore);
+                    log.warn("FACEIT sync: could not ask FACEIT about match {} for its lost demo {}: {}", matchId,
+                            demoId, e.getClass().getSimpleName());
+                    continue;
                 }
-                continue;
+                if (demoUrl == null || demoUrl.isBlank()) {
+                    // Queued for a pasted link that this backend does not hold. Another backend may hold it, so the
+                    // demo is given up only when the link must have expired everywhere.
+                    if (persistence.failStaleQueued(demoId, giveUpBefore, DemoImportWorker.PASTED_LINK_GONE, null)) {
+                        waitingForLink.remove(demoId);
+                        metrics.failed(DemoMetrics.STAGE_IMPORT);
+                        log.warn("FACEIT sync: demo {} of match {} was queued for a pasted link that is gone; FAILED",
+                                demoId, matchId);
+                    } else {
+                        waitingForLink.put(demoId, demo.getUpdatedAt().plus(GIVE_UP_AFTER));
+                    }
+                    continue;
+                }
             }
             waitingForLink.remove(demoId);
             if (!persistence.claimStaleQueued(demoId, staleBefore)) {
