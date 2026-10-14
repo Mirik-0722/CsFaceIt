@@ -359,7 +359,8 @@ public class DemoService {
      * read, and the match is created, owned by the actor (nobody for the admin key), in the transaction that stores the
      * demo row: after the file has been received, unpacked and stored, so that an upload that fails on its way (too
      * large, damaged) leaves no match behind. Should another request make the match first, the rules of a stored match
-     * are asked in that transaction ({@link #requireMatchmakingMember}).
+     * are asked ({@link #requireMatchmakingMember}) just before the file goes to the storage and once more in that
+     * transaction; what is left is the moment of the {@code put} itself, as for the status above.
      *
      * @param actor who uploads
      * @param fileName the name the file came with, which the first upload of a matchmaking match is checked by
@@ -396,7 +397,15 @@ public class DemoService {
         }
 
         String storageKey = DemoImportWorker.storageKey(faceitMatchId);
-        storeUpload(content, storageKey, () -> requireDemoReplaceable(actor, faceitMatchId));
+        boolean matchmaking = MatchSource.isMatchmaking(faceitMatchId);
+        storeUpload(content, storageKey, () -> {
+            requireDemoReplaceable(actor, faceitMatchId);
+            // A matchmaking match that another request has made while this file was received is that request's: a file
+            // of someone who is no member must not take the place of its demo's file under the same key.
+            if (matchmaking) {
+                requireMatchmakingMember(actor, faceitMatchId);
+            }
+        });
 
         Demo demo = persistWithRetry("demo of match " + faceitMatchId, () -> restore.apply(storageKey));
         stored.run();
