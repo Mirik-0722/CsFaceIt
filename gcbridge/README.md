@@ -83,7 +83,7 @@ two-factor code is ever logged or returned**, and a sharing code is logged only 
 | `STEAM_BOT_USERNAME`, `STEAM_BOT_PASSWORD`, `STEAM_BOT_SHARED_SECRET` | none | Used when there is no refresh token, and then all three are needed: the account name, the password, and the shared secret of the account's mobile authenticator, from which the two-factor code is made (with the time of Steam, so that a clock that is a few seconds off does not matter). |
 | `BRIDGE_DATA_DIR` | `/data` | Where the Steam library keeps the little it needs between restarts (such as the id of the region it last connected to), and where the bridge keeps the times of its last sign-in attempts and the time before which it must not sign in (`signin-attempts.json` and `signin-not-before.json`, only numbers; see the table below). The refresh token and the password are not kept there. The image makes it a volume. |
 | `BRIDGE_FAKE` | `0` | `1` turns the [fake mode](#the-fake-mode) on: no connection to Steam at all, and no account needed. |
-| `BRIDGE_FAKE_REPLAY_URL` | a made-up address | The replay address that the fake mode answers with. |
+| `BRIDGE_FAKE_REPLAY_URL` | a made-up address | The replay address that the fake mode answers with. `{matchId}` in it is replaced by the id of the match of each answer, so that the file can have Valve's name of the match (`docker-compose.fake.yml` sets `http://fake-faceit:8080/valve/730/{matchId}_1.dem.bz2`, which its WireMock serves). |
 | `BRIDGE_FAKE_DELAY_MS` | `300` | How long one fake answer takes, so that the queue can be seen working. |
 
 The real mode with none of the account settings stops at start:
@@ -108,7 +108,7 @@ is not ready.
 
 | Last group | Answer |
 | --- | --- |
-| `READY` | 200: the match id decoded from the code, `replayUrl` = `BRIDGE_FAKE_REPLAY_URL`, `matchTime` = 30 minutes ago |
+| `READY` | 200: the match id decoded from the code, `replayUrl` = `BRIDGE_FAKE_REPLAY_URL` (with `{matchId}` replaced by that id), `matchTime` = 30 minutes ago |
 | `NOTYT` | 409 `REPLAY_NOT_READY` (a match from 30 minutes ago without an address) |
 | `GONE5` | 410 `REPLAY_EXPIRED` (a match from 30 days ago without an address) |
 | `UNKWN` | 404 `MATCH_UNKNOWN` |
