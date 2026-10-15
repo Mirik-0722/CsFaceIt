@@ -7,7 +7,7 @@ import StatusChip from '@/components/StatusChip'
 import ViewfinderFrame from '@/components/ViewfinderFrame'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { useLocale, useT } from '@/i18n'
-import { clipFailureText, clipLabel, formatBytes, frameLabel } from '@/lib/clips'
+import { clipFailureText, clipLabel, formatBytes, frameLabel, qualityMark } from '@/lib/clips'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/formatDate'
 import { formatDuration } from '@/lib/highlightLabels'
@@ -208,7 +208,7 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
             }
             center={<FrameCenter clip={clip} />}
             bottomLeft={clip.durationMs !== null && formatDuration(clip.durationMs / 1000)}
-            bottomRight={clip.quality}
+            bottomRight={qualityMark(clip)}
           />
           {recording && (
             <span

@@ -418,6 +418,12 @@ export const uz: Messages = {
       quality: 'Sifat',
       fasterSmaller: 'Tezroq, kichikroq fayl',
       recommended: 'Tavsiya etiladi',
+      frameRate: 'Kadr tezligi',
+      fpsHints: {
+        60: "Tezroq tayyor bo'ladi, hamma joyda silliq",
+        120: '144 Hz monitorda silliq, slow-mo juda silliq',
+        240: '240 Hz monitorlar uchun, eng uzoq yoziladi',
+      },
       needsKey: "O'z highlight'laringizdan klip yozish uchun kiring. Kirmasdan klip yozishga admin kaliti kerak.",
       orders: 'Buyurtmalar',
       ordersLeft: (remaining, limit) => `bugun ${limit} tadan ${remaining} tasi qoldi`,
@@ -591,6 +597,7 @@ export const uz: Messages = {
       music: 'Musiqa',
       noMusic: 'Musiqasiz',
       quality: 'Sifat',
+      frameRate: 'Kadr tezligi',
       aspect: "O'lcham",
       aspects: {
         '16:9': 'Yotiq',

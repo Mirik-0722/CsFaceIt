@@ -9,7 +9,8 @@ import java.util.List;
  * {@code steam:<SteamID>}. The rest is checked by {@code ClipService}, which answers what is wrong with a code of its
  * own rather than with a {@code VALIDATION_ERROR}:
  * <ul>
- *   <li>{@code quality} is {@code "720p"} or {@code "1080p"}, 720p when it is missing; {@code aspect} is
+ *   <li>{@code quality} is {@code "720p"} or {@code "1080p"}, 720p when it is missing; {@code fps} is {@code 60},
+ *       {@code 120} or {@code 240}, 60 when it is missing; {@code aspect} is
  *       {@code "16:9"} or {@code "9:16"}, 16:9 when it is missing; {@code title} is up to 60 characters, none when it
  *       is missing or blank; {@code musicTrack} is the id of one of {@code clip.music-tracks}, none when it is missing.
  *       Anything else is a 400 {@code INVALID_MONTAGE_OPTION}.
@@ -22,6 +23,7 @@ public record MontageRequest(
         @NotNull @Pattern(regexp = CompilationRequest.PLAYER_ID_PATTERN, message = CompilationRequest.PLAYER_ID_MESSAGE)
         String playerId,
         String quality,
+        Integer fps,
         String aspect,
         String title,
         boolean intro,

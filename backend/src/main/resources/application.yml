@@ -229,8 +229,6 @@ clip:
   # The secret a recorder sends in X-Worker-Token. While it is empty every request of a recorder is refused. It is never
   # logged and has no default here.
   worker-token: ${CLIP_WORKER_TOKEN:}
-  # Frames per second of a recording, whatever its quality.
-  fps: 60
   # A segment of a clip starts this long before a kill of the player and ends this long after it ...
   pre-seconds: 3
   post-seconds: 2

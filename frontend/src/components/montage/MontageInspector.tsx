@@ -1,7 +1,7 @@
 import { Minus, Plus } from 'lucide-react'
 import { useId, useRef } from 'react'
 import type { EditorSource, MontageAspect } from '@/api/editorTypes'
-import type { ClipQuality } from '@/api/types'
+import type { ClipFps, ClipQuality } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useT } from '@/i18n'
@@ -28,7 +28,7 @@ import { isKnife, weaponLabel } from '@/lib/weapons'
 
 const SIDE_CLASS = { CT: 'text-side-ct', T: 'text-side-t' } as const
 
-interface ChoiceProps<T extends string> {
+interface ChoiceProps<T extends string | number> {
   legend: string
   name: string
   options: readonly T[]
@@ -38,12 +38,15 @@ interface ChoiceProps<T extends string> {
   onChange: (option: T) => void
 }
 
-/** Two or more radio buttons as boxes, the chosen one in the light outline (the order dialog's boxes, compact). */
-function Choice<T extends string>({ legend, name, options, value, label, hint, onChange }: ChoiceProps<T>) {
+/**
+ * Two or more radio buttons as boxes, the chosen one in the light outline (the order dialog's boxes, compact). Two sit
+ * side by side; more stand one under another, where a hint has the panel's width.
+ */
+function Choice<T extends string | number>({ legend, name, options, value, label, hint, onChange }: ChoiceProps<T>) {
   return (
     <fieldset className="min-w-0">
       <legend className="label-mono">{legend}</legend>
-      <div className="mt-2 grid grid-cols-2 gap-2">
+      <div className={cn('mt-2 grid gap-2', options.length === 2 ? 'grid-cols-2' : 'grid-cols-1')}>
         {options.map((option) => (
           <label
             key={option}
@@ -115,8 +118,8 @@ interface MontageInspectorProps {
 
 /**
  * The right panel of the montage editor (spec 3, `MontageInspector`): the selected segment (its edges, slow motion, its
- * kills, its place), the montage's options (title, intro, music, quality, aspect), and the summary with the limits,
- * which is always in view. A limit that is passed is red, with the reason under it.
+ * kills, its place), the montage's options (title, intro, music, quality, frame rate, aspect), and the summary with the
+ * limits, which is always in view. A limit that is passed is red, with the reason under it.
  */
 export default function MontageInspector({
   source,
@@ -322,6 +325,15 @@ export default function MontageInspector({
             label={(option) => option}
             hint={(option) => qualityHints[option]}
             onChange={(quality) => set({ quality })}
+          />
+          <Choice<ClipFps>
+            legend={t.montage.inspector.frameRate}
+            name="montage-fps"
+            options={limits.frameRates}
+            value={options.fps}
+            label={(option) => t.clip.page.fps(option)}
+            hint={(option) => t.clip.order.fpsHints[option]}
+            onChange={(fps) => set({ fps })}
           />
           <Choice<MontageAspect>
             legend={t.montage.inspector.aspect}

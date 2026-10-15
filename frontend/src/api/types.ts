@@ -207,6 +207,9 @@ export type ClipStatus = 'QUEUED' | 'RECORDING' | 'ENCODING' | 'UPLOADING' | 'DO
 
 export type ClipQuality = '720p' | '1080p'
 
+/** The frame rates a clip can be ordered at, frames per second. `ClipResponse.fps` is the one it was ordered at. */
+export type ClipFps = 60 | 120 | 240
+
 /**
  * One kill of a clip on the timeline of its video: `offsetMs` is where the kill is in the finished file. `wallbang` is
  * left out by a backend that does not tell it yet.

@@ -71,7 +71,7 @@ upload is at hand, and the visitor can still close them. The key is typed once a
 `sessionStorage` or a cookie - so reloading the page forgets it, and a key the backend rejects is forgotten at once.
 
 Every highlight card of the match page ends with a row about its clip. "Record clip" opens the order: the quality
-(720p or 1080p), the length of the queue, and a field for the admin key while the page holds none. A clip on its way
+(720p or 1080p), the frame rate (60, 120 or 240 FPS), the length of the queue, and a field for the admin key while the page holds none. A clip on its way
 shows its place in the queue, or the stage and the percentage of the recording; a finished one links to its page; a
 failed one says why and offers another attempt. The compilation panel orders one video of every kill of a chosen
 player in the same way. Recording needs the admin key, as every write does; watching does not. While a clip is
@@ -1789,11 +1789,11 @@ it is `FAILED` instead.
 
 | Endpoint | Answer |
 | --- | --- |
-| `POST /api/v1/highlights/{highlightId}/clips` | Queues the clip of the highlight. The body is `{"quality": "720p"}` or `{"quality": "1080p"}`; no body, or `{}`, is 720p. `201` and the clip when this request queued it, `200` and the clip that already stands for the highlight at that quality when there is one. |
-| `POST /api/v1/matches/{matchId}/clips` | Queues the compilation of a player's kills in the match: one video of every kill of an enemy he made, round by round (see **A compilation** below). The body is `{"playerId": "...", "quality": "720p"}`; `playerId` is required, `quality` is as above. `201` and the clip (its `kind` is `COMPILATION`) when this request queued it, `200` and the one that already stands for the player at that quality when there is one. |
+| `POST /api/v1/highlights/{highlightId}/clips` | Queues the clip of the highlight. The body is `{"quality": "1080p", "fps": 120}`: `quality` is `"720p"` or `"1080p"`, 720p when left out; `fps` is the frame rate, `60`, `120` or `240`, 60 when left out; no body, or `{}`, is 720p at 60. `201` and the clip when this request queued it, `200` and the clip that already stands for the highlight at that quality and frame rate when there is one. |
+| `POST /api/v1/matches/{matchId}/clips` | Queues the compilation of a player's kills in the match: one video of every kill of an enemy he made, round by round (see **A compilation** below). The body is `{"playerId": "...", "quality": "720p", "fps": 60}`; `playerId` is required, `quality` and `fps` are as above. `201` and the clip (its `kind` is `COMPILATION`) when this request queued it, `200` and the one that already stands for the player at that quality and frame rate when there is one. |
 | `GET /api/v1/matches/{matchId}/editor?playerId=` | What the montage editor of a player in the match is built from: his kills of an enemy round by round, his highlights and the rules of a montage (see **A montage** below). Open like the other reads. `playerId` is required, a FACEIT player id or `steam:<SteamID>`. `404 MATCH_NOT_FOUND`, `404 PLAYER_NOT_IN_MATCH`, `409 DEMO_NOT_AVAILABLE`. |
-| `POST /api/v1/matches/{matchId}/montages` | Queues a montage of a player's own choice of stretches of the match (see **A montage** below). `202` and the clip (its `kind` is `MONTAGE`); every order is a new clip. |
-| `POST /api/v1/clips/{clipId}/retry` | Orders a `FAILED` clip again: the same highlight (or compilation, or montage with its own segments and options) at the same quality, as a new clip with a new id, and the failed one is deleted with its files. No body. `201` and the new clip (`200` and the clip that stands, when the same clip was ordered again before this request). The new clip belongs to whoever ordered the failed one. It is checked like an order (the demo file, the queue, ...), and when a check refuses, the failed clip stays. `404 CLIP_NOT_FOUND`; `409 CLIP_NOT_FAILED` for a clip that waits, is being made or is done; `403 NOT_YOUR_CLIP`. |
+| `POST /api/v1/matches/{matchId}/montages` | Queues a montage of a player's own choice of stretches of the match (see **A montage** below). `fps` is as for a highlight (60 when left out); one that is not `60`, `120` or `240` is a `400 INVALID_MONTAGE_OPTION`, like an unknown quality. `202` and the clip (its `kind` is `MONTAGE`); every order is a new clip. |
+| `POST /api/v1/clips/{clipId}/retry` | Orders a `FAILED` clip again: the same highlight (or compilation, or montage with its own segments and options) at the same quality and frame rate, as a new clip with a new id, and the failed one is deleted with its files. No body. `201` and the new clip (`200` and the clip that stands, when the same clip was ordered again before this request). The new clip belongs to whoever ordered the failed one. It is checked like an order (the demo file, the queue, ...), and when a check refuses, the failed clip stays. `404 CLIP_NOT_FOUND`; `409 CLIP_NOT_FAILED` for a clip that waits, is being made or is done; `403 NOT_YOUR_CLIP`. |
 | `GET /api/v1/clips/{clipId}` | One clip, with the `kills` its video shows. `404 CLIP_NOT_FOUND`. |
 | `GET /api/v1/matches/{matchId}/clips` | An array of the clips of the match, whatever their status, the newest first. Empty for a match the database does not know. |
 | `GET /api/v1/players/{playerId}/clips?offset=0&limit=20` | `{"items": [...], "offset": 0, "limit": 20}`: a page of the clips of the player over all his matches, whatever their status, the newest first. `offset` 0-10000, `limit` 1-100. Empty for a player the database does not know. |
@@ -1804,14 +1804,14 @@ it is `FAILED` instead.
 | `GET /api/v1/recorder/status` | `{"online": true, "lastSeenAt": "...", "queued": 2, "active": 1}`: whether a recorder is there to take the clips that wait. `online` is true when some recorder was seen (it claimed, reported or sent a heartbeat) within `clip.worker-online-within`; `lastSeenAt` is the latest sighting, `null` if there never was one; `queued` clips are `QUEUED`, `active` ones are `RECORDING`, `ENCODING` or `UPLOADING`. |
 
 ```bash
-curl -X POST -H 'X-API-Key: dev-admin-key' -H 'Content-Type: application/json' -d '{"quality": "1080p"}' \
+curl -X POST -H 'X-API-Key: dev-admin-key' -H 'Content-Type: application/json' -d '{"quality": "1080p", "fps": 120}' \
   http://localhost:3000/api/v1/highlights/<highlightId>/clips
 curl -X POST -H 'X-API-Key: dev-admin-key' -H 'Content-Type: application/json' \
   -d '{"playerId": "<playerId>", "quality": "720p"}' \
   http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/clips
 curl "http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/editor?playerId=<playerId>"
 curl -X POST -H 'X-API-Key: dev-admin-key' -H 'Content-Type: application/json' \
-  -d '{"playerId": "<playerId>", "quality": "720p", "aspect": "9:16", "title": "Ace on Mirage", "intro": true,
+  -d '{"playerId": "<playerId>", "quality": "720p", "fps": 60, "aspect": "9:16", "title": "Ace on Mirage", "intro": true,
        "musicTrack": "night-drive", "segments": [{"startTick": 34400, "endTick": 34900, "slowMo": false},
        {"startTick": 33100, "endTick": 33500, "slowMo": true}]}' \
   http://localhost:3000/api/v1/matches/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/montages
@@ -1844,7 +1844,7 @@ A clip, here a queued one of a `K3` (ids shortened):
 | `status`, `progress` | `QUEUED`, `RECORDING`, `ENCODING`, `UPLOADING`, `DONE` or `FAILED`; see [Statuses](#statuses). `progress` is the percent done of the attempt that is running. |
 | `matchId`, `playerId`, `nickname`, `mapName` | The FACEIT match id, the FACEIT player id (`steam:<SteamID>` for a player known only from a demo), his nickname and the map. |
 | `highlightType`, `roundNumber`, `tickStart` | The highlight the clip was made for (see [Analysis](#analysis)): its type, its round, and the first tick of its window. |
-| `quality`, `fps` | The size of the picture (`"720p"` is 1280x720, `"1080p"` is 1920x1080) and the frames per second (`clip.fps`, as it was when the clip was requested). |
+| `quality`, `fps` | The size of the picture (`"720p"` is 1280x720, `"1080p"` is 1920x1080) and the frames per second, both as the clip was ordered (`fps` is 60, 120 or 240, kept in `clips.fps`). |
 | `queuePosition` | While the clip is `QUEUED`: its place in the queue, 1 for the clip a recorder takes next. `null` in every other status. |
 | `error` | Why the clip failed, or why its last attempt did while it waits to be recorded again: an English sentence for the logs and for a client that has nothing better. |
 | `errorCode` | The same reason as a code a page can translate, when the backend found it itself (see [Why a clip failed](#why-a-clip-failed)); `null` for a reason the recorder reports, which is free text, and while there is no `error`. It is set with `error` and cleared with it, when the clip is claimed again and when it is completed. A client that meets a code it does not know shows `error`. |
@@ -1853,13 +1853,15 @@ A clip, here a queued one of a `K3` (ids shortened):
 | `createdAt`, `finishedAt`, `expiresAt` | When the clip was requested, when it became `DONE` or `FAILED`, and when the clean-up of old clips removes it (`finishedAt` plus `clip.retention-days`; `null` for a clip that is not `DONE`, or when the setting is 0). |
 | `kills` | The kills of an enemy the video shows, each `{"offsetMs", "weapon", "headshot", "victimNickname"}`, in the order of the video. `offsetMs` is the place on the timeline of the finished video: the length of the segments before the kill's own plus its distance from the start of that segment. Only `GET /api/v1/clips/{clipId}` fills it; the lists and the answer to the `POST` carry `[]`. |
 
-**One clip per highlight and quality.** The clip of a highlight is told apart from the others by the match, the player,
-the type, the round and the first tick of the highlight, and its quality (the highlight's `id` changes with every
-analysis, so the clip does not keep it). A second request for the same highlight, also at the same moment from another
+**One clip per highlight, quality and frame rate.** The clip of a highlight is told apart from the others by the match,
+the player, the type, the round and the first tick of the highlight, its quality and its frame rate (the highlight's `id`
+changes with every analysis, so the clip does not keep it). The unique indexes `uq_clips_highlight` and
+`uq_clips_compilation` hold these columns, `fps` among them since migration `V13__clip_fps.sql`; the same migration gave
+`clips.fps` a default of 60 (every row before it holds 60 already, the one rate there was then). A second request for the same highlight, also at the same moment from another
 browser, finds the clip that is there and answers `200` with it; nothing is recorded twice. It does so also when the
 demo file is gone (demo files are removed after `DEMO_RETENTION_DAYS` days, a clip is kept `clip.retention-days` days
 after it is finished). A clip that ended `FAILED` does not count: asking again queues a new one. The same highlight at
-the other quality is another clip. After the demo was analyzed again the old highlight id is a
+another quality or frame rate is another clip. After the demo was analyzed again the old highlight id is a
 `404 HIGHLIGHT_NOT_FOUND`, and asking with the id the same event now has finds the clip that was made before.
 
 **The segments.** The video is made of the kills of the player inside the window of the highlight (`tickStart` to
@@ -1874,8 +1876,9 @@ in `clips.segments` as `[{"startTick": ..., "endTick": ...}, ...]`.
 enemy that one player made in the match, not of one moment. `<playerId>` in the example above is the `playerId` of a
 player of `GET /api/v1/matches/{matchId}/stats` or of an item of `GET /api/v1/matches/{matchId}/highlights`. It is
 required, and is a FACEIT player id or `steam:<SteamID>` (1 to 20 digits) for a player the backend knows only from a demo:
-the id travels in the body, so the colon that the id rule of a URL path does not allow is no obstacle here. `quality` is
-as for a highlight, 720p when left out. There is one compilation per match, player and quality, and it is told apart like
+the id travels in the body, so the colon that the id rule of a URL path does not allow is no obstacle here. `quality` and
+`fps` are as for a highlight, 720p at 60 when left out. There is one compilation per match, player, quality and frame
+rate, and it is told apart like
 the clip of a highlight: a second request, also at the same moment from another browser, finds the one that is there and
 answers `200` with it, and a compilation that ended `FAILED` does not count.
 
@@ -1943,7 +1946,7 @@ Besides `200`, `201` and `204`, the requests above are answered with:
 
 | Status | `code` | When |
 | --- | --- | --- |
-| 400 | `VALIDATION_ERROR` | The `quality` is not `"720p"` or `"1080p"`, the body cannot be read, the `playerId` of a compilation is missing or is neither a FACEIT player id nor `steam:<SteamID>`, or an id or paging parameter is malformed. A player known only from a demo has the id `steam:<SteamID>`, which `GET /api/v1/players/{playerId}/clips` takes too (as his highlights do). |
+| 400 | `VALIDATION_ERROR` | The `quality` is not `"720p"` or `"1080p"`, the `fps` of a highlight clip or a compilation is not `60`, `120` or `240`, the body cannot be read, the `playerId` of a compilation is missing or is neither a FACEIT player id nor `steam:<SteamID>`, or an id or paging parameter is malformed. A player known only from a demo has the id `steam:<SteamID>`, which `GET /api/v1/players/{playerId}/clips` takes too (as his highlights do). |
 | 401 | `UNAUTHORIZED` | The `POST` or the `DELETE` has neither a valid `X-API-Key` header nor a live session. |
 | 403 | `FACEIT_NOT_LINKED`, `NOT_YOUR_PLAYER` | A signed-in player ordered a clip while no FACEIT player is linked to them, or for a player who is not their own. |
 | 403 | `NOT_YOUR_CLIP` | A signed-in player asked to delete or retry a clip they did not order (a clip ordered with the admin key is nobody's). |
@@ -2046,7 +2049,9 @@ The job that `claim` answers with:
 
 `segments` are the stretches of the demo to record, in ticks (the demo runs at `tickRate` per second), both ends
 included, one after the other in the order of the list; the video is all of them joined. `focusSteamId` is the player to
-follow. `width`, `height` and `fps` are what the clip is recorded at. `demoVersion` names this version of the demo file
+follow. `width`, `height` and `fps` are what the clip is recorded at; `fps` is the clip's own, chosen with its order (60,
+120 or 240). The video keeps that rate through slow motion too: a half-speed segment has half as many new frames per
+second as the clip's rate, each shown twice. `demoVersion` names this version of the demo file
 (the time it was last changed in the database, in epoch milliseconds, as a string): a file kept under it is the one to
 use again, and a new version means the demo was uploaded or imported again.
 
@@ -2102,7 +2107,6 @@ starts: a count, a time span or a size that is not positive is refused (`retenti
 | Setting | Environment variable | Default | Meaning |
 | --- | --- | --- | --- |
 | `clip.worker-token` | `CLIP_WORKER_TOKEN` | empty | The secret of the recorder's API; see [Worker API](#worker-api-the-recorder). While it is empty every request of a recorder is refused. |
-| `clip.fps` | | 60 | Frames per second of a recording. |
 | `clip.pre-seconds`, `clip.post-seconds` | | 3, 2 | How long a segment starts before a kill and ends after it. |
 | `clip.merge-gap-seconds` | | 4 | Segments less than this far apart are one. |
 | `clip.max-duration-seconds` | | 300 | The most the segments of one clip may add up to. |

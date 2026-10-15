@@ -66,7 +66,7 @@ function ClipPlaceholder({ clip }: { clip: ClipResponse }) {
           size="clip"
           mapName={clip.mapName}
           topLeft={frameLabel(clip, t)}
-          bottomRight={clip.quality}
+          bottomRight={qualityMark(clip)}
           center={
             <span className="flex flex-col items-center gap-3">
               {recording && (

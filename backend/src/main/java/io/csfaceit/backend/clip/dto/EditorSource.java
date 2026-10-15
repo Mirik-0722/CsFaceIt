@@ -44,10 +44,10 @@ public record EditorSource(
     /**
      * The rules of a montage: how far a segment the editor proposes reaches before and after a kill, how long one
      * segment and the whole video may be (a slow-motion segment counts twice, the intro its seconds), how many
-     * segments and how long a title, and the qualities, shapes and music to choose from.
+     * segments and how long a title, and the qualities, frame rates, shapes and music to choose from.
      */
     public record Limits(int preSeconds, int postSeconds, int maxSegmentSeconds, int maxDurationSeconds,
-                         int maxSegments, List<String> qualities, List<String> aspects, int titleMaxLength,
-                         List<MusicTrack> musicTracks) {
+                         int maxSegments, List<String> qualities, List<Integer> frameRates, List<String> aspects,
+                         int titleMaxLength, List<MusicTrack> musicTracks) {
     }
 }
