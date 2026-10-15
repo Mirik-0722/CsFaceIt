@@ -4,6 +4,8 @@ import io.csfaceit.backend.faceit.dto.FaceitMatch;
 import io.csfaceit.backend.faceit.dto.FaceitMatchHistory;
 import io.csfaceit.backend.faceit.dto.FaceitMatchStats;
 import io.csfaceit.backend.faceit.dto.FaceitPlayer;
+import io.csfaceit.backend.faceit.dto.FaceitPlayerMatchStats;
+import io.csfaceit.backend.faceit.dto.FaceitPlayerStatsPage;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.time.Clock;
@@ -72,6 +74,16 @@ public class HttpFaceitGateway implements FaceitGateway {
         return get("history", FaceitMatchHistory.class,
                 "/players/{playerId}/history?game=cs2&offset={offset}&limit={limit}&from={from}",
                 playerId, offset, limit, from);
+    }
+
+    @Override
+    public FaceitPlayerMatchStats getPlayerMatchStats(String playerId, int offset, int limit) {
+        // The same lower bound as the history's, so that both lists reach equally far back. FACEIT documents it as Unix
+        // time like the history's; were it read as milliseconds it would only reach further back, which is harmless.
+        long from = clock.instant().minus(historyLookback).getEpochSecond();
+        return get("player_match_stats", FaceitPlayerStatsPage.class,
+                "/players/{playerId}/games/cs2/stats?offset={offset}&limit={limit}&from={from}",
+                playerId, offset, limit, from).matchStats();
     }
 
     @Override

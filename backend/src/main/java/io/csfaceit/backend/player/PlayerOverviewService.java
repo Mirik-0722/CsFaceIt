@@ -2,6 +2,8 @@ package io.csfaceit.backend.player;
 
 import io.csfaceit.backend.clip.ClipStatus;
 import io.csfaceit.backend.demo.DemoStatus;
+import io.csfaceit.backend.faceit.FaceitGateway;
+import io.csfaceit.backend.faceit.dto.FaceitPlayerMatchStats;
 import io.csfaceit.backend.match.DemoScoreboard;
 import io.csfaceit.backend.match.MatchSource;
 import io.csfaceit.backend.player.dto.ClipCounts;
@@ -24,6 +26,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -31,9 +35,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The two reads behind the player page and the list of matches: the player's results by map and his highlights by
- * type, and what the backend knows of each match of a page of his FACEIT history. Only the database is read here;
- * the history itself comes from {@link PlayerService#getHistory}, which the caller runs first and with no transaction
- * open, so that a connection is never held while FACEIT is waited for.
+ * type, and what the backend knows of each match of a page of his FACEIT history. The transactional reads use the
+ * database only; the history itself comes from {@link PlayerService#getHistory}, which the caller runs first and with no
+ * transaction open, so that a connection is never held while FACEIT is waited for. For the same reason the map and the
+ * numbers of the matches the site has not stored are taken from FACEIT afterwards, by {@link #withFaceitStats}.
  *
  * <ul>
  *   <li>The results by map are over the same matches the aggregate statistics count: every {@code player_match_stats}
@@ -200,12 +205,30 @@ public class PlayerOverviewService {
 
     private static final ClipCounts NO_CLIPS = new ClipCounts(0, 0, 0);
 
+    /**
+     * How many places before a page of the history the window of FACEIT's per-match statistics starts, and how far past
+     * it it reaches (see {@link #withFaceitStats}).
+     */
+    private static final int STATS_MARGIN = 20;
+
+    /**
+     * The block FACEIT's per-match statistics are read in: FACEIT answers 400 when the offset is not a multiple of the
+     * limit (seen 2026-10-15: {@code offset=20&limit=40} is refused, {@code offset=40&limit=20} is not), so the window is
+     * read as the whole blocks of this size that cover it — one, or two where it crosses a block's end. 100 is the
+     * most FACEIT lists at once.
+     */
+    private static final int STATS_BLOCK = 100;
+
+    private static final Logger log = LoggerFactory.getLogger(PlayerOverviewService.class);
+
     private final JdbcClient jdbc;
     private final DemoScoreboard scoreboard;
+    private final FaceitGateway faceit;
 
-    public PlayerOverviewService(JdbcClient jdbc, DemoScoreboard scoreboard) {
+    public PlayerOverviewService(JdbcClient jdbc, DemoScoreboard scoreboard, FaceitGateway faceit) {
         this.jdbc = jdbc;
         this.scoreboard = scoreboard;
+        this.faceit = faceit;
     }
 
     /**
@@ -273,6 +296,75 @@ public class PlayerOverviewService {
         List<PlayerMatchResponse> matchmakingItems = matchmakingResponses(faceitPlayerId, matchmaking, highlights,
                 clips);
         return new PlayerMatchListResponse(merge(faceitItems, matchmakingItems), history.offset(), history.limit());
+    }
+
+    /**
+     * Fills in what the database does not know of the FACEIT lines of a page of {@link #matches}: the map, and the
+     * player's kills, deaths, assists and ADR, from FACEIT's statistics of the player's matches, joined by match id.
+     * The database's own values stay wherever it has them (an analyzed demo is the truth); FACEIT's only fill the gaps.
+     * FACEIT is asked once for the page, and only when one of its FACEIT lines has no map or no kills, deaths or
+     * assists; a matchmaking row is never looked up there. A failure of that read is not the page's: it is logged and
+     * the rows stay as the database left them.
+     *
+     * <p>Runs with no transaction open, after {@link #matches}, so that no connection is held while FACEIT is waited
+     * for. FACEIT lists the statistics newest first as the history does, but without the matches it keeps none for
+     * (a cancelled one), so a match sits at or before its place in the history: the window looked at starts
+     * {@value #STATS_MARGIN} places before the page and reaches as far past its end, and is read in whole blocks of
+     * {@value #STATS_BLOCK} (see {@link #STATS_BLOCK}).
+     *
+     * @param faceitPlayerId the FACEIT player id the page was read for
+     * @param list what {@link #matches} answered
+     */
+    public PlayerMatchListResponse withFaceitStats(String faceitPlayerId, PlayerMatchListResponse list) {
+        if (PlayerService.isSteamPlayerId(faceitPlayerId)
+                || list.items().stream().noneMatch(PlayerOverviewService::lacksStoredFacts)) {
+            return list;
+        }
+        int firstBlock = Math.max(0, list.offset() - STATS_MARGIN) / STATS_BLOCK;
+        int lastBlock = (list.offset() + list.limit() + STATS_MARGIN - 1) / STATS_BLOCK;
+        Map<String, FaceitPlayerMatchStats.Match> byMatch = new HashMap<>();
+        try {
+            for (int block = firstBlock; block <= lastBlock; block++) {
+                faceit.getPlayerMatchStats(faceitPlayerId, block * STATS_BLOCK, STATS_BLOCK).matches()
+                        .forEach(match -> byMatch.putIfAbsent(match.matchId(), match));
+            }
+        } catch (RuntimeException e) {
+            log.warn("FACEIT's statistics of the player's matches could not be read, the list shows what the database"
+                    + " knows: {}", e.getClass().getName());
+            if (byMatch.isEmpty()) {
+                return list;
+            }
+        }
+        List<PlayerMatchResponse> items = list.items().stream()
+                .map(item -> withFaceitFacts(item, byMatch.get(item.matchId())))
+                .toList();
+        return new PlayerMatchListResponse(items, list.offset(), list.limit());
+    }
+
+    /** A FACEIT line the database knows no map or no kills, deaths or assists of. */
+    private static boolean lacksStoredFacts(PlayerMatchResponse item) {
+        return isFaceitLine(item)
+                && (item.mapName() == null || item.kills() == null || item.deaths() == null || item.assists() == null);
+    }
+
+    private static boolean isFaceitLine(PlayerMatchResponse item) {
+        return item.source() == MatchSource.FACEIT && !MatchSource.isMatchmaking(item.matchId());
+    }
+
+    /** The row with FACEIT's values where the database has none; a row FACEIT listed nothing for stays as it is. */
+    private static PlayerMatchResponse withFaceitFacts(PlayerMatchResponse item, FaceitPlayerMatchStats.Match stats) {
+        if (stats == null || !isFaceitLine(item)) {
+            return item;
+        }
+        Double faceitAdr = stats.adr() == null ? null : adr(BigDecimal.valueOf(stats.adr()));
+        return new PlayerMatchResponse(item.matchId(), orElse(item.mapName(), stats.map()), item.startedAt(),
+                item.finishedAt(), item.result(), item.score(), orElse(item.kills(), stats.kills()),
+                orElse(item.deaths(), stats.deaths()), orElse(item.assists(), stats.assists()),
+                orElse(item.adr(), faceitAdr), item.demoStatus(), item.highlights(), item.clips(), item.source());
+    }
+
+    private static <T> T orElse(T stored, T faceitValue) {
+        return stored != null ? stored : faceitValue;
     }
 
     /**

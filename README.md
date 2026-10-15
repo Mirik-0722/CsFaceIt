@@ -494,7 +494,7 @@ from the site itself, see [Signing in](#signing-in)). The requests about who is 
 | `GET /api/v1/players/{playerId}/highlights?type=&offset=0&limit=50` | A page of the player's highlights over all his analyzed matches, the newest match first (`offset` 0-10000, `limit` 1-100). |
 | `GET /api/v1/players/{playerId}/stats` | The player's statistics over the matches the backend has stored: K/D, HS%, ADR, KAST, entry and trade kills, clutch %, win rate. |
 | `GET /api/v1/players/{playerId}/overview` | The player's results by map (matches, wins, K/D, ADR) and his highlights by type, from the database only (see [Highlights and statistics](#highlights-and-statistics)). |
-| `GET /api/v1/players/{playerId}/matches?offset=0&limit=20&before=` | The page of `/history` for the same `offset` (0-1000) and `limit` (1-100), each match with what the backend has stored of it: map, the player's kills, deaths, assists and ADR, the demo's status, his highlights by type, his clips by state and its `source`; the same person's matchmaking matches of the page's stretch of time are merged in by start (`before`: see [Matchmaking matches](#matchmaking-matches)). |
+| `GET /api/v1/players/{playerId}/matches?offset=0&limit=20&before=` | The page of `/history` for the same `offset` (0-1000) and `limit` (1-100), each match with what the backend has stored of it: map, the player's kills, deaths, assists and ADR, the demo's status, his highlights by type, his clips by state and its `source` (for a FACEIT match the site has not stored, the map and the player's kills, deaths, assists and ADR come from FACEIT's per-match statistics, `GET /players/{id}/games/cs2/stats`, read once per page and cached like the history; stored values win); the same person's matchmaking matches of the page's stretch of time are merged in by start (`before`: see [Matchmaking matches](#matchmaking-matches)). |
 
 ```bash
 curl "http://localhost:3000/api/v1/players?nickname=s1mple"
@@ -1695,7 +1695,10 @@ whole page (three statements, whatever `limit` is).
   above; empty list) and `clips`: `{"done": 1, "active": 1, "failed": 0}`, the clips of the match that follow the
   player, `active` being every clip that is neither `DONE` nor `FAILED` (waiting in the queue, being recorded, encoded
   or uploaded), and `source` (`FACEIT` or `MATCHMAKING`). The person's matchmaking matches are merged in by start, and
-  a `steam:<SteamID>` player's list is the database's alone (see [Matchmaking matches](#matchmaking-matches)).
+  a `steam:<SteamID>` player's list is the database's alone (see [Matchmaking matches](#matchmaking-matches)). When a
+  FACEIT line has no stored map or no stored kills, deaths and assists, the backend reads FACEIT's statistics of the
+  player's matches once for the page and fills `mapName`, `kills`, `deaths`, `assists` and `adr` (FACEIT's) wherever the
+  database has none; if that read fails the rows keep their `null`s and the page is still answered.
 
 **The breakdown of a match.** `GET /api/v1/matches/{matchId}/breakdown` serves the scoreboard of the match page: who won
 each round, and the numbers the analysis computed for each player. It reads the database only, with two statements on one

@@ -16,6 +16,9 @@ import java.util.Map;
  *       statistics for him in this match.
  *   <li>{@code adr}: the player's damage per round with one decimal, and only when his own numbers in this match come
  *       from the analysis of a demo; {@code null} otherwise, also in an analyzed match whose demo does not hold him.
+ *   <li>Where the database has no map, kills, deaths, assists or ADR of a FACEIT match, the value comes from FACEIT's
+ *       statistics of the player's matches when FACEIT lists the match there (its ADR as FACEIT works it out); the
+ *       database's value wins wherever it has one.
  *   <li>{@code demoStatus}: the status of the match's demo as the demo endpoints name it ({@code ANALYZED} and so on),
  *       {@code null} when the match has no demo.
  *   <li>{@code highlights}: the player's highlights in this match by type, the most frequent type first, then by name;
