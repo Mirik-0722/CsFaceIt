@@ -1,0 +1,55 @@
+{
+  "name": "GET /players/<s1mple id>/games/cs2/stats (any query): the matches of the fixture history, made-up numbers",
+  "request": {
+    "method": "GET",
+    "urlPath": "/players/11111111-1111-1111-1111-111111111111/games/cs2/stats"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "items": [
+        {
+          "stats": {
+            "Match Id": "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "Player Id": "11111111-1111-1111-1111-111111111111",
+            "Nickname": "s1mple",
+            "Game Mode": "5v5",
+            "Map": "de_mirage",
+            "Score": "13 / 9",
+            "Result": "1",
+            "Kills": "21",
+            "Deaths": "15",
+            "Assists": "4",
+            "ADR": "88.4",
+            "K/D Ratio": "1.4",
+            "Headshots %": "48",
+            "Match Finished At": 1700002400000
+          }
+        },
+        {
+          "stats": {
+            "Match Id": "1-bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+            "Player Id": "11111111-1111-1111-1111-111111111111",
+            "Nickname": "s1mple",
+            "Game Mode": "5v5",
+            "Map": "de_inferno",
+            "Score": "16 / 14",
+            "Result": "0",
+            "Kills": "24",
+            "Deaths": "22",
+            "Assists": "7",
+            "ADR": "91.3",
+            "K/D Ratio": "1.09",
+            "Headshots %": "42",
+            "Match Finished At": 1699993000000
+          }
+        }
+      ],
+      "start": 0,
+      "end": 2
+    }
+  }
+}

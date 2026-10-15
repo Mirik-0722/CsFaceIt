@@ -54,7 +54,9 @@ public class PlayerOverviewController {
      * The history is loaded first and with no transaction open, so that no database connection is held while FACEIT
      * is waited for; the service then reads the whole page in one, with the person's matchmaking matches of the page's
      * stretch of time. {@code before} is the start of the last row of the page before (as that page answered it), and
-     * bounds the matchmaking matches of this one from above.
+     * bounds the matchmaking matches of this one from above. The map and the numbers of the FACEIT matches the database
+     * does not have are then taken from FACEIT's statistics of the player's matches, again with no transaction open
+     * ({@link PlayerOverviewService#withFaceitStats}).
      *
      * <p>A player known only from demos ({@code steam:<SteamID>}) has no FACEIT history: his list is the database's
      * matchmaking matches, paged by {@code offset} and {@code limit}; {@code before} is not needed for it.
@@ -70,7 +72,7 @@ public class PlayerOverviewController {
                     offset, limit);
         }
         MatchHistoryResponse history = players.getHistory(playerId, offset, limit);
-        return overview.matches(playerId, history, before);
+        return overview.withFaceitStats(playerId, overview.matches(playerId, history, before));
     }
 
     /** The id the database reads: a {@code steam:} id stands for one row ({@link PlayerService#resolveSteamPlayerId}). */

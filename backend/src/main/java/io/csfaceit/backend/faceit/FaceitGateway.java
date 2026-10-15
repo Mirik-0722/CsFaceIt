@@ -4,6 +4,7 @@ import io.csfaceit.backend.faceit.dto.FaceitMatch;
 import io.csfaceit.backend.faceit.dto.FaceitMatchHistory;
 import io.csfaceit.backend.faceit.dto.FaceitMatchStats;
 import io.csfaceit.backend.faceit.dto.FaceitPlayer;
+import io.csfaceit.backend.faceit.dto.FaceitPlayerMatchStats;
 
 /**
  * The single entry point to FACEIT Data API v4. Nothing outside the {@code faceit} package knows the shape of
@@ -29,6 +30,13 @@ public interface FaceitGateway {
 
     /** {@code GET /players/{id}/history?game=cs2&offset=&limit=}. */
     FaceitMatchHistory getHistory(String playerId, int offset, int limit);
+
+    /**
+     * {@code GET /players/{id}/games/cs2/stats?offset=&limit=&from=}: the player's own numbers and the map of each of
+     * his CS2 matches, newest first. A match FACEIT keeps no statistics for (a cancelled one) is not in it, so its
+     * positions do not line up exactly with those of {@link #getHistory}: join the two by match id.
+     */
+    FaceitPlayerMatchStats getPlayerMatchStats(String playerId, int offset, int limit);
 
     /** {@code GET /matches/{id}}. */
     FaceitMatch getMatch(String matchId);

@@ -6,6 +6,7 @@ import io.csfaceit.backend.faceit.dto.FaceitMatch;
 import io.csfaceit.backend.faceit.dto.FaceitMatchHistory;
 import io.csfaceit.backend.faceit.dto.FaceitMatchStats;
 import io.csfaceit.backend.faceit.dto.FaceitPlayer;
+import io.csfaceit.backend.faceit.dto.FaceitPlayerMatchStats;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.function.Function;
@@ -68,6 +69,13 @@ public class CachingFaceitGateway implements FaceitGateway {
     public FaceitMatchHistory getHistory(String playerId, int offset, int limit) {
         return cached("history:" + playerId + ":" + offset + ":" + limit, FaceitMatchHistory.class,
                 history -> cache.historyTtl(), () -> delegate.getHistory(playerId, offset, limit));
+    }
+
+    @Override
+    public FaceitPlayerMatchStats getPlayerMatchStats(String playerId, int offset, int limit) {
+        // A list of the latest matches like the history, which a newly finished match changes: the history's TTL.
+        return cached("player-match-stats:" + playerId + ":" + offset + ":" + limit, FaceitPlayerMatchStats.class,
+                stats -> cache.historyTtl(), () -> delegate.getPlayerMatchStats(playerId, offset, limit));
     }
 
     @Override
