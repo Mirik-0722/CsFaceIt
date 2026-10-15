@@ -1,5 +1,5 @@
 import type { EditorKill, EditorRound, EditorSource, MontageAspect, MontageRequest } from '@/api/editorTypes'
-import type { ClipQuality } from '@/api/types'
+import type { ClipFps, ClipQuality } from '@/api/types'
 
 // The montage editor's own rules (spec 4, "Montaj muharriri"), kept out of the components: how a kill becomes a
 // segment, how segments are trimmed and played one after another, what the backend will refuse, and the draft that
@@ -29,6 +29,7 @@ export interface MontageOptions {
   intro: boolean
   musicTrack: string | null
   quality: ClipQuality
+  fps: ClipFps
   aspect: MontageAspect
 }
 
@@ -58,9 +59,12 @@ export function secondsOf(ticks: number, tickRate: number): number {
   return ticks / tickRate
 }
 
-/** The options a montage starts with: no title, no intro, no music, the higher quality and landscape when offered. */
+/**
+ * The options a montage starts with: no title, no intro, no music, the higher quality, 60 fps and landscape when
+ * offered.
+ */
 export function emptyMontage(source: EditorSource): Montage {
-  const { qualities, aspects } = source.limits
+  const { qualities, frameRates, aspects } = source.limits
   return {
     segments: [],
     options: {
@@ -68,6 +72,7 @@ export function emptyMontage(source: EditorSource): Montage {
       intro: false,
       musicTrack: null,
       quality: qualities.includes('1080p') ? '1080p' : (qualities[0] ?? '1080p'),
+      fps: frameRates.includes(60) ? 60 : (frameRates[0] ?? 60),
       aspect: aspects.includes('16:9') ? '16:9' : (aspects[0] ?? '16:9'),
     },
   }
@@ -384,12 +389,13 @@ export function withoutControls(text: string): string {
 
 /** The order of the montage as the backend takes it: the segments in their order, an empty title as none. */
 export function toRequest(montage: Montage, playerId: string): MontageRequest {
-  const { title, intro, musicTrack, quality, aspect } = montage.options
+  const { title, intro, musicTrack, quality, fps, aspect } = montage.options
   // A draft kept before the field dropped control characters may still hold one.
   const trimmed = withoutControls(title).trim()
   return {
     playerId,
     quality,
+    fps,
     aspect,
     title: trimmed.length > 0 ? trimmed : null,
     intro,
@@ -403,7 +409,10 @@ export function draftKey(matchId: string, playerId: string): string {
   return `csfaceit.montage.${matchId}.${playerId}`
 }
 
-/** The draft as it is stored: the segments without their ids and rounds (both are found again), and the options. */
+/**
+ * The draft as it is stored: the segments without their ids and rounds (both are found again), and the options. A draft
+ * kept before the frame rate could be chosen has no `fps`, and is read as 60.
+ */
 interface StoredDraft {
   version: 1
   segments: { startTick: number; endTick: number; slowMo: boolean }[]
@@ -411,6 +420,7 @@ interface StoredDraft {
   intro: boolean
   musicTrack: string | null
   quality: ClipQuality
+  fps: ClipFps
   aspect: MontageAspect
 }
 
@@ -430,8 +440,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * The montage of a stored draft, if it still fits the source: every segment inside one round of it, and the music, the
- * quality and the aspect among those it offers. Anything else (no draft, another shape, a source that changed) is null,
- * and the editor starts afresh. A title longer than the source allows is cut.
+ * quality, the frame rate (60 for a draft without one) and the aspect among those it offers. Anything else (no draft,
+ * another shape, a source that changed) is null, and the editor starts afresh. A title longer than the source allows is
+ * cut.
  */
 export function parseDraft(raw: string | null, source: EditorSource): Montage | null {
   if (!raw) {
@@ -448,11 +459,13 @@ export function parseDraft(raw: string | null, source: EditorSource): Montage | 
   }
   const { limits } = source
   const { title, intro, musicTrack, quality, aspect } = stored
+  const fps = stored.fps === undefined ? 60 : stored.fps
   if (
     typeof title !== 'string' ||
     typeof intro !== 'boolean' ||
     !(musicTrack === null || limits.musicTracks.some((track) => track.id === musicTrack)) ||
     !limits.qualities.some((offered) => offered === quality) ||
+    !limits.frameRates.some((offered) => offered === fps) ||
     !limits.aspects.some((offered) => offered === aspect)
   ) {
     return null
@@ -486,6 +499,7 @@ export function parseDraft(raw: string | null, source: EditorSource): Montage | 
       intro,
       musicTrack: musicTrack as string | null,
       quality: quality as ClipQuality,
+      fps: fps as ClipFps,
       aspect: aspect as MontageAspect,
     },
   }

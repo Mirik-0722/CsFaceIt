@@ -10,7 +10,7 @@ import { Dialog, DialogClose, DialogContent, DialogTitle } from '@/components/ui
 import { Input } from '@/components/ui/input'
 import { useT } from '@/i18n'
 import { setAdminKey, useAdminKey } from '@/lib/adminKey'
-import { CLIP_QUALITIES } from '@/lib/clips'
+import { CLIP_FPS, CLIP_QUALITIES } from '@/lib/clips'
 import { denialText, errorMessage } from '@/lib/errorMessage'
 import { describeHighlight, formatDuration } from '@/lib/highlightLabels'
 import { nextPossible } from '@/lib/limits'
@@ -19,12 +19,12 @@ import { cn } from '@/lib/utils'
 import { useViewer } from '@/lib/viewer'
 import type { ApiError } from '@/api/client'
 import type { MontageRequest } from '@/api/editorTypes'
-import type { ClipQuality, ClipResponse, HighlightResponse } from '@/api/types'
+import type { ClipFps, ClipQuality, ClipResponse, HighlightResponse } from '@/api/types'
 
 /**
  * What can be ordered: the clip of one highlight, one video of every kill of a player in a match, or a montage that the
- * player put together in the editor (its quality is chosen there, so the dialog only names it). `durationSeconds` and
- * `musicName` are what the editor worked out, for the summary.
+ * player put together in the editor (its quality and frame rate are chosen there, so the dialog only names them).
+ * `durationSeconds` and `musicName` are what the editor worked out, for the summary.
  */
 export type ClipOrder =
   | { kind: 'highlight'; highlight: HighlightResponse }
@@ -103,7 +103,7 @@ function MontageSummary({ order }: { order: Extract<ClipOrder, { kind: 'montage'
   const facts = [
     t.montage.order.segments(request.segments.length),
     formatDuration(order.durationSeconds),
-    request.quality,
+    `${request.quality}${request.fps}`,
     request.aspect,
     request.intro ? t.montage.order.intro : null,
     order.musicName,
@@ -151,9 +151,12 @@ function OrderForm({ order, sending, onSendingChange, onClose, onOrdered, keyFir
   const t = useT()
   const keyId = useId()
   const messagesId = useId()
-  // The higher quality is the recommended one (spec 4); a montage brings the one chosen in the editor.
+  // The higher quality is the recommended one (spec 4), the lowest frame rate the default: it is ready soonest and
+  // smooth on every screen. A montage brings the ones chosen in the editor.
   const [chosenQuality, setQuality] = useState<ClipQuality>('1080p')
   const quality = order.kind === 'montage' ? order.request.quality : chosenQuality
+  const [chosenFps, setFps] = useState<ClipFps>(60)
+  const fps = order.kind === 'montage' ? order.request.fps : chosenFps
   const [typedKey, setTypedKey] = useState('')
   const [keyRejected, setKeyRejected] = useState(false)
   // The backend refused an order made by the session alone as nobody's: the session has ended since the page asked.
@@ -221,12 +224,12 @@ function OrderForm({ order, sending, onSendingChange, onClose, onOrdered, keyFir
       },
     }
     if (order.kind === 'highlight') {
-      highlightClip.mutate({ apiKey: sentKey ?? undefined, highlightId: order.highlight.id, quality }, callbacks)
+      highlightClip.mutate({ apiKey: sentKey ?? undefined, highlightId: order.highlight.id, quality, fps }, callbacks)
     } else if (order.kind === 'montage') {
       montage.mutate({ apiKey: sentKey ?? undefined, matchId: order.matchId, request: order.request }, callbacks)
     } else {
       compilation.mutate(
-        { apiKey: sentKey ?? undefined, matchId: order.matchId, playerId: order.playerId, quality },
+        { apiKey: sentKey ?? undefined, matchId: order.matchId, playerId: order.playerId, quality, fps },
         callbacks,
       )
     }
@@ -243,7 +246,7 @@ function OrderForm({ order, sending, onSendingChange, onClose, onOrdered, keyFir
       {order.kind === 'highlight' && <HighlightSummary highlight={order.highlight} />}
       {order.kind === 'compilation' && <CompilationSummary order={order} />}
       {order.kind === 'montage' && <MontageSummary order={order} />}
-      {/* A montage's quality was chosen in the editor, and its summary names it. */}
+      {/* A montage's quality and frame rate were chosen in the editor, and its summary names them. */}
       {order.kind !== 'montage' && (
         <fieldset className="min-w-0">
           <legend className="label-mono">{t.clip.order.quality}</legend>
@@ -268,6 +271,37 @@ function OrderForm({ order, sending, onSendingChange, onClose, onOrdered, keyFir
                 <span className="flex flex-col gap-0.5">
                   <span className="font-mono text-sm font-semibold">{option}</span>
                   <span className="text-[13px] text-muted-foreground">{hints[option]}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+      {order.kind !== 'montage' && (
+        <fieldset className="min-w-0">
+          <legend className="label-mono">{t.clip.order.frameRate}</legend>
+          <div className="mt-2.5 grid gap-2">
+            {CLIP_FPS.map((option) => (
+              // Boxes like the quality's, one under another and lower: the hints are longer than the quality's, and
+              // beside the rate (under it on a phone) each stays on one line.
+              <label
+                key={option}
+                className={cn(
+                  'flex min-h-12 cursor-pointer items-start gap-3 border px-3.5 py-3',
+                  fps === option ? 'border-foreground' : 'border-line-strong',
+                )}
+              >
+                <input
+                  type="radio"
+                  name="fps"
+                  value={option}
+                  checked={fps === option}
+                  onChange={() => setFps(option)}
+                  className="mt-0.5 size-4 shrink-0 accent-foreground"
+                />
+                <span className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-3">
+                  <span className="shrink-0 font-mono text-sm font-semibold sm:w-18">{t.clip.page.fps(option)}</span>
+                  <span className="text-[13px] text-muted-foreground">{t.clip.order.fpsHints[option]}</span>
                 </span>
               </label>
             ))}
@@ -325,7 +359,9 @@ function OrderForm({ order, sending, onSendingChange, onClose, onOrdered, keyFir
           <p className="text-foreground">{t.clip.order.noneLeft(nextPossible(limit.resetsAt, t))}</p>
         )}
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-3">
+      {/* On a phone the two choices make the dialog taller than the screen: the row stays at its bottom edge while the
+          rest scrolls, so that the order can be started from wherever the visitor is in it. */}
+      <div className="flex flex-wrap items-center justify-end gap-3 max-sm:sticky max-sm:bottom-0 max-sm:-mx-5 max-sm:-mb-5 max-sm:border-t max-sm:border-border max-sm:bg-card max-sm:px-5 max-sm:py-4">
         {/* The operator's way in for a signed-in visitor, at the far end of the row from the two buttons; on a phone it
             has a row of its own above them. */}
         {viewer.signedIn && !viewer.admin && storedKey === null && (

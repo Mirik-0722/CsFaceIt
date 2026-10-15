@@ -20,7 +20,6 @@ import org.springframework.validation.annotation.Validated;
  *
  * @param workerToken the secret a recorder sends in {@code X-Worker-Token}; empty while none is set, and then every
  *        worker request is refused. It is never logged: {@link #toString} hides it.
- * @param fps the frames per second of a recording, whatever its quality
  * @param preSeconds how long a segment starts before a kill of the player
  * @param postSeconds how long a segment ends after a kill of the player
  * @param mergeGapSeconds two segments that are less than this far apart are one segment
@@ -40,7 +39,6 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "clip")
 public record ClipProperties(
         String workerToken,
-        @Positive int fps,
         @Positive int preSeconds,
         @Positive int postSeconds,
         @Positive int mergeGapSeconds,
@@ -82,7 +80,7 @@ public record ClipProperties(
     /** Keeps the secret out of logs and exception messages that print the properties. */
     @Override
     public String toString() {
-        return "ClipProperties[workerToken=***, fps=" + fps + ", preSeconds=" + preSeconds
+        return "ClipProperties[workerToken=***, preSeconds=" + preSeconds
                 + ", postSeconds=" + postSeconds + ", mergeGapSeconds=" + mergeGapSeconds
                 + ", maxDurationSeconds=" + maxDurationSeconds + ", maxQueued=" + maxQueued
                 + ", maxAttempts=" + maxAttempts + ", staleAfter=" + staleAfter

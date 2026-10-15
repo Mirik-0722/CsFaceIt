@@ -154,7 +154,7 @@ export default function MontageMonitor({
             // The vertical frame has no room for the whole length; the transport row says it.
             empty ? undefined : <span aria-hidden="true">{vertical ? formatTimecode(time) : timecode}</span>
           }
-          bottomRight={<span aria-hidden="true">{`${options.quality} · ${options.aspect}`}</span>}
+          bottomRight={<span aria-hidden="true">{`${options.quality}${options.fps} · ${options.aspect}`}</span>}
           center={
             <div className="flex max-w-full flex-col items-center gap-4 px-6">
               {empty && (

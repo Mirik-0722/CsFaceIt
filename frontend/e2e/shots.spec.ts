@@ -332,6 +332,7 @@ const EDITOR_SOURCE: EditorSource = {
     maxDurationSeconds: 300,
     maxSegments: 30,
     qualities: ['720p', '1080p'],
+    frameRates: [60, 120, 240],
     aspects: ['16:9', '9:16'],
     titleMaxLength: 60,
     musicTracks: [

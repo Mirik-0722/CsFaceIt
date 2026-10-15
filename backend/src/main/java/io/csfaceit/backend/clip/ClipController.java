@@ -41,8 +41,8 @@ import org.springframework.web.bind.annotation.RestController;
  * only says who is acting, and who is reading: every clip in an answer says whether it is the reader's own
  * ({@code mine}). The reads are open and answer from the database only: an id the
  * database does not know gives an empty list, not a 404 (a single clip that does not exist is a 404). A {@code quality}
- * that is not one of the {@link ClipQuality} labels is a 400. The video and the thumbnail of a clip are served by
- * {@link ClipMediaController}.
+ * that is not one of the {@link ClipQuality} labels, or an {@code fps} that is not one of the {@link ClipFps} numbers,
+ * is a 400. The video and the thumbnail of a clip are served by {@link ClipMediaController}.
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -64,26 +64,30 @@ public class ClipController {
         this.players = players;
     }
 
-    /** 201 for the clip this request queued, 200 for the one that already stood for the highlight at that quality. */
+    /**
+     * 201 for the clip this request queued, 200 for the one that already stood for the highlight at that quality and
+     * frame rate.
+     */
     @PostMapping("/highlights/{highlightId}/clips")
     public ResponseEntity<ClipResponse> requestHighlightClip(@PathVariable long highlightId,
                                                              @RequestBody(required = false) ClipRequest request) {
-        ClipQuality quality = (request == null ? new ClipRequest(null) : request).quality();
-        ClipCreation creation = clips.requestHighlightClip(access.current(), highlightId, quality);
+        ClipRequest order = request == null ? new ClipRequest(null, null) : request;
+        ClipCreation creation = clips.requestHighlightClip(access.current(), highlightId, order.quality(),
+                order.fps());
         return ResponseEntity.status(creation.created() ? HttpStatus.CREATED : HttpStatus.OK).body(creation.clip());
     }
 
     /**
      * 201 for the compilation of a player's kills in the match that this request queued, 200 for the one that already
-     * stood for the player at that quality. The body names the player and is required: a request without one, or with
-     * a malformed player id, is a 400.
+     * stood for the player at that quality and frame rate. The body names the player and is required: a request
+     * without one, or with a malformed player id, is a 400.
      */
     @PostMapping("/matches/{matchId}/clips")
     public ResponseEntity<ClipResponse> requestCompilation(
             @PathVariable @Pattern(regexp = MATCH_ID_PATTERN, message = MATCH_ID_MESSAGE) String matchId,
             @Valid @RequestBody CompilationRequest request) {
         ClipCreation creation = clips.requestCompilation(access.current(), matchId, request.playerId(),
-                request.quality());
+                request.quality(), request.fps());
         return ResponseEntity.status(creation.created() ? HttpStatus.CREATED : HttpStatus.OK).body(creation.clip());
     }
 
@@ -106,9 +110,9 @@ public class ClipController {
     }
 
     /**
-     * Orders a failed clip again, at the same quality: 201 with the new clip, and the failed one is gone. 409
-     * {@code CLIP_NOT_FAILED} for a clip that is waiting, being made or done. (200 with the clip that stands, when
-     * someone ordered the same clip again before this request.)
+     * Orders a failed clip again, at the same quality and frame rate: 201 with the new clip, and the failed one is
+     * gone. 409 {@code CLIP_NOT_FAILED} for a clip that is waiting, being made or done. (200 with the clip that stands,
+     * when someone ordered the same clip again before this request.)
      */
     @PostMapping("/clips/{clipId}/retry")
     public ResponseEntity<ClipResponse> retryClip(@PathVariable long clipId) {

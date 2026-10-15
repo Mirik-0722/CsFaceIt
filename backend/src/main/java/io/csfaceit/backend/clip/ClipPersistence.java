@@ -39,29 +39,29 @@ public class ClipPersistence {
     }
 
     /**
-     * A failed clip as a retry needs it: what it was a clip of (its key and its quality, by the ids of the rows; the
-     * three fields of a highlight are {@code null} in a compilation and a montage) and who ordered it. A montage is
-     * ordered again with its own {@code segments} and {@code options}; {@code options} is {@code null} for every other
-     * kind, whose segments are worked out again from the facts.
+     * A failed clip as a retry needs it: what it was a clip of (its key, its quality and its frame rate, by the ids of
+     * the rows; the three fields of a highlight are {@code null} in a compilation and a montage) and who ordered it. A
+     * montage is ordered again with its own {@code segments} and {@code options}; {@code options} is {@code null} for
+     * every other kind, whose segments are worked out again from the facts.
      */
     public record FailedClip(ClipKind kind, long matchRowId, long playerRowId, HighlightType highlightType,
-                             Integer roundNumber, Integer tickStart, Integer tickEnd, ClipQuality quality,
+                             Integer roundNumber, Integer tickStart, Integer tickEnd, ClipQuality quality, int fps,
                              Long requestedBy, List<ClipSegment> segments, MontageOptions options) {
     }
 
     /**
      * What tells the clip of a highlight apart from every other: the highlight by its natural key (its id is no handle,
-     * an analysis replaces it), and the quality. The ids are those of the rows, not FACEIT's.
+     * an analysis replaces it), the quality and the frame rate. The ids are those of the rows, not FACEIT's.
      */
     public record HighlightKey(long matchRowId, long playerRowId, HighlightType type, int roundNumber, int tickStart,
-                               ClipQuality quality) {
+                               ClipQuality quality, int fps) {
     }
 
     /**
-     * What tells the compilation of a player's kills apart from every other clip: the match, the player and the
-     * quality. The ids are those of the rows, not FACEIT's.
+     * What tells the compilation of a player's kills apart from every other clip: the match, the player, the quality
+     * and the frame rate. The ids are those of the rows, not FACEIT's.
      */
-    public record CompilationKey(long matchRowId, long playerRowId, ClipQuality quality) {
+    public record CompilationKey(long matchRowId, long playerRowId, ClipQuality quality, int fps) {
     }
 
     private final ClipRepository clips;
@@ -74,11 +74,14 @@ public class ClipPersistence {
         this.players = players;
     }
 
-    /** The id of the clip that already stands for the highlight at that quality, if there is one that is not FAILED. */
+    /**
+     * The id of the clip that already stands for the highlight at that quality and frame rate, if there is one that is
+     * not FAILED.
+     */
     @Transactional(readOnly = true)
     public Optional<Long> findLiveHighlightClip(HighlightKey key) {
         return clips.findLiveHighlightClipId(key.matchRowId(), key.playerRowId(), key.type(), key.roundNumber(),
-                key.tickStart(), key.quality());
+                key.tickStart(), key.quality(), key.fps());
     }
 
     /** How many clips are waiting for a recorder. */
@@ -132,7 +135,8 @@ public class ClipPersistence {
         }
         return new FailedClip(clip.getKind(), clip.getMatch().getId(), clip.getPlayer().getId(),
                 clip.getHighlightType(), clip.getRoundNumber(), clip.getTickStart(), clip.getTickEnd(),
-                clip.getQuality(), clip.getRequestedBy(), List.copyOf(clip.getSegments()), clip.getOptions());
+                clip.getQuality(), clip.getFps(), clip.getRequestedBy(), List.copyOf(clip.getSegments()),
+                clip.getOptions());
     }
 
     /** The ids of the clips that finished ({@code DONE} or {@code FAILED}) before {@code cutoff}, the oldest first. */
@@ -144,8 +148,7 @@ public class ClipPersistence {
     /**
      * Puts the clip of a highlight in the queue, as {@code QUEUED}, and returns its id.
      *
-     * @param tickEnd the last tick of the highlight (its first is in the key)
-     * @param fps the frames per second the clip is to be recorded at
+     * @param tickEnd the last tick of the highlight (its first is in the key, and so are its quality and frame rate)
      * @param segments the stretches of the demo the video is made of
      * @param requestedBy the id of the user who orders the clip, {@code null} for the admin key
      * @param beforeInsert runs in this transaction before the clip is written, and stops the order by throwing. This is
@@ -153,35 +156,34 @@ public class ClipPersistence {
      *        clip that is not queued after all (a concurrent request queued the same one) is not counted either.
      */
     @Transactional
-    public long queueHighlightClip(HighlightKey key, int tickEnd, int fps, List<ClipSegment> segments,
-                                   Long requestedBy, Runnable beforeInsert) {
+    public long queueHighlightClip(HighlightKey key, int tickEnd, List<ClipSegment> segments, Long requestedBy,
+                                   Runnable beforeInsert) {
         beforeInsert.run();
         Clip clip = Clip.highlight(matches.getReferenceById(key.matchRowId()),
                 players.getReferenceById(key.playerRowId()), key.type(), key.roundNumber(), key.tickStart(), tickEnd,
-                key.quality(), fps, segments, requestedBy);
+                key.quality(), key.fps(), segments, requestedBy);
         return clips.saveAndFlush(clip).getId();
     }
 
     /** The id of the compilation that already stands for the key, if there is one that is not FAILED. */
     @Transactional(readOnly = true)
     public Optional<Long> findLiveCompilation(CompilationKey key) {
-        return clips.findLiveCompilationClipId(key.matchRowId(), key.playerRowId(), key.quality());
+        return clips.findLiveCompilationClipId(key.matchRowId(), key.playerRowId(), key.quality(), key.fps());
     }
 
     /**
      * Puts the compilation of a player's kills in a match in the queue, as {@code QUEUED}, and returns its id.
      *
-     * @param fps the frames per second the clip is to be recorded at
      * @param segments the stretches of the demo the video is made of, round after round
      * @param requestedBy the id of the user who orders the clip, {@code null} for the admin key
      * @param beforeInsert as for {@link #queueHighlightClip}
      */
     @Transactional
-    public long queueCompilation(CompilationKey key, int fps, List<ClipSegment> segments, Long requestedBy,
+    public long queueCompilation(CompilationKey key, List<ClipSegment> segments, Long requestedBy,
                                  Runnable beforeInsert) {
         beforeInsert.run();
         Clip clip = Clip.compilation(matches.getReferenceById(key.matchRowId()),
-                players.getReferenceById(key.playerRowId()), key.quality(), fps, segments, requestedBy);
+                players.getReferenceById(key.playerRowId()), key.quality(), key.fps(), segments, requestedBy);
         return clips.saveAndFlush(clip).getId();
     }
 
@@ -189,6 +191,7 @@ public class ClipPersistence {
      * Puts a montage in the queue, as {@code QUEUED}, and returns its id. No index keeps a montage unique: every order
      * is a clip of its own.
      *
+     * @param fps the frames per second the montage is to be recorded at
      * @param segments the stretches of the demo the video is made of, in the order the player put them in
      * @param options what the montage is recorded with besides its segments
      * @param requestedBy the id of the user who orders the clip, {@code null} for the admin key

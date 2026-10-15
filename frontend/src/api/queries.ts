@@ -13,6 +13,7 @@ import { ApiError, apiDelete, apiGet, apiPost } from './client'
 import type { MontageRequest } from './editorTypes'
 import type {
   ClipPageResponse,
+  ClipFps,
   ClipQuality,
   ClipResponse,
   DemoResponse,
@@ -371,14 +372,18 @@ function takeInRequestedClip(queryClient: QueryClient, clip: ClipResponse) {
 
 /**
  * Asks for the clip of a highlight. The answer is the clip as it is now (a new one in the queue, or the one that
- * already exists for that highlight and quality); it goes into the list of its match at once, so the page shows it
- * before the list has been asked for again.
+ * already exists for that highlight, quality and frame rate); it goes into the list of its match at once, so the page
+ * shows it before the list has been asked for again.
  */
 export function useRequestHighlightClip() {
   const queryClient = useQueryClient()
-  return useMutation<ClipResponse, ApiError, WriteVariables & { highlightId: number; quality: ClipQuality }>({
-    mutationFn: ({ apiKey, highlightId, quality }) =>
-      apiPost<ClipResponse>(`/highlights/${highlightId}/clips`, { apiKey, body: { quality } }),
+  return useMutation<
+    ClipResponse,
+    ApiError,
+    WriteVariables & { highlightId: number; quality: ClipQuality; fps: ClipFps }
+  >({
+    mutationFn: ({ apiKey, highlightId, quality, fps }) =>
+      apiPost<ClipResponse>(`/highlights/${highlightId}/clips`, { apiKey, body: { quality, fps } }),
     // The variables may hold the admin key: see useDemoAction.
     gcTime: 0,
     ...SEND_AT_ONCE,
@@ -396,10 +401,10 @@ export function useRequestCompilation() {
   return useMutation<
     ClipResponse,
     ApiError,
-    WriteVariables & { matchId: string; playerId: string; quality: ClipQuality }
+    WriteVariables & { matchId: string; playerId: string; quality: ClipQuality; fps: ClipFps }
   >({
-    mutationFn: ({ apiKey, matchId, playerId, quality }) =>
-      apiPost<ClipResponse>(`/matches/${matchId}/clips`, { apiKey, body: { playerId, quality } }),
+    mutationFn: ({ apiKey, matchId, playerId, quality, fps }) =>
+      apiPost<ClipResponse>(`/matches/${matchId}/clips`, { apiKey, body: { playerId, quality, fps } }),
     gcTime: 0,
     ...SEND_AT_ONCE,
     onSuccess: (clip) => takeInRequestedClip(queryClient, clip),
@@ -408,9 +413,9 @@ export function useRequestCompilation() {
 }
 
 /**
- * Orders a montage: the segments of a match the player chose, in their order, with a title, an intro, music, a quality
- * and an aspect. Answered (202) and cached like {@link useRequestCompilation}; every order is a new clip. The backend
- * refuses segments that do not fit the demo (400 `INVALID_SEGMENTS`), an option it does not know (400
+ * Orders a montage: the segments of a match the player chose, in their order, with a title, an intro, music, a quality,
+ * a frame rate and an aspect. Answered (202) and cached like {@link useRequestCompilation}; every order is a new clip.
+ * The backend refuses segments that do not fit the demo (400 `INVALID_SEGMENTS`), an option it does not know (400
  * `INVALID_MONTAGE_OPTION`) and a montage that is too long (409 `CLIP_TOO_LONG`).
  */
 export function useOrderMontage() {

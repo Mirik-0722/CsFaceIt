@@ -477,6 +477,13 @@ export const en = {
       quality: 'Quality',
       fasterSmaller: 'Faster, smaller file',
       recommended: 'Recommended',
+      // The frame rate of the clip: the name of the choice and a hint under each rate.
+      frameRate: 'Frame rate',
+      fpsHints: {
+        60: 'Ready sooner, smooth everywhere',
+        120: 'Smooth on a 144 Hz monitor, very smooth slow motion',
+        240: 'For 240 Hz monitors, takes longest to record',
+      },
       // Under the key field of a visitor who is not signed in.
       needsKey: 'Sign in to record clips of your own highlights. Without signing in, a clip needs the admin key.',
       // The day's limit of a signed-in visitor: the name of the row, what is left, and the line at zero (`next` is
@@ -666,6 +673,7 @@ export const en = {
       music: 'Music',
       noMusic: 'No music',
       quality: 'Quality',
+      frameRate: 'Frame rate',
       aspect: 'Aspect',
       aspects: {
         '16:9': 'Landscape',

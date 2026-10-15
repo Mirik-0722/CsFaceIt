@@ -3,7 +3,7 @@ import RecDot from '@/components/RecDot'
 import StatusChip from '@/components/StatusChip'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { useT } from '@/i18n'
-import { clipFailureText } from '@/lib/clips'
+import { clipFailureText, qualityMark } from '@/lib/clips'
 import { cn } from '@/lib/utils'
 import type { ClipResponse } from '@/api/types'
 
@@ -81,7 +81,7 @@ export default function ClipButton({
         </Link>
         <span className="flex min-w-0 items-center gap-2">
           <StatusChip clip={clip} />
-          <span className="font-mono text-[11px] tracking-[0.06em] text-positive">· {clip.quality}</span>
+          <span className="font-mono text-[11px] tracking-[0.06em] text-positive">· {qualityMark(clip)}</span>
         </span>
       </>
     )

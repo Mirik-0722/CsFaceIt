@@ -96,8 +96,8 @@ public class EditorService {
     public EditorSource.Limits limits() {
         return new EditorSource.Limits(properties.preSeconds(), properties.postSeconds(), MAX_SEGMENT_SECONDS,
                 properties.maxDurationSeconds(), MAX_SEGMENTS,
-                Arrays.stream(ClipQuality.values()).map(ClipQuality::label).toList(), ClipAspect.labels(),
-                TITLE_MAX_LENGTH, properties.musicTracks());
+                Arrays.stream(ClipQuality.values()).map(ClipQuality::label).toList(), ClipFps.numbers(),
+                ClipAspect.labels(), TITLE_MAX_LENGTH, properties.musicTracks());
     }
 
     /** The kills grouped into their rounds, in the order they come in (by round, then by tick). */

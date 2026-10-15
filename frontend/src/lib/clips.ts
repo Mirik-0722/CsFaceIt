@@ -1,11 +1,14 @@
 import type { Messages } from '@/i18n'
-import type { ClipQuality, ClipResponse, ClipStatus, HighlightResponse } from '@/api/types'
+import type { ClipFps, ClipQuality, ClipResponse, ClipStatus, HighlightResponse } from '@/api/types'
 import { highlightLabel } from '@/lib/highlightLabels'
 import { reasonText } from '@/lib/errorMessage'
 import { mapLabel } from '@/lib/mapTint'
 
 /** The qualities a clip can be asked for in, the lower first. */
 export const CLIP_QUALITIES: readonly ClipQuality[] = ['720p', '1080p']
+
+/** The frame rates a clip can be ordered at, the lowest (and the default) first. */
+export const CLIP_FPS: readonly ClipFps[] = [60, 120, 240]
 
 /** A finished video first, then a clip that is on its way; a failed one only when there is nothing else. */
 function statusRank(status: ClipStatus): number {
@@ -20,6 +23,7 @@ function byPreference(a: ClipResponse, b: ClipResponse): number {
   return (
     statusRank(a.status) - statusRank(b.status) ||
     CLIP_QUALITIES.indexOf(b.quality) - CLIP_QUALITIES.indexOf(a.quality) ||
+    b.fps - a.fps ||
     b.createdAt.localeCompare(a.createdAt)
   )
 }
@@ -27,8 +31,9 @@ function byPreference(a: ClipResponse, b: ClipResponse): number {
 /**
  * The clip of a highlight among the clips of its match, or undefined when it has none. A clip does not carry the id of
  * its highlight (a repeated analysis gives every highlight a new id), so it is found by what the highlight is: the
- * player, the type, the round and the tick its window starts at. Of several clips of one highlight (two qualities, or a
- * failed attempt and its retry) the finished one wins, then the higher quality, then the newer.
+ * player, the type, the round and the tick its window starts at. Of several clips of one highlight (two qualities or
+ * frame rates, or a failed attempt and its retry) the finished one wins, then the higher quality, then the higher frame
+ * rate, then the newer.
  */
 export function clipFor(highlight: HighlightResponse, clips: ClipResponse[]): ClipResponse | undefined {
   return clips

@@ -44,15 +44,15 @@ import org.springframework.stereotype.Service;
  * facts are read and the segments worked out with none open, and the short database steps are the transactions of
  * {@link ClipPersistence}. What a request answers with, and every other read of clips, is {@link ClipQueryService}'s.
  *
- * <p>A clip is requested for a highlight and a quality. The highlight is read only through
- * {@link HighlightQueryService#find}, which knows when a highlight may be served (while the demo of its match is
- * {@code ANALYZED}); the clip is tied to it by the highlight's natural key and not by its id, so a new analysis of the
- * demo does not cut the clip off from its highlight.
+ * <p>A clip is requested for a highlight, a quality and a frame rate ({@link ClipFps}). The highlight is read only
+ * through {@link HighlightQueryService#find}, which knows when a highlight may be served (while the demo of its match
+ * is {@code ANALYZED}); the clip is tied to it by the highlight's natural key and not by its id, so a new analysis of
+ * the demo does not cut the clip off from its highlight.
  *
- * <p>A compilation is requested for a player and a quality in a match and is made of every kill of the player in the
- * match, round by round. No highlight is behind it, so the demo is read from the parser's facts alone.
+ * <p>A compilation is requested for a player, a quality and a frame rate in a match and is made of every kill of the
+ * player in the match, round by round. No highlight is behind it, so the demo is read from the parser's facts alone.
  *
- * <p>A montage is requested for a player, a quality and the segments and options he chose in the editor
+ * <p>A montage is requested for a player, a quality, a frame rate and the segments and options he chose in the editor
  * ({@link EditorService}). The segments are his, in his order; they are only checked against the demo, never worked
  * out, sorted or merged here. Every order of a montage is a new clip.
  *
@@ -127,15 +127,16 @@ public class ClipService {
     }
 
     /**
-     * Queues the clip of a highlight at a quality, or answers with the clip that already stands for it. The checks
+     * Queues the clip of a highlight at a quality and a frame rate, or answers with the clip that already stands for
+     * it. The checks
      * come in this order, and the first that fails ends the request:
      * <ol>
      *   <li>the highlight is read (see {@link HighlightQueryService#find}): there is none, or its demo is not
      *       {@code ANALYZED}
      *   <li>the highlight's player is the actor's own (a user; the admin key and an administrator order for anyone)
-     *   <li>a clip of this highlight and quality that is not {@code FAILED} exists: it is the answer, whatever became
-     *       of the demo file since (the files are removed after a while, the clips outlive them) and however long
-     *       the queue is
+     *   <li>a clip of this highlight, quality and frame rate that is not {@code FAILED} exists: it is the answer,
+     *       whatever became of the demo file since (the files are removed after a while, the clips outlive them) and
+     *       however long the queue is
      *   <li>the file of the demo is stored, and the player's SteamID is known: a recorder follows a player by it
      *   <li>the queue has room
      *   <li>the segments, worked out from the player's kills in the highlight's window, are not longer than
@@ -152,7 +153,7 @@ public class ClipService {
      * @throws TooManyRequestsException {@code CLIP_QUEUE_FULL}
      * @throws QuotaExceededException {@code CLIP_LIMIT_REACHED}
      */
-    public ClipCreation requestHighlightClip(Actor actor, long highlightId, ClipQuality quality) {
+    public ClipCreation requestHighlightClip(Actor actor, long highlightId, ClipQuality quality, ClipFps fps) {
         HighlightResponse highlight = highlights.find(highlightId).orElseThrow(() -> highlightNotFound(highlightId));
         access.requireOwnPlayer(actor, highlight.playerId());
         // The highlight was read from rows that join its match, its player and its demo, so they are there; a row that
@@ -163,7 +164,7 @@ public class ClipService {
                 .orElseThrow(() -> highlightNotFound(highlightId));
 
         HighlightKey key = new HighlightKey(match.getId(), player.getId(), highlight.type(), highlight.roundNumber(),
-                highlight.tickStart(), quality);
+                highlight.tickStart(), quality, fps.value());
         return orderHighlightClip(key, highlight.tickEnd(), match, player, actor.userId(), actor);
     }
 
@@ -193,7 +194,7 @@ public class ClipService {
 
         long clipId;
         try {
-            clipId = persistence.queueHighlightClip(key, tickEnd, properties.fps(), segments, requestedBy,
+            clipId = persistence.queueHighlightClip(key, tickEnd, segments, requestedBy,
                     () -> usage.reserve(actor, UsageKind.CLIP_ORDER));
         } catch (DataIntegrityViolationException | QuotaExceededException e) {
             // A concurrent request queued the same clip between the look above and the insert, and the unique index
@@ -204,27 +205,27 @@ public class ClipService {
             if (winner.isEmpty()) {
                 throw e;
             }
-            log.info("Lost a concurrent request for the clip of the {} in round {} of match {} at {}, answering with "
-                    + "clip {}", key.type(), key.roundNumber(), match.getFaceitMatchId(), key.quality().label(),
-                    winner.get());
+            log.info("Lost a concurrent request for the clip of the {} in round {} of match {} at {} {} fps, answering "
+                    + "with clip {}", key.type(), key.roundNumber(), match.getFaceitMatchId(), key.quality().label(),
+                    key.fps(), winner.get());
             return new ClipCreation(queries.summary(winner.get(), viewerId), false);
         }
         metrics.requested(ClipKind.HIGHLIGHT);
-        log.info("Queued clip {} at {} for the {} in round {} of match {}: {} segment(s), {} ticks", clipId,
-                key.quality().label(), key.type(), key.roundNumber(), match.getFaceitMatchId(), segments.size(),
-                SegmentBuilder.totalTicks(segments));
+        log.info("Queued clip {} at {} {} fps for the {} in round {} of match {}: {} segment(s), {} ticks", clipId,
+                key.quality().label(), key.fps(), key.type(), key.roundNumber(), match.getFaceitMatchId(),
+                segments.size(), SegmentBuilder.totalTicks(segments));
         return new ClipCreation(queries.summary(clipId, viewerId), true);
     }
 
     /**
-     * Queues the compilation of a player's kills in a match at a quality, or answers with the compilation that already
-     * stands for them: one video of every kill of an enemy the player made in the match, round by round. The checks
-     * come in this order, and the first that fails ends the request:
+     * Queues the compilation of a player's kills in a match at a quality and a frame rate, or answers with the
+     * compilation that already stands for them: one video of every kill of an enemy the player made in the match, round
+     * by round. The checks come in this order, and the first that fails ends the request:
      * <ol>
      *   <li>the player is the actor's own (a user; the admin key and an administrator order for anyone)
      *   <li>the match, and then the player, are known to the database (FACEIT is not asked)
-     *   <li>a compilation of this match, player and quality that is not {@code FAILED} exists: it is the answer,
-     *       whatever became of the demo file since and however long the queue is
+     *   <li>a compilation of this match, player, quality and frame rate that is not {@code FAILED} exists: it is the
+     *       answer, whatever became of the demo file since and however long the queue is
      *   <li>the file of the demo is stored, and the player's SteamID is known, as for the clip of a highlight; the demo
      *       need only be {@code PARSED}, since the kills are the parser's facts and no highlight is read
      *   <li>the player made a kill of an enemy in the match
@@ -245,14 +246,14 @@ public class ClipService {
      * @throws QuotaExceededException {@code CLIP_LIMIT_REACHED}
      */
     public ClipCreation requestCompilation(Actor actor, String faceitMatchId, String faceitPlayerId,
-                                           ClipQuality quality) {
+                                           ClipQuality quality, ClipFps fps) {
         access.requireOwnPlayer(actor, faceitPlayerId);
         Match match = matches.findByFaceitMatchId(faceitMatchId)
                 .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND, "Match not found: " + faceitMatchId));
         Player player = players.findByFaceitId(faceitPlayerId)
                 .orElseThrow(() -> new NotFoundException(PLAYER_NOT_FOUND, "Player not found: " + faceitPlayerId));
 
-        CompilationKey key = new CompilationKey(match.getId(), player.getId(), quality);
+        CompilationKey key = new CompilationKey(match.getId(), player.getId(), quality, fps.value());
         return orderCompilation(key, match, player, actor.userId(), actor);
     }
 
@@ -287,7 +288,7 @@ public class ClipService {
 
         long clipId;
         try {
-            clipId = persistence.queueCompilation(key, properties.fps(), segments, requestedBy,
+            clipId = persistence.queueCompilation(key, segments, requestedBy,
                     () -> usage.reserve(actor, UsageKind.CLIP_ORDER));
         } catch (DataIntegrityViolationException | QuotaExceededException e) {
             // A concurrent request queued the same compilation between the look above and the insert, and the unique
@@ -297,13 +298,14 @@ public class ClipService {
             if (winner.isEmpty()) {
                 throw e;
             }
-            log.info("Lost a concurrent request for the compilation of {} in match {} at {}, answering with clip {}",
-                    faceitPlayerId, faceitMatchId, quality.label(), winner.get());
+            log.info("Lost a concurrent request for the compilation of {} in match {} at {} {} fps, answering with "
+                    + "clip {}", faceitPlayerId, faceitMatchId, quality.label(), key.fps(), winner.get());
             return new ClipCreation(queries.summary(winner.get(), viewerId), false);
         }
         metrics.requested(ClipKind.COMPILATION);
-        log.info("Queued clip {} at {} for the compilation of {} in match {}: {} segment(s), {} ticks", clipId,
-                quality.label(), faceitPlayerId, faceitMatchId, segments.size(), SegmentBuilder.totalTicks(segments));
+        log.info("Queued clip {} at {} {} fps for the compilation of {} in match {}: {} segment(s), {} ticks", clipId,
+                quality.label(), key.fps(), faceitPlayerId, faceitMatchId, segments.size(),
+                SegmentBuilder.totalTicks(segments));
         return new ClipCreation(queries.summary(clipId, viewerId), true);
     }
 
@@ -312,7 +314,8 @@ public class ClipService {
      * chose. Unlike a compilation every order is a new clip, also one exactly like a montage that stands; nothing is
      * looked up first. The checks come in this order, and the first that fails ends the request:
      * <ol>
-     *   <li>the options: a known quality ({@code null} is 720p) and shape ({@code null} is 16:9), a title of at most
+     *   <li>the options: a known quality ({@code null} is 720p), frame rate ({@code null} is 60) and shape
+     *       ({@code null} is 16:9), a title of at most
      *       {@link EditorService#TITLE_MAX_LENGTH} characters with no control character, and a music track of
      *       {@code clip.music-tracks} or none
      *   <li>the segments as given: 1 to {@link EditorService#MAX_SEGMENTS} of them, each with both ticks, not negative,
@@ -338,6 +341,7 @@ public class ClipService {
      */
     public ClipCreation requestMontage(Actor actor, String faceitMatchId, MontageRequest request) {
         ClipQuality quality = montageQuality(request.quality());
+        int fps = montageFps(request.fps());
         MontageOptions options = montageOptions(request);
         List<ClipSegment> segments = montageSegments(request.segments());
 
@@ -347,7 +351,7 @@ public class ClipService {
                 .orElseThrow(() -> new NotFoundException(MATCH_NOT_FOUND, "Match not found: " + faceitMatchId));
         Player player = players.findByFaceitId(faceitPlayerId)
                 .orElseThrow(() -> new NotFoundException(PLAYER_NOT_FOUND, "Player not found: " + faceitPlayerId));
-        return orderMontage(match, player, quality, segments, options, actor.userId(), actor);
+        return orderMontage(match, player, quality, fps, segments, options, actor.userId(), actor);
     }
 
     /**
@@ -358,8 +362,9 @@ public class ClipService {
      * @param actor who asks: the clip counts against their limit per day, and the answer is for them (see
      *        {@link ClipResponse#mine})
      */
-    private ClipCreation orderMontage(Match match, Player player, ClipQuality quality, List<ClipSegment> segments,
-                                      MontageOptions options, Long requestedBy, Actor actor) {
+    private ClipCreation orderMontage(Match match, Player player, ClipQuality quality, int fps,
+                                      List<ClipSegment> segments, MontageOptions options, Long requestedBy,
+                                      Actor actor) {
         String faceitMatchId = match.getFaceitMatchId();
         int tickRate = tickRateOfRecordableDemo(match, player);
         rejectIfOutsideDemo(segments, match, tickRate);
@@ -367,12 +372,12 @@ public class ClipService {
         long videoTicks = SegmentBuilder.totalTicks(segments) + options.introTicks(tickRate);
         rejectIfTooLong(videoTicks, tickRate);
 
-        long clipId = persistence.queueMontage(match.getId(), player.getId(), quality, properties.fps(), segments,
+        long clipId = persistence.queueMontage(match.getId(), player.getId(), quality, fps, segments,
                 options, requestedBy, () -> usage.reserve(actor, UsageKind.CLIP_ORDER));
         metrics.requested(ClipKind.MONTAGE);
-        log.info("Queued clip {} at {} {} for a montage of {} in match {}: {} segment(s), {} ticks", clipId,
-                quality.label(), options.aspect().label(), SteamIds.maskPlayerId(player.getFaceitId()), faceitMatchId,
-                segments.size(), videoTicks);
+        log.info("Queued clip {} at {} {} fps {} for a montage of {} in match {}: {} segment(s), {} ticks", clipId,
+                quality.label(), fps, options.aspect().label(), SteamIds.maskPlayerId(player.getFaceitId()),
+                faceitMatchId, segments.size(), videoTicks);
         return new ClipCreation(queries.summary(clipId, actor.userId()), true);
     }
 
@@ -382,6 +387,18 @@ public class ClipService {
         }
         try {
             return ClipQuality.fromLabel(label);
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException(INVALID_MONTAGE_OPTION, e.getMessage());
+        }
+    }
+
+    /** The frame rate of a montage order, 60 when it names none, or a 400 {@code INVALID_MONTAGE_OPTION}. */
+    private static int montageFps(Integer fps) {
+        if (fps == null) {
+            return ClipFps.DEFAULT.value();
+        }
+        try {
+            return ClipFps.of(fps).value();
         } catch (IllegalArgumentException e) {
             throw new BadRequestException(INVALID_MONTAGE_OPTION, e.getMessage());
         }
@@ -456,11 +473,11 @@ public class ClipService {
     }
 
     /**
-     * Orders a failed clip again: the same highlight (or the same compilation) at the same quality, as a new clip in
-     * the queue, and the failed row goes with whatever its attempts left in the storage. The new clip is recorded for
-     * whoever ordered the failed one, so a clip that an administrator retries for a user stays that user's. It counts
-     * as one clip order of the actor who retries (a user; an administrator's retry is counted for nobody), and only
-     * when it queues the new clip.
+     * Orders a failed clip again: the same highlight (or the same compilation) at the same quality and frame rate, as
+     * a new clip in the queue, and the failed row goes with whatever its attempts left in the storage. The new clip is
+     * recorded for whoever ordered the failed one, so a clip that an administrator retries for a user stays that
+     * user's. It counts as one clip order of the actor who retries (a user; an administrator's retry is counted for
+     * nobody), and only when it queues the new clip.
      *
      * <p>The clip is read under its lock, where {@link Access} is asked whether the actor may (a user retries only a
      * clip they ordered) and the status is looked at. Then it is ordered like any clip, with the same checks (the demo
@@ -494,12 +511,12 @@ public class ClipService {
 
         ClipCreation creation = switch (failed.kind()) {
             case HIGHLIGHT -> orderHighlightClip(new HighlightKey(failed.matchRowId(), failed.playerRowId(),
-                    failed.highlightType(), failed.roundNumber(), failed.tickStart(), failed.quality()),
+                    failed.highlightType(), failed.roundNumber(), failed.tickStart(), failed.quality(), failed.fps()),
                     failed.tickEnd(), match, player, failed.requestedBy(), actor);
             case COMPILATION -> orderCompilation(new CompilationKey(failed.matchRowId(), failed.playerRowId(),
-                    failed.quality()), match, player, failed.requestedBy(), actor);
+                    failed.quality(), failed.fps()), match, player, failed.requestedBy(), actor);
             // Its own segments and options, as the player chose them; the rules of the demo are checked again.
-            case MONTAGE -> orderMontage(match, player, failed.quality(), failed.segments(),
+            case MONTAGE -> orderMontage(match, player, failed.quality(), failed.fps(), failed.segments(),
                     Objects.requireNonNullElse(failed.options(), NO_OPTIONS), failed.requestedBy(), actor);
         };
         try {
