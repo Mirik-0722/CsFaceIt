@@ -211,8 +211,13 @@ public class PlayerOverviewService {
      */
     private static final int STATS_MARGIN = 20;
 
-    /** The most matches FACEIT lists in one page of a player's statistics. */
-    private static final int MAX_STATS_LIMIT = 100;
+    /**
+     * The block FACEIT's per-match statistics are read in: FACEIT answers 400 when the offset is not a multiple of the
+     * limit (seen 2026-10-15: {@code offset=20&limit=40} is refused, {@code offset=40&limit=20} is not), so the window is
+     * read as the whole blocks of this size that cover it — one, or two where it crosses a block's end. 100 is the
+     * most FACEIT lists at once.
+     */
+    private static final int STATS_BLOCK = 100;
 
     private static final Logger log = LoggerFactory.getLogger(PlayerOverviewService.class);
 
@@ -303,8 +308,9 @@ public class PlayerOverviewService {
      *
      * <p>Runs with no transaction open, after {@link #matches}, so that no connection is held while FACEIT is waited
      * for. FACEIT lists the statistics newest first as the history does, but without the matches it keeps none for
-     * (a cancelled one), so a match sits at or before its place in the history: the window asked for starts
-     * {@value #STATS_MARGIN} places before the page and reaches as far past its end, within FACEIT's limit.
+     * (a cancelled one), so a match sits at or before its place in the history: the window looked at starts
+     * {@value #STATS_MARGIN} places before the page and reaches as far past its end, and is read in whole blocks of
+     * {@value #STATS_BLOCK} (see {@link #STATS_BLOCK}).
      *
      * @param faceitPlayerId the FACEIT player id the page was read for
      * @param list what {@link #matches} answered
@@ -314,16 +320,20 @@ public class PlayerOverviewService {
                 || list.items().stream().noneMatch(PlayerOverviewService::lacksStoredFacts)) {
             return list;
         }
-        int offset = Math.max(0, list.offset() - STATS_MARGIN);
-        int limit = Math.min(MAX_STATS_LIMIT, list.offset() - offset + list.limit() + STATS_MARGIN);
+        int firstBlock = Math.max(0, list.offset() - STATS_MARGIN) / STATS_BLOCK;
+        int lastBlock = (list.offset() + list.limit() + STATS_MARGIN - 1) / STATS_BLOCK;
         Map<String, FaceitPlayerMatchStats.Match> byMatch = new HashMap<>();
         try {
-            faceit.getPlayerMatchStats(faceitPlayerId, offset, limit).matches()
-                    .forEach(match -> byMatch.putIfAbsent(match.matchId(), match));
+            for (int block = firstBlock; block <= lastBlock; block++) {
+                faceit.getPlayerMatchStats(faceitPlayerId, block * STATS_BLOCK, STATS_BLOCK).matches()
+                        .forEach(match -> byMatch.putIfAbsent(match.matchId(), match));
+            }
         } catch (RuntimeException e) {
             log.warn("FACEIT's statistics of the player's matches could not be read, the list shows what the database"
                     + " knows: {}", e.getClass().getName());
-            return list;
+            if (byMatch.isEmpty()) {
+                return list;
+            }
         }
         List<PlayerMatchResponse> items = list.items().stream()
                 .map(item -> withFaceitFacts(item, byMatch.get(item.matchId())))
