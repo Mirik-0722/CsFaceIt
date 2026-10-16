@@ -921,8 +921,10 @@ const SCENARIOS: Scenario[] = [
   // Where the focus ring is on each page's content: the element that the page's `tabs` presses of Tab reach.
   { name: 'focus', before: pressTab },
   // plan 8 · task 2
-  // The two-line rows of matches with the long texts on the narrowest phone.
+  // The two-line rows of matches with the long texts on the narrowest phone, and the rows in English there (whose
+  // statuses and tags are longer).
   { name: 'long', pages: ['matches'], viewports: [SMALL_PHONE], backend: LONG_MATCHES_BACKEND },
+  { name: 'default', pages: ['matches', 'player'], languages: ['en'], viewports: [SMALL_PHONE] },
 ]
 
 /**

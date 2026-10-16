@@ -277,17 +277,20 @@ export const en = {
       drop: 'Drop the demo file to upload it',
       // The action of a row whose match has no demo; `label` is the match, for the name a screen reader hears.
       row: 'Upload a demo',
+      // The same on a phone, where the row's button has room for one word (its name stays `rowFor`).
+      rowShort: 'Demo',
       rowFor: (label: string) => `Upload a demo for ${label}`,
       feedLabel: 'Demo uploads',
       sending: (percent: number) => `Uploading ${percent}%`,
       fetching: 'Fetching…',
       sent: 'Sent. The row follows the demo by itself.',
       dismiss: 'Close',
-      // A file whose name has no match id (it was renamed): why it is not uploaded, and where the way out is.
-      noMatchId: (name: string) =>
-        `The name of "${name}" has no match id, so the site cannot tell which match it is. Upload it with "Upload a demo" on that match's row in the list.`,
-      noLinkId:
-        'The file in this link has no match id in its name, so the site cannot tell which match it is. Upload the file with "Upload a demo" on that match\'s row in the list.',
+      // A file whose name has no match id (it was renamed): why it is not uploaded, and where the way out is. `button`
+      // is the row's button as it reads (`row`, or `rowShort` on a phone).
+      noMatchId: (name: string, button: string) =>
+        `The name of "${name}" has no match id, so the site cannot tell which match it is. Upload it with "${button}" on that match's row in the list.`,
+      noLinkId: (button: string) =>
+        `The file in this link has no match id in its name, so the site cannot tell which match it is. Upload the file with "${button}" on that match's row in the list.`,
     },
     recorder: {
       title: 'Recording PC',
@@ -795,11 +798,5 @@ export const en = {
     // The line of the upload box for an account without FACEIT, which brings matchmaking demos only.
     uploadText:
       'Drop a matchmaking demo here: the .dem from your CS2 replays folder or a downloaded .dem.bz2. Or paste its replay link.',
-  },
-  // plan 8 · task 2
-  matchRow: {
-    // The word of a row's demo upload on a phone, where the button has room for one word (its name for a screen reader
-    // stays `matches.bring.rowFor`).
-    demo: 'Demo',
   },
 }

@@ -1,7 +1,8 @@
 import { ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import HighlightTag from '@/components/HighlightTag'
-import { MatchMapCell, PhoneHighlightTags } from '@/components/MatchesTable'
+import { MatchMapCell } from '@/components/MatchesTable'
+import PhoneHighlightTags from '@/components/PhoneHighlightTags'
 import { Badge } from '@/components/ui/badge'
 import { useLocale, useT } from '@/i18n'
 import { formatDate } from '@/lib/formatDate'
@@ -74,10 +75,11 @@ function TopHighlight({ match }: { match: PlayerMatchResponse | undefined }) {
 // `lg` the strongest highlight, the result, the score and the arrow. A cell that is hidden below its width takes no
 // column. The row starts 14px in: 3px of it is the bar of the result. Under `md` it is the two lines of a row of the
 // matches table on a phone (spec of the phone view, 4; `MatchesTable`): the map, and at the right the score over the
-// word of the result; then, from under the map's name, K / D / A, ADR and the strongest highlights as tags. The list
-// reaches the edges of the screen there, and the row has 12px above and below and 16px at its sides.
+// word of the result; then, from under the map's name, one line that never wraps: K / D / A, ADR and the strongest
+// highlights as the tags that fit (nothing stands at its right end, so three at most). The list reaches the edges of
+// the screen there, and the row has 12px above and below and the page's gutter at its sides.
 const DETAILED =
-  'grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 pr-2 pl-3.5 max-md:gap-x-3 max-md:gap-y-2 max-md:px-4 max-md:py-3 md:grid-cols-[minmax(0,1fr)_7.5rem_auto_auto_16px] lg:grid-cols-[minmax(0,1fr)_7.5rem_11rem_auto_auto_16px]'
+  'grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 pr-2 pl-3.5 max-md:gap-x-3 max-md:gap-y-2 max-md:px-(--page-gutter) max-md:py-3 md:grid-cols-[minmax(0,1fr)_7.5rem_auto_auto_16px] lg:grid-cols-[minmax(0,1fr)_7.5rem_11rem_auto_auto_16px]'
 // The score at the end of a row, as the matches table writes it.
 const SCORE = 'font-mono text-[19px] leading-none font-semibold tabular-nums'
 
@@ -151,14 +153,14 @@ export default function MatchList({ items, details }: { items: MatchSummary[]; d
                   row's columns, and the phone's ADR and tags are not drawn. */}
               <span
                 className={cn(
-                  'contents max-md:col-span-2 max-md:row-start-2 max-md:flex max-md:min-w-0 max-md:flex-wrap max-md:items-center max-md:gap-x-3 max-md:gap-y-1.5 max-md:pl-13',
+                  'contents max-md:col-span-2 max-md:row-start-2 max-md:flex max-md:min-w-0 max-md:items-center max-md:gap-3 max-md:pl-13',
                   !kda && adr === null && !tags && 'max-md:hidden',
                 )}
               >
                 <span
                   className={cn(
                     'hidden font-mono text-sm md:block',
-                    (kda || adr !== null) && 'max-md:flex max-md:flex-wrap max-md:items-baseline max-md:gap-x-2',
+                    (kda || adr !== null) && 'max-md:flex max-md:shrink-0 max-md:items-baseline max-md:gap-x-2',
                   )}
                 >
                   {known && (
@@ -172,7 +174,7 @@ export default function MatchList({ items, details }: { items: MatchSummary[]; d
                   )}
                 </span>
                 <span className="hidden min-w-0 items-center lg:flex">{known && <TopHighlight match={stored} />}</span>
-                {tags && stored && <PhoneHighlightTags highlights={stored.highlights} />}
+                {tags && stored && <PhoneHighlightTags highlights={stored.highlights} limit={3} />}
               </span>
               {/* On a phone the score is over the word of the result, at the right of the map, in the result's colour.
                   From `md` the box is not there (`contents`): the word and the score are the row's columns. */}

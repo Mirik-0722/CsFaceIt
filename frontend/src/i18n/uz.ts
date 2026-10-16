@@ -238,16 +238,17 @@ export const uz: Messages = {
       linkSubmit: 'Olish',
       drop: 'Demoni yuklash uchun faylni tashlang',
       row: 'Demo yuklash',
+      rowShort: 'Demo',
       rowFor: (label) => `${label} uchun demo yuklash`,
       feedLabel: 'Demo yuklashlar',
       sending: (percent) => `Yuklanmoqda ${percent}%`,
       fetching: 'Olinmoqda…',
       sent: "Yuborildi. Qator demoning bosqichlarini o'zi ko'rsatadi.",
       dismiss: 'Yopish',
-      noMatchId: (name) =>
-        `«${name}» nomida match id yo'q, shuning uchun u qaysi matchniki ekanini bilib bo'lmaydi. Uni ro'yxatdagi o'sha match qatoridan «Demo yuklash» orqali yuklang.`,
-      noLinkId:
-        "Havoladagi fayl nomida match id yo'q, shuning uchun u qaysi matchniki ekanini bilib bo'lmaydi. Faylni ro'yxatdagi o'sha match qatoridan «Demo yuklash» orqali yuklang.",
+      noMatchId: (name, button) =>
+        `«${name}» nomida match id yo'q, shuning uchun u qaysi matchniki ekanini bilib bo'lmaydi. Uni ro'yxatdagi o'sha match qatoridan «${button}» orqali yuklang.`,
+      noLinkId: (button) =>
+        `Havoladagi fayl nomida match id yo'q, shuning uchun u qaysi matchniki ekanini bilib bo'lmaydi. Faylni ro'yxatdagi o'sha match qatoridan «${button}» orqali yuklang.`,
     },
     recorder: {
       title: 'Yozuvchi kompyuter',
@@ -697,9 +698,5 @@ export const uz: Messages = {
     importFailedPlain: "Demoni havola orqali olib bo'lmadi.",
     uploadText:
       'Matchmaking demosini shu yerga tashlang: CS2 replays papkasidagi .dem yoki yuklab olingan .dem.bz2. Yoki uning replay havolasini joylang.',
-  },
-  // plan 8 · task 2
-  matchRow: {
-    demo: 'Demo',
   },
 }

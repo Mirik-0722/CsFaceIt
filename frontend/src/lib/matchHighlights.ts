@@ -23,10 +23,7 @@ const BY_STRENGTH: readonly HighlightType[] = [
   'KNIFE_KILL',
 ]
 
-/**
- * How many kinds are named after the strongest one in a table row, and how many tags a row has on a phone; the others
- * are counted (`+2`).
- */
+/** How many kinds are named after the strongest one in a table row; the others are counted (`+2`). */
 const LISTED = 3
 
 /** The place of a kind in {@link BY_STRENGTH}; a kind this page does not know comes after all that it does. */
@@ -71,15 +68,16 @@ export function summarizeHighlights(
 }
 
 /**
- * A match's highlights as the tags of a row of matches on a phone (spec of the phone view, 4): the three kinds that
- * stand out most, each written short (`ACE ×2`, `4K`, `1v3`: a clutch is only its size, so that the tags fit on the
- * row's second line, and the tag's colour says it is a clutch), and how many kinds are left out (`+2`).
+ * A match's highlights as the tags of a row of matches on a phone (spec of the phone view, 4): at most `limit` of the
+ * kinds that stand out most, each written short (`ACE ×2`, `4K`, `1v3`: a clutch is only its size, so that the tags fit
+ * on the row's second line, and the tag's colour says it is a clutch), and how many kinds are left out (`+2`).
  */
 export function strongestKinds(
   highlights: HighlightCount[],
   t: Messages,
+  limit: number,
 ): { kinds: { type: HighlightType; text: string }[]; hidden: number } {
   const present = ranked(highlights)
-  const kinds = present.slice(0, LISTED).map((kind) => ({ type: kind.type, text: shortKindText(kind, t) }))
+  const kinds = present.slice(0, limit).map((kind) => ({ type: kind.type, text: shortKindText(kind, t) }))
   return { kinds, hidden: present.length - kinds.length }
 }
