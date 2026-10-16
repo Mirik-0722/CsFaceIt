@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { Search, X } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useMe } from '@/api/auth'
 import AccountMenu from '@/components/AccountMenu'
 import LanguageSwitch from '@/components/LanguageSwitch'
 import Logo, { WORDMARK } from '@/components/Logo'
-import SignInDialog from '@/components/SignInDialog'
 import TopBarSearch from '@/components/TopBarSearch'
 import { Button } from '@/components/ui/button'
 import { useT } from '@/i18n'
@@ -32,15 +32,20 @@ const ANCHORS = [
  * (matches, clips, statistics), the player ones when a FACEIT player is linked; an account without FACEIT has its
  * matches too, those of its SteamID (CS2 matchmaking).
  *
+ * On a phone (under `md`, spec 3.1 of the phone view) the bar is one row of 56px: the logo and, on the right, the
+ * search button and the account. The navigation is the bottom bar's (`BottomNav`) and the language is in the account
+ * menu and the footer; the search opens under the bar from its button. Off the home page the bar stays at the top of
+ * the screen while the page scrolls under it.
+ *
  * Until `/auth/me` has answered, the bar of a visitor who is not signed in (the common case) is drawn at its real size
  * but cannot be seen, reached or read (`invisible`, `aria-hidden`, `inert`). When the answer says "not signed in",
  * nothing moves; a signed-in visitor gets the one change, the avatar and the longer navigation.
  */
-export default function TopBar() {
+export default function TopBar({ onSignIn }: { onSignIn: () => void }) {
   const t = useT()
   const me = useMe()
-  const { pathname } = useLocation()
-  const [signInOpen, setSignInOpen] = useState(false)
+  const location = useLocation()
+  const { pathname } = location
   const pending = me.isPending
   // A failed answer is a visitor who is not signed in: the bar still has to work when the backend does not.
   const user = me.data ?? null
@@ -56,6 +61,30 @@ export default function TopBar() {
       signInRef.current?.focus()
     }
   }, [user])
+
+  // The phone's search, open under the bar. A search that is sent closes it; so does going to another page (a link of
+  // the bottom bar), for which it is reset while rendering when the location changes, before the new page is drawn.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchLocation, setSearchLocation] = useState(location.key)
+  if (searchLocation !== location.key) {
+    setSearchLocation(location.key)
+    setSearchOpen(false)
+  }
+  const searchPanelId = useId()
+  const searchButtonRef = useRef<HTMLButtonElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  // The focus goes into the field once it is on screen.
+  useEffect(() => {
+    if (searchOpen) {
+      searchInputRef.current?.focus()
+    }
+  }, [searchOpen])
+  // Escape closes the search and gives the focus back to the button that opened it.
+  function closeSearch() {
+    setSearchOpen(false)
+    searchButtonRef.current?.focus()
+  }
+
   const home = pathname === '/'
   // The landing page's bar is the lighter one: anchors of 44px, closer rows and a right side without padding of its own.
   const landing = home && user === null
@@ -64,10 +93,9 @@ export default function TopBar() {
   // (CS2 matchmaking, plan 6c).
   const matchesPath = ownMatchesPath(user)
 
-  // On a phone the bar is the one row of the mockup (56px: the logo and, on the right, the language and the account).
-  // The navigation of the inner pages gets a row of its own under it; the anchors of the landing page and the search
-  // of the bar are left to wider screens (the page scrolls, and the home page has the search).
-  const itemClass = cn(ITEM, landing ? 'min-h-11' : 'min-h-11 sm:min-h-17')
+  // From `md` up the bar is the one of the mockup's desktop (68px, the navigation beside the logo). On a phone the
+  // navigation is left to the bottom bar, and the anchors of the landing page to the page itself, which scrolls.
+  const itemClass = cn(ITEM, landing ? 'min-h-11' : 'min-h-11 md:min-h-17')
   let navigation
   if (landing) {
     navigation = (
@@ -90,10 +118,7 @@ export default function TopBar() {
         aria-label={t.nav.label}
         aria-hidden={pending || undefined}
         inert={pending}
-        className={cn(
-          'flex flex-auto flex-wrap gap-1 self-stretch max-sm:order-last max-sm:w-full',
-          pending && 'invisible',
-        )}
+        className={cn('flex flex-auto flex-wrap gap-1 self-stretch max-md:hidden', pending && 'invisible')}
       >
         {matchesPath && (
           <NavLink to={matchesPath} className={cn(itemClass, CURRENT)}>
@@ -113,11 +138,16 @@ export default function TopBar() {
   }
 
   return (
-    <header className="border-b border-border">
+    // On a phone, off the home page, the bar stays at the top of the screen, over the page (and under the dialogs and
+    // menus, z-50); its ground is the page's own (`top-bar-ground`), so it cannot be told from the page until something
+    // scrolls under it. On the home page the landing page's backdrop is behind the bar, so it scrolls with the page.
+    <header
+      className={cn('border-b border-border', !home && 'max-md:top-bar-ground max-md:sticky max-md:top-0 max-md:z-40')}
+    >
       {/* The line spans the window, the content sits in the page column; on a narrow screen the parts wrap. */}
       <div
         className={cn(
-          'container-page flex min-h-14 flex-wrap items-center gap-x-7 sm:min-h-17',
+          'container-page flex min-h-14 flex-wrap items-center gap-x-7 md:min-h-17',
           landing && 'gap-y-1',
         )}
       >
@@ -131,15 +161,51 @@ export default function TopBar() {
         <div
           className={cn(
             'ml-auto flex flex-wrap items-center gap-x-3 gap-y-2',
-            landing ? 'gap-x-2' : 'py-1.5 sm:py-3',
+            landing ? 'gap-x-2' : 'py-1.5 md:py-3',
           )}
         >
           {!home && (
-            <div className="max-sm:hidden">
-              <TopBarSearch />
-            </div>
+            <>
+              {/* The phone's way to the search: it opens the panel under the bar, and closes it again. */}
+              <Button
+                ref={searchButtonRef}
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-expanded={searchOpen}
+                aria-controls={searchPanelId}
+                aria-label={searchOpen ? t.topBar.searchClose : t.topBar.searchOpen}
+                onClick={() => setSearchOpen((open) => !open)}
+                className="text-muted-foreground hover:text-foreground aria-expanded:text-foreground md:hidden"
+              >
+                {searchOpen ? (
+                  <X className="size-5" strokeWidth={1.75} aria-hidden="true" />
+                ) : (
+                  <Search className="size-5" strokeWidth={1.75} aria-hidden="true" />
+                )}
+              </Button>
+              {/* From `md` up the search stands in the bar. On a phone it is the panel under the bar, across the
+                  window, while it is open; it comes in from above unless the visitor asked for less motion. */}
+              <div
+                id={searchPanelId}
+                className={cn(
+                  // The side padding is the page column's gutter (`container-page`).
+                  'max-md:absolute max-md:inset-x-0 max-md:top-full max-md:border-b max-md:border-border max-md:bg-card',
+                  'max-md:px-[clamp(16px,4vw,40px)] max-md:py-3',
+                  searchOpen
+                    ? 'max-md:motion-safe:animate-in max-md:motion-safe:fade-in-0 max-md:motion-safe:slide-in-from-top-2 max-md:motion-safe:duration-150'
+                    : 'max-md:hidden',
+                )}
+              >
+                <TopBarSearch
+                  inputRef={searchInputRef}
+                  onEscape={searchOpen ? closeSearch : undefined}
+                  onSearch={() => setSearchOpen(false)}
+                />
+              </div>
+            </>
           )}
-          <LanguageSwitch />
+          <LanguageSwitch className="max-md:hidden" />
           {user ? (
             <AccountMenu
               me={user}
@@ -155,14 +221,13 @@ export default function TopBar() {
               aria-hidden={pending || undefined}
               inert={pending}
               className={pending ? 'invisible' : undefined}
-              onClick={() => setSignInOpen(true)}
+              onClick={onSignIn}
             >
               {t.auth.signIn}
             </Button>
           )}
         </div>
       </div>
-      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
     </header>
   )
 }

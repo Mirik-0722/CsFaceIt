@@ -1061,9 +1061,9 @@ async function openSignIn(page: Page) {
   await page.locator('[data-slot="dialog-content"]').waitFor()
 }
 
-/** Opens the account menu: the one button of the top bar that says it has something to expand. */
+/** Opens the account menu: the one button of the top bar that says it has a popup (the phone's search button expands). */
 async function openAccountMenu(page: Page) {
-  await page.locator('header button[aria-expanded]').click()
+  await page.locator('header button[aria-haspopup]').click()
   await page.getByRole('dialog').waitFor()
 }
 
@@ -1682,4 +1682,99 @@ if (process.env.SHOTS) {
 } else {
   // A normal `npm run e2e` shows this one line instead of one skipped test per picture.
   test.skip('screenshots: set SHOTS=1 to take them', () => {})
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// plan 8 · task 1: the phone's bottom navigation and one-row top bar, in a block of its own with a loop of its own (it
+// takes pictures of the window as well as of the whole page). Every state at both widths, so that the desktop's
+// pictures show that nothing changed there.
+
+/** Signed in with Steam, with neither a FACEIT player nor a SteamID the site knows: no player pages at all. */
+const NO_PLAYER_USER: MeResponse = {
+  ...LINKED_USER,
+  id: 4,
+  nickname: 'Steam 000004',
+  steamId: null,
+  playerId: null,
+}
+
+interface NavScenario extends Scenario {
+  /**
+   * A picture of the window rather than of the whole page (in which the fixed bar stands where the window's bottom is,
+   * over whatever is there): `window` as the page is, `end` scrolled to the end of the page.
+   */
+  view?: 'window' | 'end'
+}
+
+/** Opens the phone's search under the top bar with its button. */
+async function openPhoneSearch(page: Page) {
+  await page.getByRole('button', { name: /^(O'yinchi qidirish|Find a player)$/ }).click()
+  await page.locator('input[name="q"]').waitFor({ state: 'visible' })
+}
+
+/** Opens the sign-in dialog with "Sign in" of the bottom navigation. */
+async function openSignInFromBottomNav(page: Page) {
+  await page.locator('[data-bottom-nav] button').click()
+  await page.locator('[data-slot="dialog-content"]').waitFor()
+}
+
+const NAV_SCENARIOS: NavScenario[] = [
+  // A visitor who is not signed in, on the clips: the home page, the clips (current) and "Sign in".
+  { name: 'nav-visitor', pages: ['clips'], languages: BOTH_LANGUAGES },
+  // A signed-in player on their own matches (current), and in the montage editor, which has no bottom navigation.
+  { name: 'nav-signed', pages: ['matches', 'montage'], languages: BOTH_LANGUAGES, backend: { me: MEMBER } },
+  // Signed in, but with neither a player nor a SteamID: the home page and the clips (current) only.
+  { name: 'nav-noplayer', pages: ['clips'], languages: BOTH_LANGUAGES, backend: { me: NO_PLAYER_USER } },
+  // The search opened by the top bar's button, on a phone.
+  { name: 'search-open', pages: ['clips'], languages: BOTH_LANGUAGES, viewports: [PHONE], before: openPhoneSearch },
+  // The window at the end of the page: the last row, "Show more" and the footer's notice stand over the bar.
+  {
+    name: 'nav-scrolled',
+    pages: ['matches', 'clips'],
+    languages: BOTH_LANGUAGES,
+    viewports: [PHONE],
+    backend: { me: MEMBER },
+    view: 'end',
+  },
+  // The dialogs stand over the bar: the clip order (its buttons at the foot of the window) and the sign-in that "Sign
+  // in" of the bottom navigation opens.
+  { name: 'nav-dialog', pages: ['order'], viewports: [PHONE], view: 'window' },
+  { name: 'nav-signin', pages: ['clips'], viewports: [PHONE], before: openSignInFromBottomNav, view: 'window' },
+]
+
+function defineNavShots() {
+  for (const scenario of NAV_SCENARIOS) {
+    const backend: Backend = { ...DEFAULT_BACKEND, ...scenario.backend }
+    const pages = PAGES.filter((shotPage) => scenario.pages?.includes(shotPage.name))
+    for (const language of scenario.languages ?? ['uz']) {
+      test.describe(`${scenario.name} in ${language}`, () => {
+        for (const viewport of scenario.viewports ?? DEFAULT_VIEWPORTS) {
+          for (const shotPage of pages) {
+            const name = `${scenario.name}-${shotPage.name}-${viewport.width}-${language}`
+            test(name, async ({ page }) => {
+              await page.setViewportSize(viewport)
+              await page.emulateMedia({ reducedMotion: 'reduce' })
+              await setLanguage(page, language)
+              await mockApi(page, answersFor(backend))
+              await page.goto(shotPage.path)
+              await settle(page)
+              if ('open' in shotPage) {
+                await shotPage.open(page, backend)
+                await settle(page)
+              }
+              await scenario.before?.(page, shotPage)
+              if (scenario.view === 'end') {
+                await page.evaluate('window.scrollTo(0, document.documentElement.scrollHeight)')
+              }
+              await page.screenshot({ path: `shots/${name}.png`, fullPage: !scenario.view, animations: 'disabled' })
+            })
+          }
+        }
+      })
+    }
+  }
+}
+
+if (process.env.SHOTS) {
+  defineNavShots()
 }

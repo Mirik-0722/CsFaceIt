@@ -796,4 +796,20 @@ export const en = {
     uploadText:
       'Drop a matchmaking demo here: the .dem from your CS2 replays folder or a downloaded .dem.bz2. Or paste its replay link.',
   },
+  // plan 8 · task 1
+  // The phone's top bar: the button that opens and closes the player search under it.
+  topBar: {
+    searchOpen: 'Find a player',
+    searchClose: 'Close the search',
+  },
+  // The phone's bottom navigation: the name of the bar and of its items.
+  bottomNav: {
+    label: 'Main sections',
+    home: 'Home',
+    matches: 'Matches',
+    highlights: 'Highlights',
+    clips: 'Clips',
+    profile: 'Profile',
+    signIn: 'Sign in',
+  },
 }
