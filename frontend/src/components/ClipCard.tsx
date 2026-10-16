@@ -7,7 +7,7 @@ import StatusChip from '@/components/StatusChip'
 import ViewfinderFrame from '@/components/ViewfinderFrame'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { useLocale, useT } from '@/i18n'
-import { clipFailureText, clipLabel, formatBytes, frameLabel, qualityMark } from '@/lib/clips'
+import { clipFailureText, clipLabel, formatBytes, frameLabel, qualityMark, roundMark } from '@/lib/clips'
 import { errorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/formatDate'
 import { formatDuration } from '@/lib/highlightLabels'
@@ -63,7 +63,7 @@ function FrameCenter({ clip }: { clip: ClipResponse }) {
 
 /** Where an owner's button stands in a phone's row: a 44px square at the right end, beside the row's text. */
 const ROW_BUTTON =
-  'max-md:col-start-2 max-md:row-span-2 max-md:row-start-1 max-md:ml-0 max-md:size-11 max-md:self-center max-md:px-0'
+  'max-md:col-start-3 max-md:row-span-2 max-md:row-start-1 max-md:ml-0 max-md:size-11 max-md:self-center max-md:px-0'
 
 /**
  * What the owner of a clip can do on its card, as buttons at the end of the state line (positioned, so that they are
@@ -108,7 +108,7 @@ function ClipActions({ clip, label }: { clip: ClipResponse; label: string }) {
         <span
           role="group"
           aria-label={t.clip.card.confirmCancel}
-          className="relative ml-auto flex items-center gap-1 max-md:col-span-2 max-md:row-start-3 max-md:justify-end"
+          className="relative ml-auto flex items-center gap-1 max-md:col-span-full max-md:row-start-3 max-md:ml-0 max-md:justify-end"
         >
           <span className="mr-1 text-[13px]">{t.clip.card.confirmCancel}</span>
           <Button
@@ -191,7 +191,7 @@ function ClipActions({ clip, label }: { clip: ClipResponse; label: string }) {
       <p
         aria-live="polite"
         className={cn(
-          'basis-full text-xs leading-normal empty:hidden max-md:col-span-2 max-md:row-start-4',
+          'basis-full text-xs leading-normal empty:hidden max-md:col-span-full max-md:row-start-4',
           failure ? 'text-negative' : 'text-muted-foreground',
         )}
       >
@@ -220,14 +220,13 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
   const failure = clip.status === 'FAILED' ? clipFailureText(clip, t) : null
   const label = `${clipLabel(clip, t)} · ${clip.nickname}`
   const manage = viewer.canManageClip(clip).allowed
-  // The round as the frame's corner marks it (`R14`, `MATCH` for a clip of no one round; see `frameLabel`).
-  const roundMark = clip.roundNumber === null ? 'MATCH' : `R${clip.roundNumber}`
   return (
     <article className="relative flex h-full flex-col border border-border bg-card -outline-offset-2 hover:bg-secondary has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:outline-ring max-md:border-x-0 max-md:border-t-0 max-md:bg-transparent">
-      <div className="flex h-full flex-col max-md:grid max-md:min-h-[85px] max-md:grid-cols-[minmax(0,1fr)_auto] max-md:content-center max-md:gap-x-3 max-md:gap-y-0.5 max-md:py-2.5 max-md:pl-[124px]">
-        {/* On a phone, the picture at the left of the row. A corner label is wrapped in a span of its own that a phone
-            leaves out: the frame draws the label's box, and an empty box is not seen. */}
-        <div className="relative max-md:absolute max-md:top-2.5 max-md:left-0 max-md:h-16 max-md:w-28">
+      <div className="flex h-full flex-col max-md:grid max-md:min-h-[85px] max-md:grid-cols-[112px_minmax(0,1fr)_auto] max-md:content-center max-md:gap-x-3 max-md:gap-y-0.5 max-md:py-2.5">
+        {/* On a phone, the picture at the left of the row, beside the title and the state line (the two rows it spans,
+            which grow to its height together). A corner label is wrapped in a span of its own that a phone leaves out:
+            the frame draws the label's box, and an empty box is not seen. */}
+        <div className="relative max-md:col-start-1 max-md:row-span-2 max-md:row-start-1 max-md:h-16 max-md:w-28 max-md:self-center">
           <ViewfinderFrame
             mapName={clip.mapName}
             imageUrl={clip.thumbnailUrl}
@@ -257,7 +256,7 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
             />
           )}
         </div>
-        <div className="flex min-w-0 flex-col gap-1 px-4 pt-3.5 pb-1.5 max-md:col-start-1 max-md:row-start-1 max-md:gap-0.5 max-md:p-0">
+        <div className="flex min-w-0 flex-col gap-1 px-4 pt-3.5 pb-1.5 max-md:col-start-2 max-md:row-start-1 max-md:gap-0.5 max-md:self-end max-md:p-0">
           <h3 className="truncate text-[15px] font-semibold max-md:text-sm">
             <Link
               to={`/clips/${clip.id}`}
@@ -269,7 +268,7 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
           </h3>
           {/* On a phone the line under the title is the round and the quality, as the frame's corners say them. */}
           <p className="font-mono text-[10px] tracking-[0.06em] text-subtle md:hidden">
-            {`${roundMark} · ${qualityMark(clip)}`}
+            {`${roundMark(clip)} · ${qualityMark(clip)}`}
           </p>
           <p className="truncate text-[13px] text-muted-foreground max-md:hidden">
             {/* In the line of text, 16px, as a letter would be: the emblem is the first thing of the line, so it is
@@ -290,7 +289,7 @@ export default function ClipCard({ clip }: { clip: ClipResponse }) {
             state is the third line beside the picture, the owner's button the right end of the row. */}
         <div className="mt-auto flex min-h-12.5 min-w-0 flex-wrap items-center gap-x-2 px-4 pb-1.5 max-md:contents">
           {/* The words of the state: a box of their own on a phone only (from `md` they are the line's own items). */}
-          <span className="contents max-md:col-start-1 max-md:row-start-2 max-md:flex max-md:min-w-0 max-md:items-center max-md:gap-x-2">
+          <span className="contents max-md:col-start-2 max-md:row-start-2 max-md:flex max-md:min-w-0 max-md:items-center max-md:gap-x-2 max-md:self-start">
             {/* The frame above has the blinking dot and the large percentage of a recording; the line says the word,
                 and the number stays there for a screen reader, who does not see the frame (not announced: it changes
                 with every answer of the backend). */}

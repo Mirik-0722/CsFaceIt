@@ -344,6 +344,8 @@ function SectionTabs({ matchId }: { matchId: string }) {
   return (
     <nav
       aria-label={t.match.sections}
+      // Tells index.css that, on a phone, what is scrolled into view has to stop under the tabs as well.
+      data-section-tabs=""
       className="flex flex-wrap gap-1 border-b border-border max-md:sticky max-md:top-[var(--top-bar-h)] max-md:z-30 max-md:-mx-(--page-gutter) max-md:grid max-md:auto-cols-fr max-md:grid-flow-col max-md:gap-0 max-md:bg-background max-md:px-(--page-gutter)"
     >
       {tabs.map((tab) => (

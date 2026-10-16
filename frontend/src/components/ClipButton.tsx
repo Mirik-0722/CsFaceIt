@@ -38,8 +38,9 @@ interface ClipButtonProps {
  *
  * On a phone, in the 44px place at the end of a highlight's row (`data-row-action`, phone spec 5.1), the same controls
  * are drawn compact by `max-md:in-data-row-action:` classes: a white square with the red dot, a green-edged ▶, the
- * percentage or "Queued" in mono, and "Retry"; the words of the desktop stay for a screen reader, the lines beside the
- * controls are left out. The compilation panel, which shows the same states, keeps its look.
+ * percentage or "Queued" in mono, and "Again"; the words of the desktop and the lines beside the controls are hidden
+ * from the eye only, so that a screen reader hears what it hears from `md`. The compilation panel, which shows the
+ * same states, keeps its look.
  */
 export default function ClipButton({
   clip,
@@ -88,7 +89,8 @@ export default function ClipButton({
           </svg>
           <span className="max-md:in-data-row-action:sr-only">{t.clip.watch}</span>
         </Link>
-        <span className="flex min-w-0 items-center gap-2 max-md:in-data-row-action:hidden">
+        {/* On a phone the green ▶ says it to the eye; the state and the quality stay for a screen reader. */}
+        <span className="flex min-w-0 items-center gap-2 max-md:in-data-row-action:sr-only">
           <StatusChip clip={clip} />
           <span className="font-mono text-[11px] tracking-[0.06em] text-positive">· {qualityMark(clip)}</span>
         </span>
@@ -100,18 +102,19 @@ export default function ClipButton({
     const failure = clipFailureText(clip, t)
     return (
       <>
-        {/* On a phone the state is the word "Retry" of the button; without the button, the red word of the chip. */}
+        {/* On a phone the eye gets the word of the retry button, or without the button the red word of the chip; the
+            state and its reason stay for a screen reader. */}
         <span
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2',
-            canOrder ? 'max-md:in-data-row-action:hidden' : 'max-md:in-data-row-action:flex-none',
+            canOrder ? 'max-md:in-data-row-action:sr-only' : 'max-md:in-data-row-action:flex-none',
           )}
         >
           <StatusChip clip={clip} />
           {failure && (
             <span
               title={failure}
-              className="min-w-0 truncate font-mono text-[11px] text-subtle max-md:in-data-row-action:hidden"
+              className="min-w-0 truncate font-mono text-[11px] text-subtle max-md:in-data-row-action:sr-only"
             >
               {failure}
             </span>
@@ -126,6 +129,8 @@ export default function ClipButton({
             aria-label={named(t.clip.retry)}
             onClick={onOrder}
           >
+            {/* On a phone the short word of the 44px place, a word of the button's name ("Qayta" of "Qayta urinish: …",
+                "Again" of "Try again: …"), so that the word that is seen is also the word that is heard. */}
             <span className="max-md:in-data-row-action:hidden">{t.clip.retry}</span>
             <span className="hidden max-md:in-data-row-action:inline">{t.phoneRow.retry}</span>
           </Button>
@@ -147,8 +152,9 @@ export default function ClipButton({
           <span className="block h-0.5 bg-rec" style={{ width: `${clip.progress}%` }} />
         </span>
       )}
+      {/* The chip already says "Queued" and a recording's percentage; the percentage of the later stages is read here. */}
       <span
-        aria-hidden="true"
+        aria-hidden={clip.status === 'QUEUED' || clip.status === 'RECORDING' ? true : undefined}
         className={cn(
           'hidden font-mono text-[11px] tabular-nums max-md:in-data-row-action:inline',
           clip.status === 'QUEUED' ? 'text-muted-foreground' : clip.status === 'RECORDING' ? 'text-rec' : 'text-foreground',
