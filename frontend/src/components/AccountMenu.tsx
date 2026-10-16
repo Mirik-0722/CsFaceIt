@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { type MeResponse, useLogout } from '@/api/auth'
 import { usePlayer } from '@/api/queries'
+import LanguageSwitch from '@/components/LanguageSwitch'
 import { useLocale, useT } from '@/i18n'
 import { formatInteger } from '@/lib/formatNumber'
 import { ownMatchesPath } from '@/lib/matchSource'
@@ -61,7 +62,7 @@ function LevelLine({ playerId }: { playerId: string }) {
 /**
  * The round button of a signed-in visitor and the menu under it (spec 6): the nickname with the player's FACEIT level
  * and ELO under it when there is a player, the player's own statistics (without FACEIT: the account's matches), the
- * clips, and the way out. A popover, not a `menu` role: it holds a heading and links to
+ * clips, on a phone the language, and the way out. A popover, not a `menu` role: it holds a heading and links to
  * pages, which Tab walks through, and it closes on Escape, on a click outside and on following a link.
  */
 export default function AccountMenu({ me, onSignedOut }: { me: MeResponse; onSignedOut: () => void }) {
@@ -121,6 +122,14 @@ export default function AccountMenu({ me, onSignedOut }: { me: MeResponse; onSig
             <Link to="/clips" onClick={close} className={ROW}>
               {t.nav.clips}
             </Link>
+            {/* On a phone the language is here (and in the footer), since the top bar has no room for it there. The
+                buttons are the row's targets; the label is the group's name, said once by its `aria-label`. */}
+            <div className="flex min-h-[45px] items-center justify-between border-t border-border pr-1.5 pl-4 md:hidden">
+              <span aria-hidden="true" className="text-sm font-medium text-muted-foreground">
+                {t.language.label}
+              </span>
+              <LanguageSwitch />
+            </div>
             {/* Not a closer: the menu stays until the backend has answered, so that a failure is told where it was asked
                 for. A success takes the visitor out of the cache, and with them this menu. */}
             <button

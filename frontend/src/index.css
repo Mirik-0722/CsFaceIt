@@ -101,6 +101,27 @@
     --accent-foreground: var(--foreground);
     --popover-foreground: var(--foreground);
     --radius: 0.25rem;
+    /* The soft light from the top that the ground of every page has (`body::before`), for what has to look like that
+       ground while it stays at the top of the window (the phone's top bar). */
+    --ground-light: radial-gradient(110% 70% at 60% -10%, #141b26 0%, var(--background) 60%);
+}
+
+/* plan 8 · task 1 */
+/* The heights of the two bars of a phone (spec 3 of the phone view): the top bar's row (its 1px line under it not
+   counted), which what sticks under it is placed by, and the whole bottom navigation, which the page leaves free at
+   its end: its 64px items, the 1px line along its top and the safe area of a phone without a home button (which the
+   browser reports only to a page that asks for the whole screen; this one does not, so it is 0 for now). From `md` up
+   the top bar is the desktop's and there is no bottom navigation. */
+:root {
+    --top-bar-h: 56px;
+    --bottom-nav-h: calc(64px + 1px + env(safe-area-inset-bottom));
+}
+
+@media (width >= 48rem) {
+    :root {
+        --top-bar-h: 68px;
+        --bottom-nav-h: 0px;
+    }
 }
 
 @layer base {
@@ -132,7 +153,7 @@
         inset: 0;
         z-index: -1;
         pointer-events: none;
-        background-image: radial-gradient(110% 70% at 60% -10%, #141b26 0%, var(--background) 60%);
+        background-image: var(--ground-light);
     }
 }
 
@@ -446,6 +467,36 @@
 @keyframes turn {
     from {
         transform: scaleX(0);
+    }
+}
+
+/* plan 8 · task 1 */
+/* The ground behind the phone's top bar, which stays at the top of the window while the page scrolls under it: the
+   ground of the page itself (`body::before`, fixed to the window), drawn at the window's size from the bar's top edge,
+   which is the window's. So the bar cannot be told from the page until something scrolls under it. */
+@utility top-bar-ground {
+    background-color: var(--background);
+    background-image: var(--ground-light);
+    background-size: 100% 100vh;
+    background-repeat: no-repeat;
+}
+
+/* Under `md`, on a page with the bottom navigation (`data-bottom-nav`), a control that takes the focus is scrolled clear
+   of the bar, not under it. (The montage editor has no bottom navigation; its own rule below stands.) */
+@media (width < 48rem) {
+    html:has([data-bottom-nav]) {
+        scroll-padding-bottom: calc(var(--bottom-nav-h) + 1rem);
+    }
+}
+
+/* Under `md`, where the top bar stays at the top of the window (every page but the home page: `data-sticky-top-bar`),
+   what is scrolled into view (an anchor, a focused control, `scrollIntoView`) stops under the bar and its 1px line,
+   with 8px to spare. The selector is kept as light as it can be (`:where(html)`, so only the attribute counts) for a
+   page with more that sticks at its top (the match page's tabs) to set a larger padding with an ordinary
+   `html:has(…)` rule, wherever it stands in this file. */
+@media (width < 48rem) {
+    :where(html):has([data-sticky-top-bar]) {
+        scroll-padding-top: calc(var(--top-bar-h) + 1px + 0.5rem);
     }
 }
 
