@@ -152,9 +152,12 @@ export default function ClipButton({
           <span className="block h-0.5 bg-rec" style={{ width: `${clip.progress}%` }} />
         </span>
       )}
-      {/* The chip already says "Queued" and a recording's percentage; the percentage of the later stages is read here. */}
+      {/* The chip already says "Queued" and a recording's percentage; the percentage of the later stages is read here.
+          The match page's list is a polite live region and the clips are polled, so it is `aria-live="off"` (as the
+          chip is): the percentage stays in the link's name but is not announced at every poll. */}
       <span
         aria-hidden={clip.status === 'QUEUED' || clip.status === 'RECORDING' ? true : undefined}
+        aria-live="off"
         className={cn(
           'hidden font-mono text-[11px] tabular-nums max-md:in-data-row-action:inline',
           clip.status === 'QUEUED' ? 'text-muted-foreground' : clip.status === 'RECORDING' ? 'text-rec' : 'text-foreground',

@@ -113,7 +113,7 @@ interface ShotPage {
    */
   tabs: number
   /**
-   * `tabs` under 768px, where it differs (plan 8 · task 1): a phone's top bar takes three stops on an inner page (the
+   * `tabs` under 768px, where it differs: a phone's top bar takes three stops on an inner page (the
    * logo, the search button and "Sign in") and two on the home page (the logo and "Sign in"), and a table or a strip
    * that is wider than the window is a stop of its own (Chrome lets the keyboard scroll it).
    */
@@ -623,7 +623,6 @@ function dropFile(name: string, holding = false) {
 /** The clips of the signed-in player: the ones that were ordered by them, so that their cards have the actions. */
 const MINE_CLIPS = OWN_CLIPS.map((clip) => ({ ...clip, mine: true }))
 
-// plan 8 · task 2
 /**
  * The long texts of a phone's rows of matches (plan 8, Review Focus 3): the 32-character nickname beside the title,
  * and in the first row, which has five kinds of highlight and a clip in progress, a made-up workshop map whose one-word
@@ -930,7 +929,6 @@ const SCENARIOS: Scenario[] = [
   { name: 'montage-member', pages: ['montage-edit', 'montage-order'], languages: ['uz', 'en'], backend: { me: MEMBER } },
   // Where the focus ring is on each page's content: the element that the page's `tabs` presses of Tab reach.
   { name: 'focus', before: pressTab },
-  // plan 8 · task 2
   // The two-line rows of matches with the long texts on the narrowest phone, and the rows in English there (whose
   // statuses and tags are longer).
   { name: 'long', pages: ['matches'], viewports: [SMALL_PHONE], backend: LONG_MATCHES_BACKEND },
@@ -1715,9 +1713,9 @@ const CS2_SCENARIOS: Scenario[] = [
 ]
 
 // ---------------------------------------------------------------------------------------------------------------------
-// plan 8 · task 3: the rows of highlights and clips, the compact header of the match and its sticky tabs on a phone, in
-// a block of its own. Its scenarios join the table above when the file loads; the picture of the tabs is a test of its
-// own, because it is of the screen, not of the whole page.
+// The rows of highlights and clips, the compact header of the match and its sticky tabs on a phone, in a block of its
+// own. Its scenarios join the table above when the file loads; the picture of the tabs is a test of its own, because it
+// is of the screen, not of the whole page.
 
 SCENARIOS.push(
   // The 32-character nickname and the long team names in the rows and in the compact header, on the narrowest phone;
@@ -1749,7 +1747,6 @@ function defineScoreboardShots() {
 }
 
 if (process.env.SHOTS) {
-  // plan 8 · task 3
   defineScoreboardShots()
 }
 
@@ -1761,9 +1758,9 @@ if (process.env.SHOTS) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// plan 8 · task 1: the phone's bottom navigation and one-row top bar, in a block of its own with a loop of its own (it
-// takes pictures of the window as well as of the whole page). Every state at both widths, so that the desktop's
-// pictures show that nothing changed there.
+// The phone's bottom navigation and one-row top bar, in a block of its own with a loop of its own (it takes pictures of
+// the window as well as of the whole page). Every state at both widths, so that the desktop's pictures show that
+// nothing changed there.
 
 /** Signed in with Steam, with neither a FACEIT player nor a SteamID the site knows: no player pages at all. */
 const NO_PLAYER_USER: MeResponse = {

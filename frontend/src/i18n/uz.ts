@@ -699,7 +699,6 @@ export const uz: Messages = {
     uploadText:
       'Matchmaking demosini shu yerga tashlang: CS2 replays papkasidagi .dem yoki yuklab olingan .dem.bz2. Yoki uning replay havolasini joylang.',
   },
-  // plan 8 · task 1
   // The phone's top bar and bottom navigation.
   topBar: {
     searchOpen: "O'yinchi qidirish",
@@ -714,7 +713,6 @@ export const uz: Messages = {
     profile: 'Profil',
     signIn: 'Kirish',
   },
-  // plan 8 · task 3
   phoneRow: {
     queued: 'Navbat',
     retry: 'Qayta',

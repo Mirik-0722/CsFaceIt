@@ -799,7 +799,6 @@ export const en = {
     uploadText:
       'Drop a matchmaking demo here: the .dem from your CS2 replays folder or a downloaded .dem.bz2. Or paste its replay link.',
   },
-  // plan 8 · task 1
   // The phone's top bar: the button that opens and closes the player search under it.
   topBar: {
     searchOpen: 'Find a player',
@@ -815,7 +814,6 @@ export const en = {
     profile: 'Profile',
     signIn: 'Sign in',
   },
-  // plan 8 · task 3
   // The short words of the 44px place at the end of a highlight's row on a phone (spec 5.1), where the desktop card has
   // a line: a clip waiting in the queue, and "Try again" after a failure. `retry` is a word of `clip.retry` ("Try
   // again" is wider than the place), which stays the button's name: the word that is seen is in the name.
