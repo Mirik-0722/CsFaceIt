@@ -623,6 +623,23 @@ function dropFile(name: string, holding = false) {
 /** The clips of the signed-in player: the ones that were ordered by them, so that their cards have the actions. */
 const MINE_CLIPS = OWN_CLIPS.map((clip) => ({ ...clip, mine: true }))
 
+// plan 8 · task 2
+/**
+ * The long texts of a phone's rows of matches (plan 8, Review Focus 3): the 32-character nickname beside the title,
+ * and in the first row, which has five kinds of highlight and a clip in progress, a made-up workshop map whose one-word
+ * name is longer than the row has room for. The visitor is the player, so that the rows without a demo carry "Demo".
+ */
+const LONG_MATCHES_BACKEND: Partial<Backend> = {
+  ...LONG_BACKEND,
+  me: MEMBER,
+  playerMatches: withFaceitIds({
+    ...playerMatchesFixture,
+    items: playerMatchesFixture.items.map((match, index) =>
+      index === 0 ? { ...match, mapName: 'de_thirtytwo_character_workshop_map' } : match,
+    ),
+  }),
+}
+
 const SCENARIOS: Scenario[] = [
   { name: 'default', languages: ['uz', 'en'] },
   // The same pages once more, in Uzbek, on the narrowest phone.
@@ -913,6 +930,11 @@ const SCENARIOS: Scenario[] = [
   { name: 'montage-member', pages: ['montage-edit', 'montage-order'], languages: ['uz', 'en'], backend: { me: MEMBER } },
   // Where the focus ring is on each page's content: the element that the page's `tabs` presses of Tab reach.
   { name: 'focus', before: pressTab },
+  // plan 8 · task 2
+  // The two-line rows of matches with the long texts on the narrowest phone, and the rows in English there (whose
+  // statuses and tags are longer).
+  { name: 'long', pages: ['matches'], viewports: [SMALL_PHONE], backend: LONG_MATCHES_BACKEND },
+  { name: 'default', pages: ['matches', 'player'], languages: ['en'], viewports: [SMALL_PHONE] },
 ]
 
 /**

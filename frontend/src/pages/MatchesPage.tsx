@@ -192,18 +192,25 @@ function PlayerMatches({ playerId }: { playerId: string }) {
             <div className="flex flex-col">
               {items && items.length > 0 && (
                 // Toggle buttons that look like tabs (spec 3): 44px tall, a 2px light line under the chosen one. With
-                // no match to filter they would do nothing, so they are not there.
-                <div role="group" aria-label={t.matches.filterLabel} className="flex flex-wrap gap-1 border-b border-border">
+                // no match to filter they would do nothing, so they are not there. On a phone (spec of the phone view, 4)
+                // they are pills on one line that scrolls sideways, from the edge of the page's text to the edge of the
+                // screen: 36px to the eye, the chosen one filled, with 4px above and below each that still press it (so
+                // the finger has 44px) and that leave the focus ring room inside the scrolling box.
+                <div
+                  role="group"
+                  aria-label={t.matches.filterLabel}
+                  className="flex flex-wrap gap-1 border-b border-border max-md:-mx-(--page-gutter) max-md:flex-nowrap max-md:gap-2 max-md:overflow-x-auto max-md:border-b-0 max-md:px-(--page-gutter)"
+                >
                   {FILTERS.map((kind) => (
                     <button
                       key={kind}
                       type="button"
                       aria-pressed={filter === kind}
                       onClick={() => setFilter(kind)}
-                      className="inline-flex min-h-11 items-center gap-2 px-3.5 text-sm font-medium text-muted-foreground hover:text-foreground aria-pressed:text-foreground aria-pressed:shadow-[inset_0_-2px_0_var(--foreground)]"
+                      className="group/filter inline-flex min-h-11 items-center gap-2 px-3.5 text-sm font-medium text-muted-foreground hover:text-foreground aria-pressed:text-foreground aria-pressed:shadow-[inset_0_-2px_0_var(--foreground)] max-md:relative max-md:my-1 max-md:min-h-9 max-md:shrink-0 max-md:rounded-full max-md:border max-md:border-border max-md:after:absolute max-md:after:inset-x-0 max-md:after:-inset-y-1 max-md:aria-pressed:border-primary max-md:aria-pressed:bg-primary max-md:aria-pressed:text-primary-foreground max-md:aria-pressed:shadow-none max-md:aria-pressed:hover:text-primary-foreground"
                     >
                       {labels[kind]}
-                      <span className="font-mono text-xs text-subtle tabular-nums">
+                      <span className="font-mono text-xs text-subtle tabular-nums max-md:group-aria-pressed/filter:text-primary-foreground/70">
                         {items.filter((match) => isIn(kind, match)).length}
                         {/* Another page is still to come: the count is of what is loaded so far, so it is "20+". */}
                         {matches.hasNextPage && (

@@ -2,6 +2,7 @@ import { ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import HighlightTag from '@/components/HighlightTag'
 import { MatchMapCell } from '@/components/MatchesTable'
+import PhoneHighlightTags from '@/components/PhoneHighlightTags'
 import { Badge } from '@/components/ui/badge'
 import { useLocale, useT } from '@/i18n'
 import { formatDate } from '@/lib/formatDate'
@@ -24,13 +25,13 @@ export interface MatchDetails {
 }
 
 /** The result as a word in its colour; an unknown result is a neutral dash that screen readers hear in words. */
-function Result({ result }: { result: MatchResult }) {
+function Result({ result, className }: { result: MatchResult; className?: string }) {
   const t = useT()
   switch (result) {
     case 'WIN':
-      return <span className="text-sm font-semibold text-positive">{t.matchList.win}</span>
+      return <span className={cn('text-sm font-semibold text-positive', className)}>{t.matchList.win}</span>
     case 'LOSS':
-      return <span className="text-sm font-semibold text-negative">{t.matchList.loss}</span>
+      return <span className={cn('text-sm font-semibold text-negative', className)}>{t.matchList.loss}</span>
     default:
       return (
         <Badge variant="secondary">
@@ -72,9 +73,23 @@ function TopHighlight({ match }: { match: PlayerMatchResponse | undefined }) {
 
 // The columns of a row that knows its match (spec 3, the profile's history row): the map, from `md` K / D / A, from
 // `lg` the strongest highlight, the result, the score and the arrow. A cell that is hidden below its width takes no
-// column. The row starts 14px in: 3px of it is the bar of the result.
+// column. The row starts 14px in: 3px of it is the bar of the result. Under `md` it is the two lines of a row of the
+// matches table on a phone (spec of the phone view, 4; `MatchesTable`): the map, and at the right the score over the
+// word of the result; then, from under the map's name, one line that never wraps: K / D / A, ADR and the strongest
+// highlights as the tags that fit (nothing stands at its right end, so three at most). The list reaches the edges of
+// the screen there, and the row has 12px above and below and the page's gutter at its sides.
 const DETAILED =
-  'grid min-h-16 grid-cols-[minmax(0,1fr)_auto_auto_16px] items-center gap-4 pr-2 pl-3.5 md:grid-cols-[minmax(0,1fr)_7.5rem_auto_auto_16px] lg:grid-cols-[minmax(0,1fr)_7.5rem_11rem_auto_auto_16px]'
+  'grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 pr-2 pl-3.5 max-md:gap-x-3 max-md:gap-y-2 max-md:px-(--page-gutter) max-md:py-3 md:grid-cols-[minmax(0,1fr)_7.5rem_auto_auto_16px] lg:grid-cols-[minmax(0,1fr)_7.5rem_11rem_auto_auto_16px]'
+// The score at the end of a row, as the matches table writes it.
+const SCORE = 'font-mono text-[19px] leading-none font-semibold tabular-nums'
+
+/** The colour of the score of a detailed row on a phone (spec of the phone view, 4); from `md` the score is plain. */
+const RESULT_TEXT: Record<MatchResult, string | undefined> = {
+  WIN: 'max-md:text-positive',
+  LOSS: 'max-md:text-negative',
+  UNKNOWN: undefined,
+}
+
 // A row whose match the site cannot look up (the stored matches failed): the date, the result, the score and the arrow.
 const PLAIN =
   'grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-4 pr-2 pl-3.5 sm:grid-cols-[9rem_minmax(0,1fr)_auto_auto]'
@@ -93,15 +108,10 @@ export default function MatchList({ items, details }: { items: MatchSummary[]; d
     return <p className="text-sm text-muted-foreground">{t.matchList.empty}</p>
   }
   return (
-    <ul className="border-t border-border">
+    <ul className={cn('border-t border-border', details && 'max-md:-mx-(--page-gutter)')}>
       {items.map((match) => {
         const date = formatDate(match.startedAt, locale)
-        const score = (
-          <span className="font-mono text-[19px] leading-none font-semibold tabular-nums">
-            {formatScore(match.score, match.result)}
-          </span>
-        )
-        const arrow = <ChevronRight aria-hidden="true" className="size-4 text-subtle" />
+        const scoreText = formatScore(match.score, match.result)
         if (!details) {
           return (
             <li key={match.matchId} className="border-b border-border">
@@ -113,14 +123,19 @@ export default function MatchList({ items, details }: { items: MatchSummary[]; d
                   {date}
                 </time>
                 <Result result={match.result} />
-                {score}
-                {arrow}
+                <span className={SCORE}>{scoreText}</span>
+                <ChevronRight aria-hidden="true" className="size-4 text-subtle" />
               </Link>
             </li>
           )
         }
         const known = details.state === 'ready'
         const stored = details.matches.get(match.matchId)
+        // What a phone's second line has: what is not known is left out there (no dashes), and a row with none of it
+        // has no second line.
+        const kda = known && stored !== undefined && stored.kills !== null && stored.deaths !== null && stored.assists !== null
+        const adr = known ? (stored?.adr ?? null) : null
+        const tags = known && stored?.demoStatus === 'ANALYZED' && stored.highlights.some((kind) => kind.count > 0)
         return (
           <li key={match.matchId} className="border-b border-border">
             <Link
@@ -134,11 +149,40 @@ export default function MatchList({ items, details }: { items: MatchSummary[]; d
                 date={date}
                 startedAt={match.startedAt}
               />
-              <span className="hidden font-mono text-sm md:block">{known && <Kda match={stored} />}</span>
-              <span className="hidden min-w-0 items-center lg:flex">{known && <TopHighlight match={stored} />}</span>
-              <Result result={match.result} />
-              {score}
-              {arrow}
+              {/* A phone's second line. From `md` the box is not there (`contents`): K / D / A and the highlight are the
+                  row's columns, and the phone's ADR and tags are not drawn. */}
+              <span
+                className={cn(
+                  'contents max-md:col-span-2 max-md:row-start-2 max-md:flex max-md:min-w-0 max-md:items-center max-md:gap-3 max-md:pl-13',
+                  !kda && adr === null && !tags && 'max-md:hidden',
+                )}
+              >
+                <span
+                  className={cn(
+                    'hidden font-mono text-sm md:block',
+                    (kda || adr !== null) && 'max-md:flex max-md:shrink-0 max-md:items-baseline max-md:gap-x-2',
+                  )}
+                >
+                  {known && (
+                    <span className={cn('max-md:text-[13px] max-md:font-medium max-md:whitespace-nowrap', !kda && 'max-md:hidden')}>
+                      <Kda match={stored} />
+                    </span>
+                  )}
+                  {/* The table's ADR, on a phone only: from `md` the row has no room for it. */}
+                  {adr !== null && (
+                    <span className="text-[11px] whitespace-nowrap text-subtle md:hidden">{`${t.stats.adr} ${adr.toFixed(1)}`}</span>
+                  )}
+                </span>
+                <span className="hidden min-w-0 items-center lg:flex">{known && <TopHighlight match={stored} />}</span>
+                {tags && stored && <PhoneHighlightTags highlights={stored.highlights} limit={3} />}
+              </span>
+              {/* On a phone the score is over the word of the result, at the right of the map, in the result's colour.
+                  From `md` the box is not there (`contents`): the word and the score are the row's columns. */}
+              <span className="contents max-md:col-start-2 max-md:row-start-1 max-md:flex max-md:flex-col-reverse max-md:items-end max-md:gap-1">
+                <Result result={match.result} className="max-md:text-[11px]" />
+                <span className={cn(SCORE, RESULT_TEXT[match.result])}>{scoreText}</span>
+              </span>
+              <ChevronRight aria-hidden="true" className="size-4 text-subtle max-md:hidden" />
             </Link>
           </li>
         )

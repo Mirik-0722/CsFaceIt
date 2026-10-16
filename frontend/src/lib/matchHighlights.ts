@@ -47,6 +47,11 @@ function shortKindText({ type, count }: HighlightCount, t: Messages): string {
   return withCount(clutchSize ?? highlightLabel(type, t), count)
 }
 
+/** The kinds that happened (a count of zero is not there), from the one that stands out most. */
+function ranked(highlights: HighlightCount[]): HighlightCount[] {
+  return highlights.filter((kind) => kind.count > 0).sort((a, b) => strength(a.type) - strength(b.type))
+}
+
 /**
  * What a match's highlights come to in a table row: the kind that stands out most (the tag), and the next ones as one
  * line of text, `1v3 · 3K ×2 · +1`, which names at most three and counts the rest. `top` is null without a highlight.
@@ -56,11 +61,23 @@ export function summarizeHighlights(
   highlights: HighlightCount[],
   t: Messages,
 ): { top: HighlightCount | null; rest: string } {
-  const present = highlights
-    .filter((kind) => kind.count > 0)
-    .sort((a, b) => strength(a.type) - strength(b.type))
-  const [top = null, ...others] = present
+  const [top = null, ...others] = ranked(highlights)
   const named = others.slice(0, LISTED).map((kind) => shortKindText(kind, t))
   const hidden = others.length - named.length
   return { top, rest: [...named, ...(hidden > 0 ? [`+${hidden}`] : [])].join(' · ') }
+}
+
+/**
+ * A match's highlights as the tags of a row of matches on a phone (spec of the phone view, 4): at most `limit` of the
+ * kinds that stand out most, each written short (`ACE ×2`, `4K`, `1v3`: a clutch is only its size, so that the tags fit
+ * on the row's second line, and the tag's colour says it is a clutch), and how many kinds are left out (`+2`).
+ */
+export function strongestKinds(
+  highlights: HighlightCount[],
+  t: Messages,
+  limit: number,
+): { kinds: { type: HighlightType; text: string }[]; hidden: number } {
+  const present = ranked(highlights)
+  const kinds = present.slice(0, limit).map((kind) => ({ type: kind.type, text: shortKindText(kind, t) }))
+  return { kinds, hidden: present.length - kinds.length }
 }
