@@ -84,10 +84,18 @@ export function montageEditorPath(matchId: string, playerId: string): string {
 }
 
 /**
+ * The round of a clip as a mark: `R14`, and `MATCH` for a compilation or a montage (a clip of no one round). Marks are
+ * the same in every language, like the tags of the highlights: the corner of a frame and the line of a phone's clip row
+ * write them.
+ */
+export function roundMark(clip: Pick<ClipResponse, 'roundNumber'>): string {
+  return clip.roundNumber === null ? 'MATCH' : `R${clip.roundNumber}`
+}
+
+/**
  * Where a clip is from, as the corner of its frame says it: `Mirage · R14`, and `Mirage · MATCH` for a compilation or a
- * montage (a clip of no one round).
- * `R14` and `MATCH` are marks on the frame, the same in every language, like the tags of the highlights. The large
- * frame of a clip's page spells the round out with `spelled` (`Mirage · 14-raund`; the frame writes it in capitals).
+ * montage (see {@link roundMark}). The large frame of a clip's page spells the round out with `spelled`
+ * (`Mirage · 14-raund`; the frame writes it in capitals).
  */
 export function frameLabel(
   clip: Pick<ClipResponse, 'mapName' | 'roundNumber'>,
@@ -95,7 +103,7 @@ export function frameLabel(
   spelled = false,
 ): string {
   const number = clip.roundNumber
-  const round = number === null ? 'MATCH' : spelled ? t.highlight.round(number) : `R${number}`
+  const round = spelled && number !== null ? t.highlight.round(number) : roundMark(clip)
   return `${mapLabel(clip.mapName) ?? t.match.unknownMap} · ${round}`
 }
 

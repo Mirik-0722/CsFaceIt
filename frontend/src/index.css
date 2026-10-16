@@ -508,6 +508,17 @@
     }
 }
 
+/* plan 8 · task 3 */
+/* On a phone the section tabs of the match page (`data-section-tabs`, 48px and their 1px line) stick under the top
+   bar, whose height without its 1px line is `--top-bar-h` (task 1's variable of the phone's top bar). On that page a section a tab leads to is scrolled to 8px under the tabs, not
+   behind them, and so is an element that takes the focus. `html:has(…)` outweighs the top bar's own rule, which is
+   written with `:where(html)` for every page that has the bar. */
+@media (width < 48rem) {
+    html:has([data-section-tabs]) {
+        scroll-padding-top: calc(var(--top-bar-h) + 1px + 48px + 1px + 8px);
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .animate-rec,
     .animate-scene-in,

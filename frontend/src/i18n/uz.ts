@@ -714,4 +714,9 @@ export const uz: Messages = {
     profile: 'Profil',
     signIn: 'Kirish',
   },
+  // plan 8 · task 3
+  phoneRow: {
+    queued: 'Navbat',
+    retry: 'Qayta',
+  },
 }
