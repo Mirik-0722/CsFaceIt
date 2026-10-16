@@ -1,4 +1,4 @@
-import { useLocale, useT } from '@/i18n'
+import { type Messages, useLocale, useT } from '@/i18n'
 import { Button } from '@/components/ui/button'
 import { formatMatchTime } from '@/lib/formatDate'
 import { mapLabel } from '@/lib/mapTint'
@@ -26,6 +26,11 @@ function MatchName({ matchId, items }: { matchId: string; items: PlayerMatchResp
   )
 }
 
+/** Why a file or a link is not uploaded, with the way out: the row's button, named as it reads. */
+function noticeText(notice: BringNotice, button: string, t: Messages): string {
+  return notice.kind === 'noMatchId' ? t.matches.bring.noMatchId(notice.name, button) : t.matches.bring.noLinkId(button)
+}
+
 /**
  * What became of the files and links the visitor has brought in, above the rows (so that it is in sight on a phone,
  * where the box is under them): a line per match while it goes (with the percent of an upload), what was refused and
@@ -39,8 +44,10 @@ export default function DemoBringingFeed({ states, notice, items, onDismiss, onD
     <div role="status" aria-label={t.matches.bring.feedLabel} className="flex flex-col empty:hidden">
       {notice && (
         <div className="flex items-start gap-3 border-b border-border py-2">
+          {/* The sentence names the row's button as it reads: "Demo" on a phone (spec of the phone view, 4). */}
           <p className="min-w-0 flex-1 self-center text-sm leading-normal text-negative">
-            {notice.kind === 'noMatchId' ? t.matches.bring.noMatchId(notice.name) : t.matches.bring.noLinkId}
+            <span className="max-md:hidden">{noticeText(notice, t.matches.bring.row, t)}</span>
+            <span className="md:hidden">{noticeText(notice, t.matches.bring.rowShort, t)}</span>
           </p>
           <Button type="button" variant="ghost" size="sm" onClick={onDismissNotice}>
             {t.matches.bring.dismiss}

@@ -101,11 +101,34 @@ interface MatchHeaderProps {
 }
 
 /**
+ * The two scores of the match as the compact header of a phone says them: the visitor's own team first when the
+ * visitor played (so that `13:9` in green is a win, `9:13` in red a loss), else in the order of the scoreboard; null
+ * unless there are two teams.
+ */
+function phoneScore(teams: TeamStatsResponse[] | undefined, viewerPlayerId: string | null): string | null {
+  if (teams?.length !== 2) {
+    return null
+  }
+  const own = teams.findIndex((team) => team.players.some((player) => player.playerId === viewerPlayerId))
+  const [first, second] = own === 1 ? [teams[1], teams[0]] : teams
+  return `${first.score}:${second.score}`
+}
+
+/** The colour of the compact header's score and its veil on a phone: the visitor's result, or none to say. */
+const RESULT_TEXT = { won: 'text-positive', lost: 'text-negative' } as const
+const RESULT_VEIL = { won: 'from-positive/14', lost: 'from-negative/14' } as const
+
+/**
  * The panel of the match (spec 4, screen 3): the map with a line of facts under it (where the match is from, when it
  * started, how long it took, how many rounds), the result for the visitor's own player, the two teams with the score
  * and their sides, and the strip of rounds. Every part is left out while nobody knows it: the facts while FACEIT has
  * not published them, the sides and the strip without an analyzed demo (or when its answer fails). The scenery of the
  * map fills the panel behind all of it, under a veil; a map without scenery, or no map, leaves the panel plain.
+ *
+ * Under `md` the panel is compact (phone spec 5.3): a 44px emblem, the map in 20px, the tag and the day; at the right
+ * the score in mono 26px in the colour of the result, with the word of the result under it, on a veil of that colour
+ * that fades out downwards. The big score with the teams is left out (the strip under it names the teams); the facts
+ * beyond the day too, but the state of a match that is not over.
  */
 function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
   const t = useT()
@@ -118,41 +141,55 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
   const minutes = minutesPlayed(match)
   const result = resultFor(match, viewerPlayerId)
   const scenery = mapSceneryUrl(match.mapName)
-  // Each fact is an element of its own; a match that is over needs no word for it, any other state is said.
-  const facts: ReactNode[] = []
+  const score = phoneScore(teams, viewerPlayerId)
+  // Each fact is an element of its own; a match that is over needs no word for it, any other state is said. `phone`:
+  // the fact stays on a phone (the day and the state); the others are left out there, with the dot before them.
+  const facts: { node: ReactNode; phone: boolean }[] = []
   if (match.startedAt) {
-    facts.push(
-      <span key="started" className="whitespace-nowrap">
-        <time dateTime={match.startedAt}>{formatDate(match.startedAt, locale)}</time>
-        {`, ${formatClock(match.startedAt)}`}
-      </span>,
-    )
+    facts.push({
+      phone: true,
+      node: (
+        <span key="started" className="whitespace-nowrap">
+          <time dateTime={match.startedAt}>{formatDate(match.startedAt, locale)}</time>
+          <span className="max-md:hidden">{`, ${formatClock(match.startedAt)}`}</span>
+        </span>
+      ),
+    })
   }
   if (minutes !== null) {
-    facts.push(
-      <span key="minutes" className="whitespace-nowrap">
-        {t.match.minutes(minutes)}
-      </span>,
-    )
+    facts.push({
+      phone: false,
+      node: (
+        <span key="minutes" className="whitespace-nowrap max-md:hidden">
+          {t.match.minutes(minutes)}
+        </span>
+      ),
+    })
   }
   if (stats && stats.rounds > 0) {
-    facts.push(
-      <span key="rounds" className="whitespace-nowrap">
-        {t.match.roundCount(stats.rounds)}
-      </span>,
-    )
+    facts.push({
+      phone: false,
+      node: (
+        <span key="rounds" className="whitespace-nowrap max-md:hidden">
+          {t.match.roundCount(stats.rounds)}
+        </span>
+      ),
+    })
   }
   if (match.status && match.status.toUpperCase() !== 'FINISHED') {
-    facts.push(
-      // Upper case by CSS, so its look does not depend on the case FACEIT sends.
-      <span key="status" data-slot="match-status" className="uppercase">
-        {match.status}
-      </span>,
-    )
+    facts.push({
+      phone: true,
+      node: (
+        // Upper case by CSS, so its look does not depend on the case FACEIT sends.
+        <span key="status" data-slot="match-status" className="uppercase">
+          {match.status}
+        </span>
+      ),
+    })
   }
   return (
     // `isolate`: the scenery lies under the panel's content but over the panel's own colour.
-    <Card className="relative isolate py-7">
+    <Card className="relative isolate py-7 max-md:py-4">
       {scenery && (
         // Decoration: never announced. A wrapper, not the picture itself, is the panel's first child (the Card drops
         // its top padding for a picture that is).
@@ -167,12 +204,22 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
           <div className="scenery-veil-panel absolute inset-0" />
         </div>
       )}
-      <CardContent className="flex flex-col gap-6 px-[clamp(16px,3vw,32px)]">
-        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-          <div className="flex min-w-0 items-center gap-4">
-            <MapEmblem mapName={match.mapName} size={64} />
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <CardTitle className="truncate text-[26px] leading-[1.2] tracking-[-0.02em]">
+      {result && (
+        // On a phone, the colour of the result from the top of the panel, fading out over the scenery's veil.
+        <div
+          aria-hidden="true"
+          className={cn(
+            'pointer-events-none absolute inset-0 -z-10 bg-linear-to-b to-transparent to-70% md:hidden',
+            RESULT_VEIL[result],
+          )}
+        />
+      )}
+      <CardContent className="flex flex-col gap-6 px-[clamp(16px,3vw,32px)] max-md:gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 max-md:flex-nowrap max-md:gap-x-3">
+          <div className="flex min-w-0 items-center gap-4 max-md:gap-3">
+            <MapEmblem mapName={match.mapName} size={64} className="max-md:size-11" />
+            <div className="flex min-w-0 flex-col gap-1.5 max-md:gap-1">
+              <CardTitle className="truncate text-[26px] leading-[1.2] tracking-[-0.02em] max-md:text-[20px] max-md:font-bold">
                 {mapLabel(match.mapName) ?? t.match.unknownMap}
               </CardTitle>
               {/* The tag and the facts read as one line, `FACEIT · 10 Oct 2026, 21:40 · 47 minutes`: the tag's own
@@ -186,8 +233,18 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
                     <span className="sr-only"> · </span>
                     {facts.map((fact, index) => (
                       <Fragment key={index}>
-                        {index > 0 && <span> · </span>}
-                        {fact}
+                        {/* The dot before a fact goes with it; on a phone also the one before the first fact shown. */}
+                        {index > 0 && (
+                          <span
+                            className={cn(
+                              (!fact.phone || !facts.slice(0, index).some((before) => before.phone)) &&
+                                'max-md:hidden',
+                            )}
+                          >
+                            {' · '}
+                          </span>
+                        )}
+                        {fact.node}
                       </Fragment>
                     ))}
                   </span>
@@ -195,15 +252,32 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
               </p>
             </div>
           </div>
-          {result && (
-            // Always a word, never the colour alone (spec 3, the result mark). It stands where the scenery shows most,
-            // so its outline has a dark fill.
-            <Badge
-              variant={result === 'won' ? 'positive' : 'negative'}
-              className="h-6.5 rounded-none bg-card/92 px-2.5 tracking-[0.08em]"
-            >
-              {result === 'won' ? t.matchList.win : t.matchList.loss}
-            </Badge>
+          {/* The result at the right: on a phone the score above the word of the result. From `md` the box is none of
+              its own (`contents`), the score is not there, and the word is the row's own item, as it always was. */}
+          {(result || score) && (
+            <div className="contents max-md:flex max-md:shrink-0 max-md:flex-col max-md:items-end max-md:gap-1.5">
+              {score && (
+                <p
+                  className={cn(
+                    'font-mono text-[26px] leading-none font-semibold tracking-[-0.02em] tabular-nums md:hidden',
+                    result ? RESULT_TEXT[result] : 'text-foreground',
+                  )}
+                >
+                  <span className="sr-only">{t.stats.score} </span>
+                  {score}
+                </p>
+              )}
+              {result && (
+                // Always a word, never the colour alone (spec 3, the result mark). It stands where the scenery shows
+                // most, so its outline has a dark fill.
+                <Badge
+                  variant={result === 'won' ? 'positive' : 'negative'}
+                  className="h-6.5 rounded-none bg-card/92 px-2.5 tracking-[0.08em] max-md:h-5.5 max-md:px-1.5 max-md:text-[10px]"
+                >
+                  {result === 'won' ? t.matchList.win : t.matchList.loss}
+                </Badge>
+              )}
+            </div>
           )}
         </div>
         {(teams?.length === 2 || rounds.length > 0) && (
@@ -213,8 +287,19 @@ function MatchHeader({ match, stats, viewerPlayerId }: MatchHeaderProps) {
           // (`MatchScore`). Under `xl` the panel is narrow: the strip is as wide as the box or wider and scrolls in it, so
           // a round number can stand at the box's end, where a share of the width would have the scrim gone. The scrim
           // is at full strength all the way to the block's own edges there, and fades only beyond them (1.5rem).
-          <div className="scenery-scrim flex flex-col gap-6 [--scrim-fade-x:1.5rem] [--scrim-fade-y:2.5rem] [--scrim-strength:55%] xl:[--scrim-fade-x:12%]">
-            {teams && <MatchScore teams={teams} sides={startingSides(rounds, teams)} />}
+          // On a phone the score with the teams is left out (the header's right end has the score): without a strip
+          // of rounds the block is empty there, and left out as well.
+          <div
+            className={cn(
+              'scenery-scrim flex flex-col gap-6 [--scrim-fade-x:1.5rem] [--scrim-fade-y:2.5rem] [--scrim-strength:55%] xl:[--scrim-fade-x:12%]',
+              rounds.length === 0 && 'max-md:hidden',
+            )}
+          >
+            {teams && (
+              <div className="contents max-md:hidden">
+                <MatchScore teams={teams} sides={startingSides(rounds, teams)} />
+              </div>
+            )}
             {rounds.length > 0 && (
               <RoundStrip
                 rounds={rounds}
@@ -238,6 +323,10 @@ function subscribeToHash(onChange: () => void) {
  * The sections of the page as a row of tabs (spec 3, tabs): each is a link to its section, the highlights and the
  * clips with how many there are. The one the address points at is marked, the first one when it points at none. A
  * match without clips has no clips section, so it has no such tab either.
+ *
+ * Under `md` (phone spec 5.3) the tabs are equal columns 48px tall that stick under the top bar (`--top-bar-h`), on the
+ * page's ground and from edge to edge of the screen, under the top bar's layer; `index.css` keeps a section the tabs
+ * lead to clear of both (`scroll-padding-top`).
  */
 function SectionTabs({ matchId }: { matchId: string }) {
   const t = useT()
@@ -253,14 +342,19 @@ function SectionTabs({ matchId }: { matchId: string }) {
   }
   const current = tabs.find((tab) => hash === `#${tab.id}`) ?? tabs[0]
   return (
-    <nav aria-label={t.match.sections} className="flex flex-wrap gap-1 border-b border-border">
+    <nav
+      aria-label={t.match.sections}
+      // Tells index.css that, on a phone, what is scrolled into view has to stop under the tabs as well.
+      data-section-tabs=""
+      className="flex flex-wrap gap-1 border-b border-border max-md:sticky max-md:top-[var(--top-bar-h)] max-md:z-30 max-md:-mx-(--page-gutter) max-md:grid max-md:auto-cols-fr max-md:grid-flow-col max-md:gap-0 max-md:bg-background max-md:px-(--page-gutter)"
+    >
       {tabs.map((tab) => (
         // A plain link, not the router's: the browser itself scrolls to the section and moves the focus there.
         <a
           key={tab.id}
           href={`#${tab.id}`}
           aria-current={tab === current ? 'location' : undefined}
-          className="inline-flex min-h-11 items-center gap-2 px-3.5 text-sm font-medium text-muted-foreground -outline-offset-2 hover:text-foreground aria-[current=location]:text-foreground aria-[current=location]:shadow-[inset_0_-2px_0_var(--foreground)]"
+          className="inline-flex min-h-11 items-center gap-2 px-3.5 text-sm font-medium text-muted-foreground -outline-offset-2 hover:text-foreground aria-[current=location]:text-foreground aria-[current=location]:shadow-[inset_0_-2px_0_var(--foreground)] max-md:min-h-12 max-md:min-w-0 max-md:justify-center max-md:gap-1.5 max-md:px-1 max-md:whitespace-nowrap"
         >
           {tab.label}
           {tab.count !== undefined && (
@@ -353,7 +447,7 @@ function MatchHighlights({ matchId, viewerPlayerId, onOrder, children }: MatchHi
     }
   }, [expanded])
   return (
-    <section id="highlights" className="flex scroll-mt-4 flex-col gap-5">
+    <section id="highlights" className="flex scroll-mt-4 flex-col gap-5 max-md:scroll-mt-0">
       {/* The tab above already says "Highlights" to the eye; the section keeps its heading for the outline. */}
       <h2 className="sr-only">{t.highlight.title}</h2>
       {items && items.length > 0 && (
@@ -564,7 +658,7 @@ function MatchClips({ matchId }: { matchId: string }) {
     return null
   }
   return (
-    <section id="clips" className="flex scroll-mt-4 flex-col gap-4 pt-5">
+    <section id="clips" className="flex scroll-mt-4 flex-col gap-4 pt-5 max-md:scroll-mt-0">
       <h2 className="heading-section">{t.clip.listTitle}</h2>
       <ClipList items={clips.data} />
     </section>
@@ -669,7 +763,7 @@ function MatchDetails({ matchId, viewerPlayerId }: { matchId: string; viewerPlay
       )}
       {!matchFailed && (
         // The tables follow the header, so a match that then turns out to be missing never flashes them.
-        <section id="scoreboard" className="flex scroll-mt-4 flex-col gap-4 pt-5">
+        <section id="scoreboard" className="flex scroll-mt-4 flex-col gap-4 pt-5 max-md:scroll-mt-0">
           <h2 className="heading-section">{t.match.scoreboard}</h2>
           <div aria-live="polite" className="flex flex-col gap-6">
             {match.data ? (

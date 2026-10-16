@@ -128,7 +128,10 @@ function ProfileHeader({ player, aside, scenery, mainMap, nameLink }: ProfileHea
       className="group/head relative isolate flex flex-wrap items-center justify-between gap-x-8 gap-y-5 max-md:flex-col max-md:items-start"
     >
       {scenery && <SceneryBand url={scenery} shown={shown} onLoad={onLoad} />}
-      <div className={cn('flex min-w-0 items-center gap-4.5 sm:gap-6', PROFILE_HEAD_ROW)}>
+      {/* Under `md` (a column that wraps, whose rows keep to the left) the first row is as wide as the header, not as
+          its content (as the loading block's is): a long nickname is then cut with `…`, and the line of the tag and the
+          main map gives up the map's name first, instead of the row making the page wider than the screen. */}
+      <div className={cn('flex min-w-0 items-center gap-4.5 max-md:w-full sm:gap-6', PROFILE_HEAD_ROW)}>
         <PlayerAvatar nickname={player.nickname} avatar={player.avatar} size="lg" />
         {/* The scrim reaches 12px beyond the block: on a phone the block runs to 16px from the screen's edge, and a wider
             bleed would make the page scroll sideways. */}

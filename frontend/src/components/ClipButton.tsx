@@ -35,6 +35,12 @@ interface ClipButtonProps {
  * What can be done about the clip of a highlight, as the last row of its card, or about a compilation: record it
  * while there is none, follow it while it is queued or being recorded (the row then links to the clip's page), watch
  * it once it is ready, and try again after a failure.
+ *
+ * On a phone, in the 44px place at the end of a highlight's row (`data-row-action`, phone spec 5.1), the same controls
+ * are drawn compact by `max-md:in-data-row-action:` classes: a white square with the red dot, a green-edged ▶, the
+ * percentage or "Queued" in mono, and "Again"; the words of the desktop and the lines beside the controls are hidden
+ * from the eye only, so that a screen reader hears what it hears from `md`. The compilation panel, which shows the
+ * same states, keeps its look.
  */
 export default function ClipButton({
   clip,
@@ -58,10 +64,10 @@ export default function ClipButton({
         variant={variant}
         aria-label={named(label ?? t.clip.record)}
         onClick={onOrder}
-        className={className}
+        className={cn('max-md:in-data-row-action:size-11 max-md:in-data-row-action:px-0', className)}
       >
         <RecDot />
-        {label ?? t.clip.record}
+        <span className="max-md:in-data-row-action:sr-only">{label ?? t.clip.record}</span>
       </Button>
     )
   }
@@ -72,14 +78,19 @@ export default function ClipButton({
         <Link
           to={`/clips/${clip.id}`}
           aria-label={named(t.clip.watch)}
-          className={cn(buttonVariants({ variant: 'outline' }), className)}
+          className={cn(
+            buttonVariants({ variant: 'outline' }),
+            'max-md:in-data-row-action:size-11 max-md:in-data-row-action:border-positive max-md:in-data-row-action:px-0 max-md:in-data-row-action:text-positive',
+            className,
+          )}
         >
-          <svg viewBox="0 0 12 12" aria-hidden="true" className="size-3 fill-current">
+          <svg viewBox="0 0 12 12" aria-hidden="true" className="size-3 fill-current max-md:in-data-row-action:size-3.5">
             <path d="M3 1.5v9l7.5-4.5z" />
           </svg>
-          {t.clip.watch}
+          <span className="max-md:in-data-row-action:sr-only">{t.clip.watch}</span>
         </Link>
-        <span className="flex min-w-0 items-center gap-2">
+        {/* On a phone the green ▶ says it to the eye; the state and the quality stay for a screen reader. */}
+        <span className="flex min-w-0 items-center gap-2 max-md:in-data-row-action:sr-only">
           <StatusChip clip={clip} />
           <span className="font-mono text-[11px] tracking-[0.06em] text-positive">· {qualityMark(clip)}</span>
         </span>
@@ -91,10 +102,20 @@ export default function ClipButton({
     const failure = clipFailureText(clip, t)
     return (
       <>
-        <span className="flex min-w-0 flex-1 items-center gap-2">
+        {/* On a phone the eye gets the word of the retry button, or without the button the red word of the chip; the
+            state and its reason stay for a screen reader. */}
+        <span
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-2',
+            canOrder ? 'max-md:in-data-row-action:sr-only' : 'max-md:in-data-row-action:flex-none',
+          )}
+        >
           <StatusChip clip={clip} />
           {failure && (
-            <span title={failure} className="min-w-0 truncate font-mono text-[11px] text-subtle">
+            <span
+              title={failure}
+              className="min-w-0 truncate font-mono text-[11px] text-subtle max-md:in-data-row-action:sr-only"
+            >
               {failure}
             </span>
           )}
@@ -104,25 +125,46 @@ export default function ClipButton({
             type="button"
             variant="link"
             size="sm"
-            className="-mr-3.5"
+            className="-mr-3.5 max-md:in-data-row-action:mr-0 max-md:in-data-row-action:min-w-11 max-md:in-data-row-action:px-1"
             aria-label={named(t.clip.retry)}
             onClick={onOrder}
           >
-            {t.clip.retry}
+            {/* On a phone the short word of the 44px place, a word of the button's name ("Qayta" of "Qayta urinish: …",
+                "Again" of "Try again: …"), so that the word that is seen is also the word that is heard. */}
+            <span className="max-md:in-data-row-action:hidden">{t.clip.retry}</span>
+            <span className="hidden max-md:in-data-row-action:inline">{t.phoneRow.retry}</span>
           </Button>
         )}
       </>
     )
   }
   return (
-    // Queued or being recorded: the row is the way to the clip's page, where the same state is shown large.
-    <Link to={`/clips/${clip.id}`} className="flex min-h-11 min-w-0 flex-1 items-center gap-3 -outline-offset-2">
-      <StatusChip clip={clip} />
+    // Queued or being recorded: the row is the way to the clip's page, where the same state is shown large. On a
+    // phone the link is the place at the end of the row, with the percentage or "Queued" in it; the chip stays for a
+    // screen reader, so that the link keeps its name.
+    <Link
+      to={`/clips/${clip.id}`}
+      className="flex min-h-11 min-w-0 flex-1 items-center gap-3 -outline-offset-2 max-md:in-data-row-action:min-w-11 max-md:in-data-row-action:flex-none max-md:in-data-row-action:justify-center"
+    >
+      <StatusChip clip={clip} className="max-md:in-data-row-action:sr-only" />
       {clip.status === 'RECORDING' && (
-        <span aria-hidden="true" className="block h-0.5 min-w-8 flex-1 bg-line-strong">
+        <span aria-hidden="true" className="block h-0.5 min-w-8 flex-1 bg-line-strong max-md:in-data-row-action:hidden">
           <span className="block h-0.5 bg-rec" style={{ width: `${clip.progress}%` }} />
         </span>
       )}
+      {/* The chip already says "Queued" and a recording's percentage; the percentage of the later stages is read here.
+          The match page's list is a polite live region and the clips are polled, so it is `aria-live="off"` (as the
+          chip is): the percentage stays in the link's name but is not announced at every poll. */}
+      <span
+        aria-hidden={clip.status === 'QUEUED' || clip.status === 'RECORDING' ? true : undefined}
+        aria-live="off"
+        className={cn(
+          'hidden font-mono text-[11px] tabular-nums max-md:in-data-row-action:inline',
+          clip.status === 'QUEUED' ? 'text-muted-foreground' : clip.status === 'RECORDING' ? 'text-rec' : 'text-foreground',
+        )}
+      >
+        {clip.status === 'QUEUED' ? t.phoneRow.queued : `${clip.progress}%`}
+      </span>
     </Link>
   )
 }
