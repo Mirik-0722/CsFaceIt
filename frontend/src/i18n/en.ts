@@ -796,4 +796,10 @@ export const en = {
     uploadText:
       'Drop a matchmaking demo here: the .dem from your CS2 replays folder or a downloaded .dem.bz2. Or paste its replay link.',
   },
+  // plan 8 · task 2
+  matchRow: {
+    // The word of a row's demo upload on a phone, where the button has room for one word (its name for a screen reader
+    // stays `matches.bring.rowFor`).
+    demo: 'Demo',
+  },
 }

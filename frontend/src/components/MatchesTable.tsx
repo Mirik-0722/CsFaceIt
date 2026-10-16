@@ -9,10 +9,10 @@ import { Button } from '@/components/ui/button'
 import { useLocale, useT } from '@/i18n'
 import { formatMatchTime } from '@/lib/formatDate'
 import { formatScore } from '@/lib/formatScore'
-import { kindText, summarizeHighlights } from '@/lib/matchHighlights'
+import { kindText, strongestKinds, summarizeHighlights } from '@/lib/matchHighlights'
 import { mapLabel } from '@/lib/mapTint'
 import { cn } from '@/lib/utils'
-import { isDemoInProgress, type ClipCounts, type PlayerMatchResponse } from '@/api/overview'
+import { isDemoInProgress, type ClipCounts, type HighlightCount, type PlayerMatchResponse } from '@/api/overview'
 import type { Bringing } from '@/lib/useDemoBringing'
 import { useViewer } from '@/lib/viewer'
 import { nextPossible } from '@/lib/limits'
@@ -23,6 +23,20 @@ import { RESULT_ROW } from '@/lib/resultRow'
 // line, the FACEIT tag and the date; the number columns are as wide as their figures need, so that the highlights keep
 // their room. The row starts 14px in: 3px of it is the bar of the result.
 const COLUMNS = 'grid grid-cols-[220px_100px_104px_minmax(0,1fr)_160px_16px] items-center gap-4 pr-1 pl-3.5'
+
+// Under `md` a row is two lines instead of the columns (spec of the phone view, 4), 12px from its top and bottom and 16px
+// from its sides: the map with its tag and date and, at the right, the score with the word of the result; then, from
+// under the map's name (40px of emblem and 12px of gap), the figures and the tags, and at the right what the clips are
+// at or the row's action. The list reaches the edges of the screen there, so that the row's 16px start where the
+// page's text does and the 3px bar of the result is at the screen's edge.
+const PHONE_ROW = 'max-md:grid-cols-[minmax(0,1fr)_auto] max-md:gap-x-3 max-md:gap-y-2 max-md:px-4 max-md:py-3'
+
+// The second line of a phone's row: one box from under the map's name to the row's right edge, the figures and the tags
+// in it wrapping onto another line when they do not fit beside what is at the right. From `md` neither box is there
+// (`contents`): their cells are the table's columns, as they were.
+const PHONE_SECOND_LINE = 'contents max-md:col-span-2 max-md:flex max-md:items-center max-md:gap-3 max-md:pl-13'
+const PHONE_FIGURES =
+  'contents max-md:flex max-md:min-w-0 max-md:flex-1 max-md:flex-wrap max-md:items-center max-md:gap-x-3 max-md:gap-y-1.5'
 
 interface MatchMapCellProps {
   /** The match: its id says where it is from, which the tag beside the date shows. */
@@ -43,7 +57,8 @@ interface MatchMapCellProps {
 export function MatchMapCell({ matchId, mapName, name, date, startedAt }: MatchMapCellProps) {
   return (
     <span className="flex min-w-0 items-center gap-3">
-      <MapEmblem mapName={mapName} size={44} />
+      {/* 40px on a phone, where the second line of the row starts under the name, 52px in. */}
+      <MapEmblem mapName={mapName} size={44} className="max-md:size-10" />
       <span className="flex min-w-0 flex-col gap-1">
         <span className="min-h-5 truncate text-[15px] leading-5 font-semibold">{name}</span>
         <span className="flex items-center gap-2">
@@ -54,6 +69,26 @@ export function MatchMapCell({ matchId, mapName, name, date, startedAt }: MatchM
         </span>
       </span>
     </span>
+  )
+}
+
+/**
+ * The tags of a row of matches on a phone (spec of the phone view, 4): the three kinds of highlight that stand out most,
+ * as tags 18px tall with 10px letters (the table's are 22px and 11px), and the count of the others (`+2`). They are
+ * drawn under `md` only: from there the row has the table's tag and line. The rows of the profile's history use it too.
+ */
+export function PhoneHighlightTags({ highlights }: { highlights: HighlightCount[] }) {
+  const t = useT()
+  const { kinds, hidden } = strongestKinds(highlights, t)
+  return (
+    <>
+      {kinds.map((kind) => (
+        <HighlightTag key={kind.type} type={kind.type} className="h-4.5 px-1.5 text-[10px] md:hidden">
+          {kind.text}
+        </HighlightTag>
+      ))}
+      {hidden > 0 && <span className="font-mono text-[11px] text-muted-foreground md:hidden">{`+${hidden}`}</span>}
+    </>
   )
 }
 
@@ -94,23 +129,40 @@ function hasRowAction(match: PlayerMatchResponse, state: Bringing | undefined): 
   return state?.phase === 'sending' || offersUpload(match, state)
 }
 
-// Where the action stands in the row's grid (the link takes the one column). From `md` up it is over the right-hand end
-// of the row, where the clips column is, held 36px inside the right edge of what is on screen. Under `md` the table
-// scrolls sideways, and anything over the figures would cover them: the action goes to a second grid row, under the
-// figures, held at the left edge of what is on screen, so that it covers nothing at any scroll position. The wrapper
-// lets the pointer through to the row's link everywhere but on the button itself.
+// Where the action stands in the row's grid (the link takes the one cell). From `md` up it is over the right-hand end of
+// the row, where the clips column is, held 36px inside the right edge of what is on screen. Under `md` it is at the right
+// end of the row's second line, inside the row's 12px and 16px, over the room that the link keeps free for it there
+// (see `actionRoom`). The wrapper lets the pointer through to the row's link everywhere but on the button itself.
 const ACTION_PLACE =
-  'pointer-events-none sticky z-10 col-start-1 max-md:row-start-2 max-md:self-end max-md:justify-self-start max-md:left-3.5 max-md:pb-2.5 md:row-start-1 md:right-9 md:self-center md:justify-self-end'
+  'pointer-events-none sticky z-10 col-start-1 row-start-1 max-md:mr-4 max-md:mb-3 max-md:self-end max-md:justify-self-end md:right-9 md:self-center md:justify-self-end'
+
+/**
+ * The room the link keeps free at the right end of a phone's second line for the action over it: the width of the
+ * figure of a file that is going (112px), or the width and height of the "Demo" button (84px by 36px). The figure and the
+ * button are that wide on a phone whatever the language, so that the room always fits them.
+ */
+function actionRoom(state: Bringing | undefined): string {
+  return state?.phase === 'sending' ? 'max-md:min-w-28' : 'max-md:min-h-9 max-md:min-w-21'
+}
 
 /**
  * The strongest highlight of the match as a tag (only an ace is filled) and the others as a line of text. Without an
  * analyzed demo there is nothing to show: a match that has no demo, or whose demo failed, says that it has none, one
- * that is on its way shows the stages it has been through.
+ * that is on its way shows the stages it has been through. On a phone a row whose action is beside it (`withAction`)
+ * leaves the words "No demo" to the screen reader: its "Demo" button says it.
  */
-function HighlightsCell({ match, onItsWay }: { match: PlayerMatchResponse; onItsWay: boolean }) {
+function HighlightsCell({
+  match,
+  onItsWay,
+  withAction,
+}: {
+  match: PlayerMatchResponse
+  onItsWay: boolean
+  withAction: boolean
+}) {
   const t = useT()
   if (match.demoStatus === null || match.demoStatus === 'FAILED') {
-    return <span className="font-mono text-xs text-subtle">{t.demo.none}</span>
+    return <span className={cn('font-mono text-xs text-subtle', withAction && 'max-md:sr-only')}>{t.demo.none}</span>
   }
   // A demo on its way: where it has got to, as the line of its stages (the same as the demo panel of the match shows).
   // One that has stayed PARSED too long is not counted as on its way and gets the dash below.
@@ -119,23 +171,29 @@ function HighlightsCell({ match, onItsWay }: { match: PlayerMatchResponse; onIts
   }
   const { top, rest } = summarizeHighlights(match.highlights, t)
   if (match.demoStatus !== 'ANALYZED' || !top) {
+    // On a phone a missing part of the second line is not drawn at all (no dash), but still heard.
     return (
-      <span className="font-mono text-xs text-muted-foreground">
+      <span className="font-mono text-xs text-muted-foreground max-md:sr-only">
         <span aria-hidden="true">—</span>
         {match.demoStatus === 'ANALYZED' && <span className="sr-only">{t.matches.highlights.none}</span>}
       </span>
     )
   }
+  // A phone's row has the three strongest kinds as small tags and the count of the others instead: the table's tag and
+  // line are not drawn there.
   return (
     <>
       {/* Written as it is shown, as on the highlight cards, in the colour of its family. */}
-      <HighlightTag type={top.type}>{kindText(top, t)}</HighlightTag>
+      <HighlightTag type={top.type} className="max-md:hidden">
+        {kindText(top, t)}
+      </HighlightTag>
       {rest && (
         // Two lines at most, so that the count of the kinds left out (`+3`) is not cut off with the rest of the text.
-        <span title={rest} className="line-clamp-2 min-w-0 font-mono text-xs text-muted-foreground">
+        <span title={rest} className="line-clamp-2 min-w-0 font-mono text-xs text-muted-foreground max-md:hidden">
           {rest}
         </span>
       )}
+      <PhoneHighlightTags highlights={match.highlights} />
     </>
   )
 }
@@ -157,7 +215,8 @@ function ClipsCell({ clips, onItsWay }: { clips: ClipCounts; onItsWay: boolean }
     )
   }
   if (clips.done > 0) {
-    return <span>{t.matches.clips.readyAlone(clips.done)}</span>
+    // On a phone in the colour of a finished clip (spec of the phone view, 4).
+    return <span className="max-md:text-positive">{t.matches.clips.readyAlone(clips.done)}</span>
   }
   if (onItsWay) {
     return (
@@ -172,7 +231,8 @@ function ClipsCell({ clips, onItsWay }: { clips: ClipCounts; onItsWay: boolean }
  * is (a match without a demo has no clips): "Upload a demo" while there is nothing to start from, the percent while a
  * file goes. It is the row's sibling, not inside the link: a button in a link is two interactive elements in one. It
  * sits at the row's right edge, past the arrow's column (16px of arrow, 16px of gap and the row's 4px), and on a phone
- * under the figures (see `ACTION_PLACE`). A used-up day's limit turns the button off and says when it frees up.
+ * at the right end of the second line (see `ACTION_PLACE`), where the button is 36px tall and says only "Demo" (its
+ * name is the same). A used-up day's limit turns the button off and says when it frees up.
  */
 function RowAction({ match, state, bringing }: { match: PlayerMatchResponse; state: Bringing | undefined; bringing: RowBringing }) {
   const t = useT()
@@ -182,8 +242,10 @@ function RowAction({ match, state, bringing }: { match: PlayerMatchResponse; sta
   if (state?.phase === 'sending') {
     // Not pressable and not read twice (the feed above the rows is the live region): the row only shows the figure.
     return (
-      <span aria-hidden="true" className={cn(ACTION_PLACE, 'flex w-36 flex-col items-start gap-1.5 md:items-end')}>
-        <span className="font-mono text-[11px] tracking-[0.06em] uppercase">
+      <span aria-hidden="true" className={cn(ACTION_PLACE, 'flex w-36 flex-col items-end gap-1.5 max-md:w-28')}>
+        {/* One line on a phone: "YUKLANMOQDA 100%" is a few pixels wider than its 112px, which the 12px gap beside the
+            room takes. */}
+        <span className="font-mono text-[11px] tracking-[0.06em] uppercase max-md:whitespace-nowrap">
           {state.percent === null ? t.matches.bring.fetching : t.matches.bring.sending(state.percent)}
         </span>
         {state.percent !== null && (
@@ -213,7 +275,9 @@ function RowAction({ match, state, bringing }: { match: PlayerMatchResponse; sta
         title={limitText ?? undefined}
         disabled={limitText !== null}
         focusableWhenDisabled
-        className="pointer-events-auto bg-background data-disabled:cursor-not-allowed data-disabled:opacity-50 data-disabled:hover:bg-background"
+        // On a phone 36px to the eye and 84px wide (the room the row keeps for it), with 4px above and below it that
+        // still press it, so that the finger has 44px.
+        className="pointer-events-auto bg-background data-disabled:cursor-not-allowed data-disabled:opacity-50 data-disabled:hover:bg-background max-md:relative max-md:h-9 max-md:w-21 max-md:px-3 max-md:after:absolute max-md:after:inset-x-0 max-md:after:-inset-y-1"
         onClick={() => {
           if (limitText === null) {
             bringing.pick(match.matchId)
@@ -221,7 +285,8 @@ function RowAction({ match, state, bringing }: { match: PlayerMatchResponse; sta
         }}
       >
         <Upload aria-hidden="true" />
-        {t.matches.bring.row}
+        <span className="max-md:hidden">{t.matches.bring.row}</span>
+        <span className="md:hidden">{t.matchRow.demo}</span>
       </Button>
     </span>
   )
@@ -244,7 +309,10 @@ function MatchRow({
   const t = useT()
   const locale = useLocale()
   const onItsWay = isDemoInProgress(match.demoStatus) && !stalled
-  const action = bringing !== undefined && hasRowAction(match, bringing.states[match.matchId])
+  const state = bringing?.states[match.matchId]
+  const action = bringing !== undefined && hasRowAction(match, state)
+  // A phone's second line leaves out what is not known (no dashes), but a screen reader still hears it as "no data".
+  const noKda = match.kills === null || match.deaths === null || match.assists === null
   const resultClass = match.result === 'WIN' ? 'text-positive' : match.result === 'LOSS' ? 'text-negative' : undefined
   const resultWord =
     match.result === 'WIN' ? t.matchList.win : match.result === 'LOSS' ? t.matchList.loss : t.matchList.unknown
@@ -255,10 +323,8 @@ function MatchRow({
         to={`/matches/${encodeURIComponent(match.matchId)}`}
         className={cn(
           COLUMNS,
+          PHONE_ROW,
           'col-start-1 row-start-1 min-h-18 -outline-offset-2 group-hover:bg-secondary',
-          // Under `md` the link spans the action's row too, with room left under its figures for the action; the top
-          // padding keeps the figures where the other rows have them.
-          action && 'max-md:row-span-2 max-md:pt-3.5 max-md:pb-17',
           RESULT_ROW[match.result],
         )}
       >
@@ -269,39 +335,57 @@ function MatchRow({
           date={formatMatchTime(match.startedAt, locale)}
           startedAt={match.startedAt}
         />
-        <span className="flex flex-col">
+        <span className="flex flex-col max-md:items-end">
           <span className={cn('font-mono text-[19px] leading-[1.3] font-semibold tabular-nums', resultClass)}>
             <span className="sr-only">{t.stats.score}</span> {formatScore(match.score, match.result)}
           </span>
-          <span className="text-xs text-muted-foreground">{resultWord}</span>
+          <span className="text-xs text-muted-foreground max-md:text-[11px]">{resultWord}</span>
         </span>
-        <span className="flex flex-col">
-          <span className="font-mono text-sm">
-            <span className="sr-only">{`${t.stats.kills} / ${t.stats.deaths} / ${t.stats.assists}: `}</span>
-            <Figure value={match.kills} /> / <Figure value={match.deaths} /> / <Figure value={match.assists} />
+        <span className={PHONE_SECOND_LINE}>
+          <span className={PHONE_FIGURES}>
+            <span
+              className={cn(
+                'flex flex-col max-md:flex-row max-md:flex-wrap max-md:items-baseline max-md:gap-x-2',
+                noKda && 'max-md:sr-only',
+              )}
+            >
+              <span className="font-mono text-sm max-md:text-[13px] max-md:font-medium max-md:whitespace-nowrap">
+                <span className="sr-only">{`${t.stats.kills} / ${t.stats.deaths} / ${t.stats.assists}: `}</span>
+                <Figure value={match.kills} /> / <Figure value={match.deaths} /> / <Figure value={match.assists} />
+              </span>
+              <span
+                className={cn('font-mono text-[11px] text-subtle max-md:whitespace-nowrap', match.adr === null && 'max-md:sr-only')}
+              >
+                {t.stats.adr} <Figure value={match.adr} digits={1} />
+              </span>
+            </span>
+            <span className="flex min-w-0 items-center gap-2 max-md:flex-wrap max-md:gap-1.5">
+              <HighlightsCell match={match} onItsWay={onItsWay} withAction={action} />
+            </span>
           </span>
-          <span className="font-mono text-[11px] text-subtle">
-            {t.stats.adr} <Figure value={match.adr} digits={1} />
+          <span
+            className={cn(
+              'flex items-center justify-end gap-2 text-[13px] text-muted-foreground max-md:max-w-24 max-md:shrink-0 max-md:text-right',
+              // Without anything in it, it takes no room on a phone (not even the gap beside it).
+              action ? actionRoom(state) : 'max-md:empty:hidden',
+            )}
+          >
+            <ClipsCell clips={match.clips} onItsWay={onItsWay} />
           </span>
         </span>
-        <span className="flex min-w-0 items-center gap-2">
-          <HighlightsCell match={match} onItsWay={onItsWay} />
-        </span>
-        <span className="flex items-center justify-end gap-2 text-[13px] text-muted-foreground">
-          <ClipsCell clips={match.clips} onItsWay={onItsWay} />
-        </span>
-        <ChevronRight aria-hidden="true" className="size-4 text-subtle" />
+        <ChevronRight aria-hidden="true" className="size-4 text-subtle max-md:hidden" />
       </Link>
-      {bringing && <RowAction match={match} state={bringing.states[match.matchId]} bringing={bringing} />}
+      {bringing && <RowAction match={match} state={state} bringing={bringing} />}
     </li>
   )
 }
 
 /**
  * A player's matches as a table of rows (spec 3, screen 2): a header of mono labels and a link per match. It is as wide
- * as its six columns need, and scrolls in its box on a phone. The header only names the columns for the eye: each row's
- * name carries the words of what its figures are. With `bringing`, the rows that have no demo carry the action that
- * uploads one.
+ * as its six columns need, and scrolls in its box between `md` and that width; on a phone each row is two lines and the
+ * header is not there (spec of the phone view, 4). The header only names the columns for the eye: each row's name
+ * carries the words of what its figures are. With `bringing`, the rows that have no demo carry the action that uploads
+ * one.
  */
 export default function MatchesTable({
   items,
@@ -317,9 +401,10 @@ export default function MatchesTable({
   return (
     // Positioned, so that the words only a screen reader hears (absolutely positioned, with the row they are in) are
     // clipped with the row, not left beyond the box where they would widen the page.
-    <div className="relative overflow-x-auto">
-      <div className="min-w-205">
-        <div aria-hidden="true" className={cn(COLUMNS, 'label-mono h-9 border-b border-border')}>
+    // On a phone it reaches the edges of the screen (see `PHONE_ROW`).
+    <div className="relative overflow-x-auto max-md:-mx-(--page-gutter)">
+      <div className="min-w-205 max-md:min-w-0">
+        <div aria-hidden="true" className={cn(COLUMNS, 'label-mono h-9 border-b border-border max-md:hidden')}>
           <span>{t.matches.columns.map}</span>
           <span>{t.matches.columns.score}</span>
           <span>{t.matches.columns.kda}</span>
