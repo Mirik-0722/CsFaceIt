@@ -1677,6 +1677,45 @@ const CS2_SCENARIOS: Scenario[] = [
   },
 ]
 
+// ---------------------------------------------------------------------------------------------------------------------
+// plan 8 · task 3: the rows of highlights and clips, the compact header of the match and its sticky tabs on a phone, in
+// a block of its own. Its scenarios join the table above when the file loads; the picture of the tabs is a test of its
+// own, because it is of the screen, not of the whole page.
+
+SCENARIOS.push(
+  // The 32-character nickname and the long team names in the rows and in the compact header, on the narrowest phone;
+  // the clips page with the long nickname on the usual one as well.
+  { name: 'long', pages: ['player', 'highlights', 'match', 'clips'], viewports: [SMALL_PHONE], backend: LONG_BACKEND },
+  { name: 'long', pages: ['clips'], viewports: [PHONE], backend: LONG_BACKEND },
+)
+
+/**
+ * The match page on a phone after a press on its "Scoreboard" tab (`/matches/<id>#scoreboard`): where the tab put the
+ * section, its heading under the tabs that stick under the top bar, not behind them. A picture of the screen: a picture
+ * of the whole page is laid out at the page's whole height, and the scroll, with the stuck tabs, would be lost.
+ */
+function defineScoreboardShots() {
+  for (const language of BOTH_LANGUAGES) {
+    const name = `default-match-scoreboard-${PHONE.width}-${language}`
+    test(name, async ({ page }) => {
+      await page.setViewportSize(PHONE)
+      await page.emulateMedia({ reducedMotion: 'reduce' })
+      await setLanguage(page, language)
+      await mockApi(page, answersFor(DEFAULT_BACKEND))
+      await page.goto(`/matches/${WON_MATCH_ID}`)
+      await settle(page)
+      await page.locator('a[href="#scoreboard"]').click()
+      await page.waitForURL(/#scoreboard$/)
+      await page.screenshot({ path: `shots/${name}.png`, animations: 'disabled' })
+    })
+  }
+}
+
+if (process.env.SHOTS) {
+  // plan 8 · task 3
+  defineScoreboardShots()
+}
+
 if (process.env.SHOTS) {
   defineShots()
 } else {

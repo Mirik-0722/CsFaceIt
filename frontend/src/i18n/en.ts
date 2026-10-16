@@ -796,4 +796,11 @@ export const en = {
     uploadText:
       'Drop a matchmaking demo here: the .dem from your CS2 replays folder or a downloaded .dem.bz2. Or paste its replay link.',
   },
+  // plan 8 · task 3
+  // The short words of the 44px place at the end of a highlight's row on a phone (spec 5.1), where the desktop card has
+  // a line: a clip waiting in the queue, and "Try again" after a failure.
+  phoneRow: {
+    queued: 'Queued',
+    retry: 'Retry',
+  },
 }

@@ -698,4 +698,9 @@ export const uz: Messages = {
     uploadText:
       'Matchmaking demosini shu yerga tashlang: CS2 replays papkasidagi .dem yoki yuklab olingan .dem.bz2. Yoki uning replay havolasini joylang.',
   },
+  // plan 8 · task 3
+  phoneRow: {
+    queued: 'Navbat',
+    retry: 'Qayta',
+  },
 }

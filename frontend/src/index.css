@@ -457,6 +457,19 @@
     }
 }
 
+/* plan 8 · task 3 */
+/* On a phone the section tabs of the match page (48px) stick under the top bar, whose height is `--top-bar-h` (the
+   variable of the phone's top bar; defined here too until the two blocks are merged into one). A section a tab leads
+   to is scrolled to 8px under the tabs, not behind them; so is an element that takes the focus. */
+@media (width < 48rem) {
+    :root {
+        --top-bar-h: 56px;
+    }
+    html {
+        scroll-padding-top: calc(var(--top-bar-h) + 48px + 8px);
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .animate-rec,
     .animate-scene-in,
