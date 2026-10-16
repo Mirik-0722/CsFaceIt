@@ -141,7 +141,9 @@ export default function TopBar({ onSignIn }: { onSignIn: () => void }) {
     // On a phone, off the home page, the bar stays at the top of the screen, over the page (and under the dialogs and
     // menus, z-50); its ground is the page's own (`top-bar-ground`), so it cannot be told from the page until something
     // scrolls under it. On the home page the landing page's backdrop is behind the bar, so it scrolls with the page.
+    // `data-sticky-top-bar` tells index.css that what is scrolled into view has to stop under the bar.
     <header
+      data-sticky-top-bar={home ? undefined : ''}
       className={cn('border-b border-border', !home && 'max-md:top-bar-ground max-md:sticky max-md:top-0 max-md:z-40')}
     >
       {/* The line spans the window, the content sits in the page column; on a narrow screen the parts wrap. */}
@@ -176,6 +178,13 @@ export default function TopBar({ onSignIn }: { onSignIn: () => void }) {
                 aria-controls={searchPanelId}
                 aria-label={searchOpen ? t.topBar.searchClose : t.topBar.searchOpen}
                 onClick={() => setSearchOpen((open) => !open)}
+                // Escape closes the search from its button too (Shift+Tab from the field lands here).
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' && searchOpen) {
+                    event.preventDefault()
+                    closeSearch()
+                  }
+                }}
                 className="text-muted-foreground hover:text-foreground aria-expanded:text-foreground md:hidden"
               >
                 {searchOpen ? (

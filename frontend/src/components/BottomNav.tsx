@@ -66,7 +66,7 @@ export default function BottomNav({ onSignIn }: { onSignIn: () => void }) {
   const items = bottomNavItems(user, pathname)
   return (
     // Over the page and under the dialogs and menus (z-50). The safe area of a phone without a home button is added
-    // under the 64px of the items, in the bar's colour.
+    // under the 64px of the items, in the bar's colour, where the browser reports one (see `--bottom-nav-h`).
     <nav
       aria-label={t.bottomNav.label}
       aria-hidden={pending || undefined}
